@@ -1,0 +1,41 @@
+/* ===== Tema global (identidade visual "Faturas") ===== */
+:root {
+  --bg:#f5f3ef; --surface:#ffffff; --surface-2:#efece6; --line:#ddd8cf;
+  --fg:#1c2a2e; --fg-soft:#5d6b6e; --accent:#0d6b5e; --accent-soft:#e3efea;
+  --warn:#9a6212; --warn-soft:#f6ecd9; --crit:#a33a26; --crit-soft:#f7e6e1;
+  --font-ui:'Archivo', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-num:'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --r:10px;
+}
+
+/* Base responsiva global */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  -webkit-text-size-adjust: 100%;
+  font-family: var(--font-ui);
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+/* Números com fonte monoespaçada tabular (aplicar classe .num onde quiser alinhar dígitos) */
+.num, .tabular { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+/* Mídia nunca estoura a largura da tela */
+img, svg, video, canvas { max-width: 100%; height: auto; }
+
+/* Campos e botões herdam a fonte e não passam da tela */
+input, select, textarea, button { font-family: inherit; max-width: 100%; }
+
+/* Em telas pequenas, tabelas largas rolam na horizontal em vez de quebrar o layout */
+@media (max-width: 767px) {
+  .tabela-rolavel { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+
+/* Tabelas de dados — leve zebra + destaque no hover, dando o mesmo acabamento
+   de dashboard dos cards. Linhas com destaque próprio (tr com background inline:
+   alertas, subtotais, seleção) continuam vencendo, pois estilo inline sempre
+   sobrepõe o CSS. Só as linhas "neutras" recebem o tom alternado. */
+table tbody tr:nth-child(even) { background: #FAFBFC; }
+table tbody tr:hover { background: #F1F6FC; }

@@ -1,0 +1,16 @@
+{
+  "name": "mutti-coletor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Robo que baixa os relatorios das operadoras de cartao e manda para a Conciliacao de Cartoes",
+  "scripts": {
+    "gravar": "node gravar-sessao.js",
+    "coletar": "node coletar.js",
+    "importar": "node importar-pasta.js"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0",
+    "dotenv": "^16.4.5",
+    "axios": "^1.7.7"
+  }
+}

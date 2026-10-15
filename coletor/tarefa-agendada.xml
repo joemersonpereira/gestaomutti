@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Baixa todo dia os relatorios de vendas e repasse das 8 credenciadoras de cartao e importa na Conciliacao de Cartoes do sistema Mutti. Se a sessao de algum portal tiver expirado, abre uma tarefa no Kanban avisando.</Description>
+    <URI>\Mutti - Coleta de cartoes</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-01-01T10:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+    </CalendarTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <!-- roda mesmo no notebook sem estar na tomada -->
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <!-- se o micro estava desligado as 07:00, roda assim que ligar -->
+    <RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <!-- se travar num portal, o Windows encerra em 1 hora em vez de deixar pendurado -->
+    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT15M</Interval>
+      <Count>2</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>CAMINHO_DO_BAT</Command>
+      <WorkingDirectory>CAMINHO_DA_PASTA</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

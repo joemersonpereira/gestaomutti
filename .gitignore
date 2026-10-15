@@ -1,0 +1,27 @@
+# Dependências
+node_modules/
+*/node_modules/
+
+# Banco de dados (gerado pelo setup)
+*.db
+*.db-wal
+*.db-shm
+backend/db/
+
+# Build do frontend (gerado no deploy)
+frontend/build/
+
+# Logs e temporários
+*.log
+.DS_Store
+
+# Variáveis de ambiente locais — NUNCA versionar (contêm senhas do ERP/Trivio/JWT).
+# Use o .env.example como modelo e mantenha o .env real só na máquina.
+.env
+.env.*
+!.env.example
+**/.env
+!**/.env.example
+
+# Scratchpad / temporários de sessão
+*.tmp

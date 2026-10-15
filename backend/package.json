@@ -1,0 +1,32 @@
+{
+  "name": "mutti-backend",
+  "version": "1.0.0",
+  "description": "Sistema de Gestão Grupo Mutti - Backend",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "setup": "node src/db/setup.js",
+    "migrar": "node src/db/migrar-pendentes.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "latest",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "express": "^4.18.2",
+    "imapflow": "^1.4.7",
+    "jsonwebtoken": "^9.0.2",
+    "mailparser": "^3.9.14",
+    "nodemailer": "^6.9.13",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.15.0",
+    "pg": "^8.11.5",
+    "uuid": "^9.0.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  }
+}

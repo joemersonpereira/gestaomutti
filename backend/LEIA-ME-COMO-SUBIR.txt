@@ -1,0 +1,38 @@
+==========================================================
+  SISTEMA GRUPO MUTTI — COMO SUBIR (passo a passo)
+==========================================================
+
+Voce so precisa dar DOIS CLIQUES nos arquivos .bat, na ordem.
+(Eles rodam do jeito certo, sem o bloqueio do PowerShell.)
+
+--- INSTALACAO NOVA (primeira vez, ou maquina sem dados) ---
+
+1) Duplo clique em:  1-INSTALAR.bat
+   -> Instala as dependencias. Espere terminar (1-2 min).
+   -> So precisa fazer UMA vez por maquina.
+
+2) Duplo clique em:  2-CRIAR-BANCO.bat
+   -> Cria o banco com TODAS as novidades + dados de demonstracao.
+   -> ATENCAO: recria o banco do zero. So use em instalacao nova.
+
+3) Duplo clique em:  3-INICIAR.bat
+   -> Liga o servidor. DEIXE A JANELA ABERTA enquanto usar o sistema.
+   -> Abra o navegador no endereco do frontend.
+
+--- ATUALIZACAO (maquina que JA tem dados que voce quer manter) ---
+
+1) Copie a pasta "src" desta versao POR CIMA da "src" da sua
+   instalacao (substituindo os arquivos). Isso NAO toca no banco.
+
+2) Duplo clique em:  4-ATUALIZAR-BANCO.bat
+   -> Aplica as mudancas no banco SEM apagar dados.
+
+3) Duplo clique em:  3-INICIAR.bat  para subir de novo.
+
+==========================================================
+REGRA DE OURO:
+- Depois de cadastrar dados reais, NUNCA mais use 2-CRIAR-BANCO
+  (ele apaga tudo). Para atualizar, use sempre 4-ATUALIZAR-BANCO.
+==========================================================
+
+Se algum .bat mostrar erro vermelho, tire um print da janela.

@@ -1,0 +1,59 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dados bancários — Estágio Mutti</title>
+<style>
+  :root{--bg:#f5f3ef;--surface:#fff;--line:#ddd8cf;--fg:#1c2a2e;--soft:#5d6b6e;--accent:#0d6b5e}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.5}
+  .wrap{max-width:560px;margin:0 auto;padding:24px 16px 60px}
+  h1{font-size:22px;text-align:center}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;margin-top:16px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+  .aviso{background:#eef6f3;border:1px solid #cfe5dd;border-radius:10px;padding:12px;color:#0d6b5e;font-size:14px}
+  label{display:block;font-size:13px;color:var(--soft);margin-bottom:12px}
+  label b{display:block;color:var(--fg);font-weight:600;margin-bottom:3px}
+  input,select{width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:8px;font-size:15px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .btn{width:100%;background:var(--accent);color:#fff;border:0;border-radius:10px;padding:14px;font-size:16px;font-weight:700;cursor:pointer;margin-top:6px}
+  .ok{text-align:center;padding:36px 16px}.ok .big{font-size:48px}
+  .msg{margin-top:10px;color:#b45309;font-size:14px}
+  @media(max-width:480px){.grid{grid-template-columns:1fr}}
+</style></head><body>
+<div class="wrap">
+  <h1>🏦 Dados bancários do estágio</h1>
+  <div id="app"><div class="card">Carregando…</div></div>
+</div>
+<script>
+(function(){
+  "use strict";
+  var fid=new URLSearchParams(location.search).get('f');
+  var app=document.getElementById('app'); var dados=null;
+  function h(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  if(!fid){app.innerHTML='<div class="card">Link inválido.</div>';return;}
+  fetch('/api/publico/estagio/ficha/'+fid).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(d){dados=d;render();}).catch(function(){app.innerHTML='<div class="card">Não encontramos seu cadastro. Confira o link.</div>';});
+  function render(){
+    app.innerHTML=
+      '<div class="card"><p>Olá, <b>'+h(dados.nome)+'</b>! Preencha seus dados para recebimento da bolsa.</p>'
+      +'<div class="aviso">'+h(dados.mensagem||'Preencha os dados bancários. Enquanto não tiver, informe uma chave PIX.')+'</div></div>'
+      +'<div class="card">'
+      +'<label><b>Banco</b><input id="banco" value="'+h(dados.banco)+'" placeholder="Ex.: Banco do Brasil"></label>'
+      +'<div class="grid"><label><b>Agência</b><input id="agencia" value="'+h(dados.agencia)+'"></label>'
+      +'<label><b>Conta</b><input id="conta" value="'+h(dados.conta)+'"></label></div>'
+      +'<label><b>Tipo de conta</b><select id="tipo_conta"><option value="">—</option>'
+      +['Corrente','Poupança'].map(function(t){return '<option '+(dados.tipo_conta===t?'selected':'')+'>'+t+'</option>';}).join('')+'</select></label>'
+      +'<label><b>Chave PIX (enquanto não tiver a conta)</b><input id="pix" value="'+h(dados.pix)+'" placeholder="CPF, telefone, e-mail..."></label>'
+      +'<button class="btn" id="salvar">Salvar dados</button><div class="msg" id="msg"></div></div>';
+    document.getElementById('salvar').onclick=salvar;
+  }
+  function v(id){var e=document.getElementById(id);return e?e.value.trim():'';}
+  function salvar(){
+    var msg=document.getElementById('msg');
+    var body={banco:v('banco'),agencia:v('agencia'),conta:v('conta'),tipo_conta:v('tipo_conta'),pix:v('pix')};
+    if(!body.pix && !(body.banco&&body.conta)){msg.textContent='Informe banco + conta, ou pelo menos uma chave PIX.';return;}
+    document.getElementById('salvar').disabled=true; msg.textContent='Salvando…';
+    fetch('/api/publico/estagio/ficha/'+fid+'/bancarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){return r.json();}).then(function(res){
+        if(res&&res.ok){app.innerHTML='<div class="card ok"><div class="big">✅</div><h2>Dados salvos!</h2><p>'+(res.pendente?'Recebemos sua chave PIX. <b>Assim que tiver os dados bancários completos, volte e preencha</b> — isso é considerado na sua avaliação.':'Obrigado! Seus dados bancários foram registrados.')+'</p></div>';window.scrollTo({top:0});}
+        else{msg.textContent=(res&&res.erro)||'Não foi possível salvar.';document.getElementById('salvar').disabled=false;}
+      }).catch(function(){msg.textContent='Falha ao salvar.';document.getElementById('salvar').disabled=false;});
+  }
+})();
+</script>
+</body></html>
