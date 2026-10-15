@@ -1,6 +1,6 @@
 # Deploy na VPS (NexiiAgency) — runbook
 
-Endereço oficial: **https://gestao.farmaciasmutti.com.br** (o `www` redireciona para ele).
+Endereço oficial: **https://gestao.farmaciasmutti.com.br** (sem `www` — não existe no DNS).
 
 | O quê | Onde |
 |---|---|
@@ -38,7 +38,7 @@ Falta, nesta ordem:
    Editar como `deploy` (`nano /opt/apps/gestaomutti/.env.production`). Tudo que
    ficar vazio fica desligado; o sistema sobe mesmo assim.
 3. **Firewall do ERP**: liberar o IP da VPS (`170.205.37.202`) no Postgres do A7.
-4. **DNS** em `farmaciasmutti.com.br`: `gestao` e `www.gestao` → `A 170.205.37.202`.
+4. **DNS** em `farmaciasmutti.com.br`: `gestao` → `A 170.205.37.202` (feito em 2026-10-15).
 5. **Push em `main`** (ou *Run workflow* no Actions) → primeiro deploy.
 6. Se o deploy aconteceu **antes** do DNS: ver §4 (forçar o certificado).
 7. **Banco real**: ver §3. Até lá o sistema sobe com os dados de demonstração e as

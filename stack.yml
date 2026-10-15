@@ -74,20 +74,15 @@ services:
         - "traefik.enable=true"
         - "traefik.swarm.network=NexiiNet"
 
-        # Apex e www no MESMO router: são hosts do mesmo domínio, e o certificado
-        # SAN cobre os dois numa ordem ACME só. (Router separado é para hosts de
-        # clientes DIFERENTES — ver o stack do catalogo-interativo.)
-        - "traefik.http.routers.gestaomutti.rule=Host(`gestao.farmaciasmutti.com.br`) || Host(`www.gestao.farmaciasmutti.com.br`)"
+        # Só o apex: o www não existe no DNS (decisão de 2026-10-15). Um host a mais
+        # na regra entraria na mesma ordem ACME e, sem DNS, derrubaria o certificado
+        # do apex junto (lição do catalogo-interativo).
+        - "traefik.http.routers.gestaomutti.rule=Host(`gestao.farmaciasmutti.com.br`)"
         - "traefik.http.routers.gestaomutti.entrypoints=websecure"
         - "traefik.http.routers.gestaomutti.tls=true"
         - "traefik.http.routers.gestaomutti.tls.certresolver=letsencryptresolver"
         - "traefik.http.routers.gestaomutti.service=gestaomutti"
         - "traefik.http.services.gestaomutti.loadbalancer.server.port=3001"
-
-        # www → apex (301). O `$$` é escape do compose: vira `$1` no Traefik.
-        - "traefik.http.middlewares.gestaomutti-www.redirectregex.regex=^https://www\\.gestao\\.farmaciasmutti\\.com\\.br/(.*)"
-        - "traefik.http.middlewares.gestaomutti-www.redirectregex.replacement=https://gestao.farmaciasmutti.com.br/$${1}"
-        - "traefik.http.middlewares.gestaomutti-www.redirectregex.permanent=true"
 
         # Compressão na borda (o JS da tela tem 2 MB cru). O Express não comprime.
         - "traefik.http.middlewares.gestaomutti-compress.compress=true"
@@ -97,7 +92,7 @@ services:
         - "traefik.http.middlewares.gestaomutti-hsts.headers.stsSeconds=31536000"
         - "traefik.http.middlewares.gestaomutti-hsts.headers.stsIncludeSubdomains=true"
 
-        - "traefik.http.routers.gestaomutti.middlewares=gestaomutti-www,gestaomutti-compress,gestaomutti-hsts"
+        - "traefik.http.routers.gestaomutti.middlewares=gestaomutti-compress,gestaomutti-hsts"
 
 volumes:
   db:
