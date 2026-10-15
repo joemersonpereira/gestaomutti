@@ -142,22 +142,25 @@ NODE_ENV=development
 
 ---
 
-## Deploy em produção (sugestão low-cost)
+## Deploy em produção
 
-### Opção 1 — Railway (mais fácil)
-1. Crie conta em railway.app
-2. Conecte o repositório GitHub
-3. Configure as variáveis de ambiente
-4. Deploy automático
+O sistema roda como **serviço único**: o backend Express serve o build do React na mesma porta.
+A hospedagem é em **VPS própria** (padrão de infraestrutura do grupo). O guia específico da VPS
+será adicionado em `docs/` quando o padrão for definido.
 
-Custo: ~US$ 5/mês
+Comandos equivalentes em qualquer servidor Node 20+:
 
-### Opção 2 — VPS (mais controle)
-1. Contrate VPS na DigitalOcean, Vultr ou Hostinger (~R$ 20/mês)
-2. Instale Node.js no servidor
-3. Use PM2 para manter o processo rodando
-4. Use Nginx como proxy reverso
-5. Certifique com Let's Encrypt (HTTPS gratuito)
+```bash
+# Build
+cd frontend && npm install && npm run build
+cd ../backend && npm install && node src/db/setup.js && node src/db/migrar-pendentes.js
+
+# Start
+cd backend && npm start
+```
+
+Variáveis mínimas: `NODE_ENV=production`, `DB_PATH=<caminho persistente>/mutti.db`,
+`JWT_SECRET=<segredo forte>`. As demais estão em `backend/.env.example`.
 
 ---
 
