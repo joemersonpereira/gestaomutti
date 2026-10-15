@@ -16,7 +16,8 @@ backend/src/
     connection.js        SQLite do app
     erp.js               erpQuery() — Postgres do ERP, SÓ SELECT
     migrations/          192 arquivos NNN_nome.js
-    migrar-pendentes.js  roda as pendentes, na ordem, sem apagar dado
+    migrar.js            aplica as pendentes em ordem e anota em schema_migracoes
+    migrar-pendentes.js  só delega para o migrar.js (mantido pelos .bat)
 frontend/src/pages/      95 telas
 coletor/                 robô Playwright (fora do backend: não pode ir no deploy)
 docs/                    o caminho técnico da v2.0 em Postgres
@@ -33,8 +34,9 @@ docs/                    o caminho técnico da v2.0 em Postgres
    Postgres documentados, para ele aplicar. É requisito permanente do Joe.
 
 3. **Migração nova = arquivo novo.** `db/migrations/NNN_nome.js`, número seguinte, e **idempotente**
-   (`CREATE TABLE IF NOT EXISTS`, `ALTER` protegido). Nunca edite uma migração já rodada. Registre
-   em `migrar-pendentes.js`.
+   (`CREATE TABLE IF NOT EXISTS`, `ALTER` protegido). Nunca edite uma migração já rodada. Não há lista
+   para registrar: `migrar.js` descobre os arquivos sozinho e anota os aplicados na tabela
+   `schema_migracoes` (desde 2026-10-15; banco anterior a isso recebe *baseline* no 1º boot).
 
 4. **Simplicidade acima de completude.** O Joe pediu isso explicitamente: telas unificadas em vez
    de espalhadas, e **nada de valor fixo no código** — o que muda com o tempo (taxa, meta, regra,
@@ -65,6 +67,13 @@ docs/                    o caminho técnico da v2.0 em Postgres
 - Ao ler um arquivo de fora (planilha, PDF de operadora), **confira o total contra o que a tela do
   sistema de origem mostra**. Se não bater exato, o leitor está errado; não arredonde a diferença.
 - Diga o que **não** fechou antes de dizer o que fechou.
+
+## Deploy
+
+VPS própria (NexiiAgency, Docker Swarm + Traefik), endereço **gestao.farmaciasmutti.com.br**.
+Push em `main` publica via `.github/workflows/deploy.yml`. O banco SQLite vive no volume
+`gestaomutti_db`; o container é descartável. Segredos só em `/opt/apps/gestaomutti/.env.production`
+na VPS — nunca no repositório, nunca na conversa. Runbook: `docs/deploy-vps.md`.
 
 ## Agentes deste projeto
 

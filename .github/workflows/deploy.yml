@@ -1,0 +1,234 @@
+name: Build & Deploy — Gestão Mutti
+
+# Push em `main` = publicar. Não há branch de trabalho separada neste repositório;
+# se um dia houver, a guarda de `build`/`deploy` é o REF (refs/heads/main), não o
+# evento — copiada do pulsyapp, onde a `desenvolvimento` quase foi parar em produção.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  STACK_NAME: gestaomutti
+  SERVICE_NAME: gestaomutti_web
+  STACK_DIR: /opt/apps/gestaomutti
+  APP_DOMAIN: gestao.farmaciasmutti.com.br
+
+# Um deploy por vez. O update é stop-first e o container aplica migração no boot:
+# dois workflows ao mesmo tempo subiriam duas versões contra o MESMO arquivo SQLite.
+# Sem cancel-in-progress: cancelar um deploy pela metade deixa a stack indefinida.
+concurrency:
+  group: gestaomutti-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  # ─── 1. Falhar cedo se faltar segredo ───────────────────────────────────────
+  validate:
+    name: Validar secrets obrigatórios
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checar secrets
+        run: |
+          MISSING=()
+          [ -z "${{ secrets.VPS_HOST }}"    ] && MISSING+=("VPS_HOST")
+          [ -z "${{ secrets.VPS_USER }}"    ] && MISSING+=("VPS_USER")
+          [ -z "${{ secrets.VPS_SSH_KEY }}" ] && MISSING+=("VPS_SSH_KEY")
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "❌ Secrets obrigatórios ausentes:"
+            for s in "${MISSING[@]}"; do echo "   - $s"; done
+            exit 1
+          fi
+          echo "✅ Secrets obrigatórios presentes."
+          # GHCR_USER/GHCR_TOKEN são opcionais: sem eles o deploy usa o login que o
+          # usuário `deploy` já tem na VPS (~/.docker/config.json).
+
+  # ─── 2. Build e push da imagem ──────────────────────────────────────────────
+  build:
+    name: Build & Push → GHCR
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image:     ${{ steps.vars.outputs.image }}
+      short_sha: ${{ steps.vars.outputs.short_sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Calcular nome da imagem
+        id: vars
+        run: |
+          # GHCR só aceita nome de repositório em minúsculas.
+          REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          {
+            echo "repo_lc=$REPO_LC"
+            echo "short_sha=$SHORT_SHA"
+            echo "image=${{ env.REGISTRY }}/$REPO_LC:sha-${{ github.sha }}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Commit: $SHORT_SHA · Imagem: ${{ env.REGISTRY }}/$REPO_LC:sha-${{ github.sha }}"
+
+      - name: Login no GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configurar Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build e push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # O deploy usa a tag imutável sha-<commit>; `latest` é para quem procura.
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.vars.outputs.repo_lc }}:latest
+            ${{ env.REGISTRY }}/${{ steps.vars.outputs.repo_lc }}:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── 3. Deploy no Swarm ─────────────────────────────────────────────────────
+  deploy:
+    name: Deploy → Docker Swarm
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    # Menor privilégio: este job entrega a chave SSH da VPS a actions de terceiro.
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout (para enviar o stack.yml)
+        uses: actions/checkout@v4
+
+      - name: Enviar stack.yml para a VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key:      ${{ secrets.VPS_SSH_KEY }}
+          port:     ${{ secrets.VPS_PORT || 22 }}
+          source:   stack.yml
+          target:   ${{ env.STACK_DIR }}
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE:        ${{ needs.build.outputs.image }}
+          APP_DOMAIN:   ${{ env.APP_DOMAIN }}
+          STACK_NAME:   ${{ env.STACK_NAME }}
+          SERVICE_NAME: ${{ env.SERVICE_NAME }}
+          STACK_DIR:    ${{ env.STACK_DIR }}
+          GHCR_USER:    ${{ secrets.GHCR_USER }}
+          GHCR_TOKEN:   ${{ secrets.GHCR_TOKEN }}
+        with:
+          host:     ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key:      ${{ secrets.VPS_SSH_KEY }}
+          port:     ${{ secrets.VPS_PORT || 22 }}
+          envs:     IMAGE,APP_DOMAIN,STACK_NAME,SERVICE_NAME,STACK_DIR,GHCR_USER,GHCR_TOKEN
+          script: |
+            set -e
+            echo "=========================================="
+            echo " Deploy — Gestão Mutti"
+            echo "=========================================="
+            echo "Imagem:  $IMAGE"
+            echo "Domínio: $APP_DOMAIN"
+            echo ""
+
+            # O .env.production tem os segredos e vive SÓ na VPS.
+            if [ ! -f "$STACK_DIR/.env.production" ]; then
+              echo "❌ $STACK_DIR/.env.production não existe."
+              echo "   Crie-o a partir do .env.production.example (docs/deploy-vps.md)."
+              exit 1
+            fi
+
+            if [ -n "$GHCR_TOKEN" ]; then
+              echo "==> Login no GHCR (secret GHCR_TOKEN)..."
+              echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            else
+              echo "==> Sem GHCR_TOKEN: usando o login que o usuário $(whoami) já tem na VPS."
+            fi
+
+            echo "==> Baixando a imagem..."
+            docker pull "$IMAGE"
+
+            echo "==> Aplicando a stack..."
+            cd "$STACK_DIR"
+            docker stack deploy -c stack.yml --with-registry-auth --prune "$STACK_NAME"
+
+            # ── Esperar a task da IMAGEM NOVA ficar Running ───────────────────
+            # Só `1/1` não serve: durante o stop-first a task ANTIGA ainda conta.
+            echo ""
+            echo "==> Aguardando convergência da imagem nova (até 180s)..."
+            CONVERGIU=nao
+            for i in $(seq 1 36); do
+              LINHA=$(docker service ps "$SERVICE_NAME" --filter desired-state=running \
+                        --no-trunc --format '{{.Image}}|{{.CurrentState}}' | head -1)
+              IMG_TASK="${LINHA%%|*}"; EST="${LINHA##*|}"
+              echo "    [$i/36] $EST"
+              case "$EST" in
+                Running*) case "$IMG_TASK" in "$IMAGE"*) CONVERGIU=sim; break ;; esac ;;
+              esac
+              sleep 5
+            done
+
+            echo ""
+            echo "==> Tasks do serviço:"
+            docker service ps "$SERVICE_NAME" --no-trunc | head -8
+
+            echo ""
+            echo "==> Logs recentes:"
+            # `timeout` obrigatório: `docker service logs` pendura logo após uma troca de task.
+            timeout -k 5 45 docker service logs --tail=40 "$SERVICE_NAME" 2>&1 | tail -40 \
+              || echo "  (log não veio em 45s — não é falha de deploy)"
+
+            # ── Health por DENTRO do container (não depende de DNS nem de certificado) ──
+            echo ""
+            echo "==> Health check interno:"
+            CID=$(docker ps -q -f "name=${SERVICE_NAME}." | head -1)
+            SAUDE=nao
+            for i in $(seq 1 12); do
+              if [ -n "$CID" ] && docker exec "$CID" node -e "require('http').get('http://127.0.0.1:3001/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"; then
+                SAUDE=sim; break
+              fi
+              sleep 5
+              CID=$(docker ps -q -f "name=${SERVICE_NAME}." | head -1)
+            done
+            [ "$SAUDE" = sim ] && echo "  ✅ /api/health responde 200 dentro do container" || echo "  ❌ /api/health não respondeu"
+
+            # ── Pelo Traefik, sem depender do DNS público ─────────────────────
+            echo ""
+            echo "==> Pelo Traefik (127.0.0.1, host $APP_DOMAIN):"
+            curl -sk -o /dev/null -w "  HTTPS → %{http_code}\n" \
+              --resolve "$APP_DOMAIN:443:127.0.0.1" "https://$APP_DOMAIN/api/health" \
+              || echo "  (sem resposta pelo Traefik ainda)"
+
+            echo ""
+            echo "=========================================="
+            FINAL=$(docker service ls --filter "name=$SERVICE_NAME" --format '{{.Replicas}}')
+            if [ "$FINAL" != "1/1" ]; then
+              echo " ❌ Deploy NÃO convergiu (réplicas: $FINAL)"; exit 1
+            fi
+            if [ "$CONVERGIU" != "sim" ]; then
+              echo " ❌ A réplica está de pé, mas NÃO é a imagem deste deploy."
+              echo "    esperada: $IMAGE"; exit 1
+            fi
+            if [ "$SAUDE" != "sim" ]; then
+              echo " ❌ Container no ar, mas /api/health não responde."; exit 1
+            fi
+            echo " ✅ Deploy concluído"
+            echo "=========================================="
+            echo "URL:    https://$APP_DOMAIN"
+            echo "Imagem: $IMAGE"

@@ -1,0 +1,108 @@
+# Sistema de Gestão — Grupo Mutti: stack do Docker Swarm na VPS NexiiAgency.
+#
+# IMAGE é interpolada pelo `docker stack deploy` a partir do ambiente do shell.
+# O workflow (.github/workflows/deploy.yml) exporta antes de chamar o deploy.
+#
+# Deploy manual na VPS (como `deploy`):
+#   cd /opt/apps/gestaomutti
+#   export IMAGE=ghcr.io/joemersonpereira/gestaomutti:sha-<commit>
+#   docker stack deploy -c stack.yml --with-registry-auth --prune gestaomutti
+#
+# O arquivo em /opt/apps/gestaomutti/stack.yml é cópia deste: o workflow o envia a
+# cada deploy. Mudança de label do Traefik só vale depois de um `stack deploy`.
+
+version: "3.8"
+
+services:
+  web:
+    image: ${IMAGE}
+    init: true
+
+    # Segredos vivem SÓ na VPS, neste arquivo (600, dono deploy). O Docker lê o
+    # env_file na hora do `stack deploy`, por isso quem roda o deploy precisa
+    # conseguir ler o arquivo — e por isso a pasta é do `deploy`.
+    env_file:
+      - /opt/apps/gestaomutti/.env.production
+
+    networks:
+      - NexiiNet
+
+    # O banco é UM arquivo SQLite. Ele vive no volume `db` (montado em /data) e
+    # sobrevive a deploy, rollback e `stack rm`. O volume `backups` recebe as
+    # cópias do backup.js (infra/vps-cron). Nunca apague os dois volumes.
+    volumes:
+      - db:/data
+      - backups:/app/backend/backups
+
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3001/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+    deploy:
+      # UMA réplica, e isso não é ajuste de capacidade:
+      #   · o banco é um arquivo SQLite num volume local — duas réplicas no mesmo
+      #     arquivo corrompem o WAL;
+      #   · server.js tem 8 setInterval de trabalho de fundo (ponto, e-mail, compras,
+      #     feiras...) sem eleição de líder — com 2 réplicas tudo roda em dobro.
+      replicas: 1
+
+      placement:
+        constraints:
+          # O volume é local ao nó e o env_file é um caminho do host do manager.
+          - node.role == manager
+
+      update_config:
+        # stop-first: o container novo só sobe depois que o antigo saiu. Com
+        # SQLite é obrigatório (dois processos no mesmo arquivo durante a
+        # sobreposição, e a migração do novo valendo para o antigo).
+        # Custo: ~20-30 s fora do ar por deploy.
+        order: stop-first
+        failure_action: rollback
+        delay: 5s
+
+      rollback_config:
+        order: stop-first
+
+      restart_policy:
+        condition: any
+        delay: 10s
+
+      labels:
+        - "traefik.enable=true"
+        - "traefik.swarm.network=NexiiNet"
+
+        # Apex e www no MESMO router: são hosts do mesmo domínio, e o certificado
+        # SAN cobre os dois numa ordem ACME só. (Router separado é para hosts de
+        # clientes DIFERENTES — ver o stack do catalogo-interativo.)
+        - "traefik.http.routers.gestaomutti.rule=Host(`gestao.farmaciasmutti.com.br`) || Host(`www.gestao.farmaciasmutti.com.br`)"
+        - "traefik.http.routers.gestaomutti.entrypoints=websecure"
+        - "traefik.http.routers.gestaomutti.tls=true"
+        - "traefik.http.routers.gestaomutti.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.gestaomutti.service=gestaomutti"
+        - "traefik.http.services.gestaomutti.loadbalancer.server.port=3001"
+
+        # www → apex (301). O `$$` é escape do compose: vira `$1` no Traefik.
+        - "traefik.http.middlewares.gestaomutti-www.redirectregex.regex=^https://www\\.gestao\\.farmaciasmutti\\.com\\.br/(.*)"
+        - "traefik.http.middlewares.gestaomutti-www.redirectregex.replacement=https://gestao.farmaciasmutti.com.br/$${1}"
+        - "traefik.http.middlewares.gestaomutti-www.redirectregex.permanent=true"
+
+        # Compressão na borda (o JS da tela tem 2 MB cru). O Express não comprime.
+        - "traefik.http.middlewares.gestaomutti-compress.compress=true"
+
+        # HSTS: "nunca mais fale HTTP comigo". O redirect 80→443 já é config do
+        # Traefik da VPS; o HSTS protege quem já veio uma vez.
+        - "traefik.http.middlewares.gestaomutti-hsts.headers.stsSeconds=31536000"
+        - "traefik.http.middlewares.gestaomutti-hsts.headers.stsIncludeSubdomains=true"
+
+        - "traefik.http.routers.gestaomutti.middlewares=gestaomutti-www,gestaomutti-compress,gestaomutti-hsts"
+
+volumes:
+  db:
+  backups:
+
+networks:
+  NexiiNet:
+    external: true

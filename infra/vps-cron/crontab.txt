@@ -1,0 +1,3 @@
+# >>> gestaomutti — backup diário do SQLite (ver docs/deploy-vps.md §5)
+20 3 * * * /opt/apps/gestaomutti/cron/gestaomutti-backup.sh >/dev/null 2>&1
+# <<< gestaomutti

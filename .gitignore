@@ -22,6 +22,7 @@ frontend/build/
 !.env.example
 **/.env
 !**/.env.example
+!.env.production.example
 
 # Scratchpad / temporários de sessão
 *.tmp

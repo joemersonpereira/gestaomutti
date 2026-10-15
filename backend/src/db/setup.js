@@ -936,6 +936,14 @@ db.exec(`CREATE TABLE IF NOT EXISTS folgas (
   UNIQUE(empresa_id, colaborador_id, data)
 );`);
 
+// Tabela de controle das migrações (ver migrar.js). Nasce VAZIA de propósito: é o que
+// diz ao runner que este banco é novo e precisa receber todas as migrações em ordem.
+// (Um banco sem esta tabela mas com dados é tratado como anterior ao runner → baseline.)
+db.exec(`CREATE TABLE IF NOT EXISTS schema_migracoes (
+  nome        TEXT PRIMARY KEY,
+  aplicada_em TEXT NOT NULL DEFAULT (datetime('now')),
+  modo        TEXT NOT NULL DEFAULT 'aplicada'
+)`);
 db.close();
 console.log('✅ Banco de dados criado com sucesso!');
 console.log('');

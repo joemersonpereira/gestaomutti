@@ -1,0 +1,25 @@
+# Teste LOCAL da imagem de produção (não é o deploy — o deploy é o stack.yml).
+#
+#   docker compose up --build        sobe em http://localhost:3001
+#   docker compose down -v           derruba e apaga o banco de teste
+#
+# Usa o mesmo entrypoint da VPS: cria o banco de demonstração no volume vazio,
+# aplica as migrações e sobe. O .env.docker.local precisa ter ao menos JWT_SECRET.
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gestaomutti:local
+    container_name: gestaomutti-local
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env.docker.local
+    volumes:
+      - db_local:/data
+      - backups_local:/app/backend/backups
+
+volumes:
+  db_local:
+  backups_local:

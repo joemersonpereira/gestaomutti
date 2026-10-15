@@ -1,0 +1,4 @@
+# Arquivos que rodam em Linux (container e VPS): CRLF quebra o sh e o crontab.
+docker-entrypoint.sh text eol=lf
+infra/**/*.sh text eol=lf
+infra/**/crontab.txt text eol=lf

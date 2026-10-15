@@ -1,0 +1,47 @@
+# Dependências e artefatos: reinstalados/recompilados dentro da imagem.
+node_modules
+**/node_modules
+frontend/build
+
+# Estado local: NUNCA entra na imagem (o banco de produção vive num volume).
+backend/db
+backend/backups
+*.db
+*.db-wal
+*.db-shm
+
+# Segredos
+.env
+.env.*
+!.env.production.example
+
+# Git e CI
+.git
+.gitignore
+.gitattributes
+.github
+
+# Infra (não é usada dentro da imagem)
+Dockerfile
+.dockerignore
+docker-compose.yml
+stack.yml
+infra
+
+# Robô de coleta (roda numa máquina Windows com Playwright, nunca no servidor)
+coletor
+
+# Ferramentas de operação local em Windows
+*.bat
+*.ps1
+backend/LEIA-ME-COMO-SUBIR.txt
+backend/importar-rede.js
+backend/scripts
+.claude
+
+# Documentação
+*.md
+docs
+
+# Logs
+*.log

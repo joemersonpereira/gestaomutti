@@ -144,23 +144,12 @@ NODE_ENV=development
 
 ## Deploy em produção
 
-O sistema roda como **serviço único**: o backend Express serve o build do React na mesma porta.
-A hospedagem é em **VPS própria** (padrão de infraestrutura do grupo). O guia específico da VPS
-será adicionado em `docs/` quando o padrão for definido.
+Hospedado na **VPS própria** (Docker Swarm + Traefik), em **https://gestao.farmaciasmutti.com.br**.
+Push em `main` publica: o GitHub Actions builda a imagem (`Dockerfile`), envia ao GHCR e aplica
+o `stack.yml` na VPS por SSH. Segredos ficam só em `/opt/apps/gestaomutti/.env.production`
+(modelo em `.env.production.example`). Runbook completo: **`docs/deploy-vps.md`**.
 
-Comandos equivalentes em qualquer servidor Node 20+:
-
-```bash
-# Build
-cd frontend && npm install && npm run build
-cd ../backend && npm install && node src/db/setup.js && node src/db/migrar-pendentes.js
-
-# Start
-cd backend && npm start
-```
-
-Variáveis mínimas: `NODE_ENV=production`, `DB_PATH=<caminho persistente>/mutti.db`,
-`JWT_SECRET=<segredo forte>`. As demais estão em `backend/.env.example`.
+Teste local da imagem: `docker compose up --build` (usa `.env.docker.local`).
 
 ---
 
