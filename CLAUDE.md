@@ -75,6 +75,47 @@ Push em `main` publica via `.github/workflows/deploy.yml`. O banco SQLite vive n
 `gestaomutti_db`; o container é descartável. Segredos só em `/opt/apps/gestaomutti/.env.production`
 na VPS — nunca no repositório, nunca na conversa. Runbook: `docs/deploy-vps.md`.
 
+Estado em 2026-10-16: **banco real em produção** (importado da máquina do Joe; o boot fez
+*baseline* das 247 migrações) e credenciais oficiais no `.env.production`. O banco de
+demonstração anterior ficou em `/opt/apps/gestaomutti/backups/demo-antes-do-real/`.
+
+Lições da importação — valem para a próxima vez:
+
+- **O `mutti.db` sozinho não é o banco.** Com WAL, o que foi gravado depois do último
+  checkpoint está no `mutti.db-wal`. Na importação de 2026-10-16 o WAL tinha 11 tarefas,
+  2 lançamentos de ponto e 2 logs que não estavam no `.db`. Antes de subir: copie `.db` +
+  `.db-wal` juntos para uma pasta à parte, abra a cópia uma vez (o SQLite incorpora o WAL)
+  e envie o arquivo único resultante. Confira `PRAGMA integrity_check` e o sha256 nos dois lados.
+- **Não rode as migrações por cima do banco real.** Testado numa cópia: o schema já estava
+  completo, mas as sementes duplicam (`tarefa_apoios` 2→47, `checklist_itens` 19→38,
+  `pontorep_feriado` 10→20). O *baseline* é o caminho certo.
+- **Faltam 7 índices** no banco real, das migrações 001/002: `idx_vendas_loja_data`,
+  `idx_vendas_colab`, `idx_metas_loja_periodo`, `idx_indvend_periodo`, `idx_aud`,
+  `idx_avalfun`, `idx_cl_exec`. Só desempenho (tabelas pequenas); não corrigido.
+
+Variáveis de ambiente:
+
+- A fonte das credenciais oficiais é o `backend/.env` (não versionado). O `.env.local` da
+  raiz e o `.env.production` da VPS recebem as mesmas chaves, **menos** `PORT`, `NODE_ENV`,
+  `DB_PATH` e `JWT_SECRET`, que são próprios da VPS (`DB_PATH=/data/mutti.db`).
+- O `env_file` do Docker **não tira aspas** nem comentário inline: leia a origem com
+  `dotenv.parse` e grave `CHAVE=valor` cru. E ele só é lido no `docker stack deploy` —
+  depois de editar o `.env.production`, redeploye (§2 do runbook); `scale` não basta.
+- Vazias de propósito: `ERP_DB` (o `erp.js` escolhe o `multimais_esc_*` mais recente).
+  Vazias por falta de valor: `BACKUP_EMAIL_TO`, `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` —
+  envio SMTP e backup por e-mail ficam desligados.
+
+ERP visto da VPS e da máquina de desenvolvimento:
+
+- Da VPS conecta como `leitura_inteligente` (firewall do A7 já libera o IP 170.205.37.202).
+  Da máquina de desenvolvimento o `leitura_inteligente` aparece indisponível e o `erp.js`
+  cai para o usuário reserva (`ERP_USER2`, `leitura_cmc`).
+- **Defeito conhecido, não corrigido:** `backend/src/lib/indicadoresErp.js` consulta
+  `planoremuneracaobonificacaoembalagem`, que **não existe** no ERP (`multimais_esc_20260113`,
+  conferido em `pg_class`). `indicadoresLojaMes` e `indicadoresVendedoresLojaMes` falham em
+  todas as lojas. Indício: a bonificação foi para `planoremuneracaoitem` (índices
+  `cuidx_planoremuneracaoitem_*_bonificacao`).
+
 ## Agentes deste projeto
 
 - `.claude/agents/coletor-cartoes.md` — Conciliação de Cartões: baixa os relatórios das 8
