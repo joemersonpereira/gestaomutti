@@ -39,7 +39,12 @@ const BASE = process.env.PUBLIC_URL || 'http://localhost:3001';
 function owner(emp, tipo, id) {
   if (tipo === 'evento') { const e = db.prepare('SELECT * FROM tmkt_calendario WHERE id=? AND empresa_id=?').get(id, emp); return e && { tipo, nome: e.nome, descricao: e.descricao, ev: e, inativo: e.status === 'inativo', proxData: proximaOcorrencia(e, hoje()), imagemUrl: e.slogan_foto ? `${BASE}/api/publico/trade/calendario/${id}/slogan` : null }; }
   if (tipo === 'plano') { const p = db.prepare(`SELECT id, nome, chamada, veic_ini, veic_fim, status, (capa_foto IS NOT NULL AND capa_foto<>'') tem_capa FROM tmkt_plano WHERE id=? AND empresa_id=?`).get(id, emp); return p && { tipo, nome: p.nome, descricao: p.chamada, inativo: ['encerrado', 'arquivado', 'inativo'].includes(p.status), proxData: p.veic_ini ? String(p.veic_ini).slice(0, 10) : null, imagemUrl: p.tem_capa ? `${BASE}/api/publico/trade/plano/${id}/capa` : null }; }
-  if (tipo === 'espaco') { const s = db.prepare(`SELECT id, espaco, area, loja_nome, preco_unit, unidade, (foto IS NOT NULL AND foto<>'') tem_foto FROM tmkt_espaco_loja WHERE id=? AND empresa_id=?`).get(id, emp); return s && { tipo, nome: s.espaco, descricao: [s.area, (s.loja_nome && s.loja_nome !== 'ESCRITÓRIO') ? s.loja_nome : ''].filter(Boolean).join(' · '), inativo: false, proxData: null, preco: s.preco_unit, unidade: s.unidade, imagemUrl: s.tem_foto ? `${BASE}/api/publico/trade/espaco/${id}/foto` : null }; }
+  if (tipo === 'espaco') {
+    const s = db.prepare(`SELECT id, espaco, area, loja_nome, segmento, preco_unit, unidade, (foto IS NOT NULL AND foto<>'') tem_foto FROM tmkt_espaco_loja WHERE id=? AND empresa_id=?`).get(id, emp);
+    if (!s) return null;
+    const digital = ['social', 'ecommerce', 'crm'].includes(s.segmento) || /instagram|tiktok|reels|stories|feed|whats|digital|rede/i.test(((s.area || '') + ' ' + (s.espaco || '')));
+    return { tipo, nome: s.espaco, descricao: [s.area, (s.loja_nome && s.loja_nome !== 'ESCRITÓRIO') ? s.loja_nome : ''].filter(Boolean).join(' · '), inativo: false, proxData: null, preco: s.preco_unit, unidade: s.unidade, imagemUrl: s.tem_foto ? `${BASE}/api/publico/trade/espaco/${id}/foto` : null, contentUrl: (!s.tem_foto && digital) ? `${BASE}/redes/viral2.jpg` : null };
+  }
   return null;
 }
 
@@ -67,17 +72,22 @@ function htmlDe(cfg, o, alvo, occ) {
   const zap = `https://wa.me/${ZAP}?text=${encodeURIComponent('Temos interesse em "' + o.nome + '" (Trade Grupo Mutti).')}`;
   const foneBonito = ZAP.replace(/^55(\d\d)(\d{4,5})(\d{4})$/, '($1) $2-$3');
   const extra = (cfg && cfg.mensagem) ? `<p style="margin:16px 0 0;color:#334;font-size:15px;line-height:1.6">${String(cfg.mensagem).replace(/\n/g, '<br>')}</p>` : '';
-  // bloco visual da oportunidade (capa do plano / slogan da ação / card do espaço)
+  // bloco visual da oportunidade (capa do plano / slogan da ação / conteúdo real do espaço)
+  const precoEsp = (o.preco != null) ? `<div style="margin-top:10px;text-align:center"><span style="font-size:12px;color:#94a3b8">A partir de</span><div style="font-size:24px;font-weight:800;color:#1E874B">${fmtV(o.preco)}<span style="font-size:13px;color:#94a3b8;font-weight:600"> ${UNID[o.unidade] || ''}</span></div></div>` : '';
   let bloco = '';
   if (o.imagemUrl) {
     bloco = `<img src="${o.imagemUrl}" alt="${o.nome}" style="width:100%;display:block;border-radius:12px" />
-      <div style="font-size:18px;font-weight:800;margin:10px 0 0;line-height:1.25">${o.nome}</div>${o.descricao ? `<div style="color:#475569;font-size:14px;margin-top:2px">${o.descricao}</div>` : ''}`;
+      <div style="font-size:18px;font-weight:800;margin:10px 0 0;line-height:1.25">${o.nome}</div>${o.descricao ? `<div style="color:#475569;font-size:14px;margin-top:2px">${o.descricao}</div>` : ''}${o.tipo === 'espaco' ? precoEsp : ''}`;
+  } else if (o.tipo === 'espaco' && o.contentUrl) {
+    // conteúdo REAL que viraliza (prévia tipo celular)
+    bloco = `<div style="text-align:center"><img src="${o.contentUrl}" alt="conteúdo Mutti" style="width:238px;max-width:72%;border-radius:16px;border:1px solid #eef0f4" /></div>
+      <div style="text-align:center;font-size:12px;color:#94a3b8;margin-top:6px">conteúdo real que viraliza no @farmaciamutti_</div>
+      <div style="font-size:19px;font-weight:800;margin:10px 0 0;text-align:center">${o.nome}</div>${o.descricao ? `<div style="color:#475569;font-size:13px;text-align:center">${o.descricao}</div>` : ''}${precoEsp}`;
   } else if (o.tipo === 'espaco') {
-    const preco = (o.preco != null) ? `<div style="margin-top:10px"><span style="font-size:12px;color:#94a3b8">A partir de</span><div style="font-size:24px;font-weight:800;color:#1E874B">${fmtV(o.preco)}<span style="font-size:13px;color:#94a3b8;font-weight:600"> ${UNID[o.unidade] || ''}</span></div></div>` : '';
     bloco = `<div style="background:linear-gradient(135deg,#1E874B,#0d6b3a);color:#fff;border-radius:14px;padding:24px 22px;text-align:center">
         <div style="font-size:12px;opacity:.9;text-transform:uppercase;letter-spacing:.5px">${o.descricao || 'Espaço disponível'}</div>
         <div style="font-size:26px;font-weight:800;margin-top:4px">${o.nome}</div>
-      </div>${preco}`;
+      </div>${precoEsp}`;
   } else {
     bloco = `<div style="background:#f3faf6;border:1px solid #d5ece0;border-radius:12px;padding:16px 18px"><div style="font-size:19px;font-weight:800;line-height:1.25">${o.nome}</div>${o.descricao ? `<div style="color:#475569;font-size:14px;margin-top:2px">${o.descricao}</div>` : ''}</div>`;
   }

@@ -1185,6 +1185,19 @@ function render(){
       '<h2>Instagram, TikTok e WhatsApp — a sua marca no digital da Mutti'+bandTag+'</h2>'+
       '<p class="intro">'+BAND.map(function(b){var m=BANDINFO[b];var on=fBandeira===b;return '<b'+(on?' style="color:'+m.cor+'"':'')+'>'+h(m.ig)+'</b>';}).join(' · ')+' — 26 mil seguidores somados e 160 mil visualizações por semana, mais o alcance dos <b>influenciadores</b> da região, com engajamento acima do padrão do varejo farmacêutico. O conteúdo é construído pelo <b>comportamento de consumo</b> e na <b>linguagem do público</b> de cada perfil. Escolha o formato, envie a sua arte e reserve.</p>'+
       '<div style="background:#f0f7ff;border:1px solid #cfe3fb;border-radius:12px;padding:12px 14px;margin:0 0 16px;font-size:13px;color:#243;line-height:1.5">🎤 <b>A sua marca conversa com o público certo.</b> Conteúdo desenvolvido para cada tipo de público e levado por <b>influenciadores que conhecem a Mutti e a sua marca</b> — a mensagem chega pela voz de quem o cliente já segue e confia, não como propaganda solta.</div>'+
+      // showcase: conteúdo real que viraliza (prova social) com frases de efeito
+      '<div style="margin:0 0 18px"><div style="font-size:13px;font-weight:800;color:#334;margin-bottom:3px">🔥 O nosso digital já viraliza — e o produto fica no centro da cena</div>'+
+        '<div style="font-size:12px;color:#64748b;margin-bottom:10px">Vídeos que viram meme e trend no @farmaciamutti_. A sua marca pode ser a próxima protagonista.</div>'+
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px">'+
+          [['viral2','O seu produto no carrinho — e na trend','414'],['viral3','Quando pedem pra caprichar, a marca aparece','414'],['viral4','Trend de São João que o bairro repostou','180'],['viral5','Convite que a criançada (e as mães) amam','249']].map(function(v){
+            return '<div style="position:relative;border-radius:14px;overflow:hidden;aspect-ratio:3/4;box-shadow:0 2px 10px rgba(16,24,40,.12)">'+
+              '<img src="/redes/'+v[0]+'.jpg" alt="conteúdo Mutti" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">'+
+              '<div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 42%,rgba(0,0,0,.82) 100%)"></div>'+
+              '<div style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.5);color:#fff;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px">❤ '+v[2]+'</div>'+
+              '<div style="position:absolute;left:10px;right:10px;bottom:10px;color:#fff;font-size:12.5px;font-weight:800;line-height:1.25;text-shadow:0 1px 4px rgba(0,0,0,.6)">'+v[1]+'</div>'+
+            '</div>';
+          }).join('')+
+        '</div></div>'+
       // bloco: construção de conteúdo por comportamento + linguagem do público (balões de conversa)
       '<div style="margin:0 0 18px"><div style="font-size:13px;font-weight:800;color:#334;margin-bottom:8px">✍️ Como construímos o conteúdo — por perfil e na linguagem de cada público</div>'+
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px">'+
