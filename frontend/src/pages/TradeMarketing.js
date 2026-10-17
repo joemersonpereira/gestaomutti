@@ -888,11 +888,36 @@ function CrmClassif({ API, tipo, id }) {
   );
 }
 
+// Gerenciador do banco de frases de efeito (adicionar / remover as suas)
+function FrasesModal({ API, onClose }) {
+  const [lista, setLista] = useState([]); const [nova, setNova] = useState({ texto: '', sub: '' });
+  const carregar = useCallback(() => API.get('/trademkt/crm/frases').then(r => setLista(r.data.frases || [])).catch(() => { }), [API]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const add = () => { if (!nova.texto.trim()) return; API.post('/trademkt/crm/frases', nova).then(() => { setNova({ texto: '', sub: '' }); carregar(); }).catch(e => alert(e.response?.data?.erro || 'Erro.')); };
+  const del = fid => { if (window.confirm('Remover esta frase do banco?')) API.delete('/trademkt/crm/frases/' + fid).then(carregar); };
+  return <div style={s.overlay} onClick={onClose}><div style={{ ...s.modal, maxWidth: 560 }} onClick={e => e.stopPropagation()}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}><b style={{ fontSize: 15 }}>🗂️ Banco de frases de efeito</b><button onClick={onClose} style={s.btnMini}>✕</button></div>
+    <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 8 }}>Use <b>{'{marca}'}</b> onde entra o nome da marca. O <b>título</b> é a frase grande; a <b>intro</b> é a linha de apoio.</div>
+    <div style={{ border: '1px solid #eef0f4', borderRadius: 10, padding: 10, marginBottom: 10, display: 'grid', gap: 6 }}>
+      <input value={nova.texto} onChange={e => setNova(x => ({ ...x, texto: e.target.value }))} placeholder="Título (ex.: A {marca} na trend que o cliente já segue)" style={s.inp} />
+      <input value={nova.sub} onChange={e => setNova(x => ({ ...x, sub: e.target.value }))} placeholder="Intro (opcional)" style={s.inp} />
+      <div style={{ textAlign: 'right' }}><button onClick={add} style={s.btn}>+ Adicionar frase</button></div>
+    </div>
+    <div style={{ maxHeight: '48vh', overflowY: 'auto' }}>
+      {lista.map(f => <div key={f.id} style={{ borderTop: '1px solid #f2f2f2', padding: '7px 0', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ fontSize: 13 }}><b>{f.texto}</b>{f.sub ? <div style={{ fontSize: 11.5, color: '#94a3b8' }}>{f.sub}</div> : null}</div>
+        <button onClick={() => del(f.id)} style={{ ...s.mv, color: '#B91C1C', alignSelf: 'start' }}>✕</button>
+      </div>)}
+      {lista.length === 0 && <div style={s.vazio}>Nenhuma frase ainda.</div>}
+    </div>
+  </div></div>;
+}
+
 // Disparo do CRM (e-mail): config de agendamento + envio manual + log. Genérico (tipo/id); só quando o alvo já existe.
 function CrmOutreach({ API, tipo, id }) {
   const [cfg, setCfg] = useState(null); const [alvos, setAlvos] = useState([]); const [agendavel, setAgendavel] = useState(false); const [livres, setLivres] = useState(null); const [frases, setFrases] = useState([]);
   const [res, setRes] = useState(null); const [enviando, setEnviando] = useState(false); const [log, setLog] = useState([]);
-  const [prev, setPrev] = useState(null);  // html da prévia (modal)
+  const [prev, setPrev] = useState(null); const [gerir, setGerir] = useState(false);  // html da prévia (modal) / gerir banco
   const carregar = useCallback(() => {
     API.get(`/trademkt/crm/${tipo}/${id}/outreach`).then(r => { setCfg(r.data.config || { ativo: 0, dias_antes: 15, recorrente: 1, intervalo_dias: 15, so_com_estoque: 1 }); setAlvos(r.data.alvos || []); setAgendavel(!!r.data.agendavel); setLivres(r.data.livres != null ? r.data.livres : null); setFrases(r.data.frases || []); }).catch(() => setCfg({ ativo: 0, dias_antes: 15, recorrente: 1, intervalo_dias: 15, so_com_estoque: 1 }));
     API.get(`/trademkt/crm/${tipo}/${id}/outreach/log`).then(r => setLog(r.data.log || [])).catch(() => { });
@@ -917,12 +942,15 @@ function CrmOutreach({ API, tipo, id }) {
         <label style={s.lbl}>Dias antes<input type="number" min="1" value={cfg.dias_antes || 15} onChange={e => save({ dias_antes: Number(e.target.value) || 15 })} style={{ ...s.inp, width: 72 }} /></label>
         <span style={{ fontSize: 11, color: '#94a3b8' }}>{cfg.ativo ? `o robô avisa ${cfg.dias_antes || 15} dia(s) antes` : 'automático desligado'}</span>
       </div> : <div style={{ fontSize: 11, color: '#94a3b8' }}>Sem data fixa — o aviso é por <b>disparo manual</b> (botão abaixo).</div>}
-      <label style={{ ...s.lbl, marginTop: 6 }}>Frase de efeito <span style={{ fontWeight: 400, color: '#94a3b8' }}>(título do e-mail)</span>
-        <select value={cfg.frase_id || ''} onChange={e => save({ frase_id: e.target.value || null })} style={s.inp}>
-          <option value="">🎲 Aleatória (varia a cada envio)</option>
-          {frases.map(f => <option key={f.id} value={f.id}>{f.texto.replace('{marca}', 'sua marca')}</option>)}
-        </select>
-      </label>
+      <div style={{ ...s.lbl, marginTop: 6 }}>Frase de efeito <span style={{ fontWeight: 400, color: '#94a3b8' }}>(título do e-mail)</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <select value={cfg.frase_id || ''} onChange={e => save({ frase_id: e.target.value || null })} style={{ ...s.inp, flex: 1 }}>
+            <option value="">🎲 Aleatória (varia a cada envio)</option>
+            {frases.map(f => <option key={f.id} value={f.id}>{f.texto.replace('{marca}', 'sua marca')}</option>)}
+          </select>
+          <button onClick={() => setGerir(true)} style={s.btnMini} title="gerenciar banco de frases">🗂️ banco</button>
+        </div>
+      </div>
       <label style={{ ...s.lbl, marginTop: 6 }}>Mensagem extra <span style={{ fontWeight: 400, color: '#94a3b8' }}>(opcional, entra no e-mail)</span><textarea value={cfg.mensagem || ''} onChange={e => setCfg({ ...cfg, mensagem: e.target.value })} onBlur={e => save({ mensagem: e.target.value })} rows={2} placeholder="algo a mais pro e-mail…" style={{ ...s.inp, resize: 'vertical' }} /></label>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
         <button onClick={enviar} disabled={enviando || !alvos.length} style={{ ...s.btn, opacity: (enviando || !alvos.length) ? .5 : 1 }}>{enviando ? 'enviando…' : '📧 Enviar oportunidade agora'}</button>
@@ -931,6 +959,7 @@ function CrmOutreach({ API, tipo, id }) {
         {res && res.erro && <span style={{ fontSize: 12, color: '#B91C1C' }}>{res.erro}</span>}
       </div>
       {log.length > 0 && <div style={{ marginTop: 8, fontSize: 11.5, color: '#64748b' }}>Últimos envios: {log.slice(0, 6).map((l, i) => <span key={i}>{i ? ' · ' : ''}{l.marca_nome} <span style={{ color: l.status === 'ok' ? '#1E874B' : '#B91C1C' }}>{l.status === 'ok' ? '✓' : '✗'}</span></span>)}</div>}
+      {gerir && <FrasesModal API={API} onClose={() => { setGerir(false); carregar(); }} />}
       {prev != null && <div style={s.overlay} onClick={() => setPrev(null)}><div style={{ ...s.modal, maxWidth: 640, padding: 0, overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid #eef0f4' }}><b style={{ fontSize: 14 }}>👁️ Prévia do e-mail</b><button onClick={() => setPrev(null)} style={s.btnMini}>✕</button></div>
         <iframe title="prévia" srcDoc={prev} style={{ width: '100%', height: '70vh', border: 'none', display: 'block' }} />
