@@ -59,19 +59,58 @@ async function marcasAlvo(emp, tipo, id) {
 
 const ZAP = '557598978941';
 const ROTULO = { evento: 'ação', plano: 'plano', espaco: 'espaço' };
+const SELO = { evento: 'Ação da rede', plano: 'Plano comercial', espaco: 'Espaço disponível' };
 function assuntoDe(cfg, o) { return (cfg && cfg.assunto) ? cfg.assunto : `Oportunidade de Trade · ${o.nome} · Grupo Mutti`; }
+// e-mail bonito e convidativo (HTML inline, email-safe)
 function htmlDe(cfg, o, alvo, occ) {
-  const quando = occ ? `<p>Data de referência: <b>${fmtD(occ)}</b>.</p>` : '';
-  const extra = (cfg && cfg.mensagem) ? `<p>${String(cfg.mensagem).replace(/\n/g, '<br>')}</p>` : '';
   const zap = `https://wa.me/${ZAP}?text=${encodeURIComponent('Temos interesse em "' + o.nome + '" (Trade Grupo Mutti).')}`;
-  return `<div style="font-family:Arial,sans-serif;color:#243;max-width:560px">
-    <h2 style="color:#1E874B">Grupo Mutti · Trade Marketing</h2>
-    <p>Olá${alvo.responsavel ? ', ' + alvo.responsavel : ''}! Aqui é o time de Trade do <b>Grupo Mutti</b> (8 lojas no litoral norte da Bahia).</p>
-    <p>Temos uma oportunidade pra <b>${alvo.marca}</b> no nosso ${ROTULO[o.tipo] || 'trade'} <b>${o.nome}</b>${o.descricao ? ' — ' + o.descricao : ''}: a sua marca no momento certo da jornada do nosso cliente, com apuração de sell-out.</p>
-    ${quando}
-    ${extra}
-    <p>Quer os formatos e valores? É só responder este e-mail ou chamar no WhatsApp: <a href="${zap}">${ZAP}</a>.</p>
-    <p style="color:#94a3b8;font-size:12px">Nome e CPF de cliente não são compartilhados — você recebe só números totais.</p></div>`;
+  const quando = occ ? `<div style="margin-top:8px;color:#475569;font-size:14px">📅 Data de referência: <b>${fmtD(occ)}</b></div>` : '';
+  const extra = (cfg && cfg.mensagem) ? `<p style="margin:16px 0 0;color:#334;font-size:15px;line-height:1.6">${String(cfg.mensagem).replace(/\n/g, '<br>')}</p>` : '';
+  const foneBonito = ZAP.replace(/^55(\d\d)(\d{4,5})(\d{4})$/, '($1) $2-$3');
+  return `<div style="background:#eef2f0;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;margin:0">
+  <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 6px 24px rgba(16,24,40,.08)">
+    <div style="background:linear-gradient(135deg,#1E874B,#0d6b3a);padding:26px 28px;color:#ffffff">
+      <div style="font-size:12.5px;letter-spacing:.6px;opacity:.9;text-transform:uppercase">Grupo Mutti · Trade Marketing</div>
+      <div style="font-size:23px;font-weight:800;margin-top:6px;line-height:1.25">Uma oportunidade pra ${alvo.marca} crescer com a gente</div>
+    </div>
+    <div style="padding:26px 28px;color:#20303a">
+      <p style="margin:0 0 14px;font-size:15px;line-height:1.6">Olá${alvo.responsavel ? ', ' + alvo.responsavel : ''}! Aqui é o time de <b>Trade do Grupo Mutti</b> — 8 lojas no litoral norte da Bahia, <b>86 mil clientes identificados</b> e sell-out medido por loja, toda semana.</p>
+      <div style="background:#f3faf6;border:1px solid #d5ece0;border-radius:12px;padding:16px 18px">
+        <div style="font-size:11.5px;color:#1E874B;font-weight:800;text-transform:uppercase;letter-spacing:.5px">${SELO[o.tipo] || 'Trade'}</div>
+        <div style="font-size:19px;font-weight:800;margin:4px 0 2px;line-height:1.25">${o.nome}</div>
+        ${o.descricao ? `<div style="color:#475569;font-size:14px;line-height:1.5">${o.descricao}</div>` : ''}
+        ${quando}
+      </div>
+      <p style="margin:16px 0 0;font-size:15px;line-height:1.6">É a <b>${alvo.marca}</b> no momento certo da jornada do nosso cliente: presença real na loja e no digital, conteúdo pro público certo e resultado que você <b>mede de verdade</b>.</p>
+      ${extra}
+      <div style="text-align:center;margin:24px 0 6px">
+        <a href="${zap}" style="display:inline-block;background:#1E874B;color:#ffffff;text-decoration:none;font-weight:800;font-size:15px;padding:14px 28px;border-radius:10px">Quero saber mais →</a>
+      </div>
+      <p style="text-align:center;color:#94a3b8;font-size:13px;margin:6px 0 0">ou responda este e-mail · WhatsApp ${foneBonito}</p>
+    </div>
+    <div style="background:#fafafa;padding:14px 28px;border-top:1px solid #eef0f4;color:#94a3b8;font-size:12px;line-height:1.55">
+      Grupo Mutti · Farmácias Mutti, Ultra Popular e Farma Rocha. Nome e CPF de cliente não são compartilhados — você recebe só números totais.
+    </div>
+  </div>
+</div>`;
+}
+// prévia do e-mail (simulação) — usa a 1ª marca-alvo com contato, ou "Sua Marca" de exemplo
+async function previewHtml(emp, tipo, id) {
+  const o = owner(emp, tipo, id);
+  if (!o) return '<div style="font-family:Arial;padding:24px;color:#64748b">Alvo não encontrado.</div>';
+  const cfg = db.prepare('SELECT * FROM tmkt_crm_outreach WHERE empresa_id=? AND escopo_tipo=? AND escopo_id=?').get(emp, tipo, String(id)) || {};
+  let alvo = { marca: 'Sua Marca', responsavel: null };
+  try { const al = await marcasAlvo(emp, tipo, id); if (al.length) alvo = { marca: al[0].marca, responsavel: al[0].responsavel }; } catch (e) { /* ERP off */ }
+  return htmlDe(cfg, o, alvo, o.proxData || hoje());
+}
+// vagas livres de um espaço (p/ a recorrência "só com estoque livre")
+const OCUPA_ST = ['pedido', 'rascunho', 'negociacao', 'confirmado', 'briefing', 'aguardando', 'vigente', 'vendido', 'concluido'];
+function livresDoEspaco(emp, id) {
+  const e = db.prepare('SELECT quantidade FROM tmkt_espaco_loja WHERE id=? AND empresa_id=?').get(id, emp);
+  if (!e) return 0;
+  const ph = OCUPA_ST.map(() => '?').join(',');
+  const oc = db.prepare(`SELECT COALESCE(SUM(ve.quantidade),0) q FROM tmkt_venda_espacos ve JOIN tmkt_vendas v ON v.id=ve.venda_id WHERE ve.espaco_id=? AND v.empresa_id=? AND v.status IN (${ph})`).get(id, emp, ...OCUPA_ST).q;
+  return Math.max(0, (Number(e.quantidade) || 0) - (Number(oc) || 0));
 }
 
 // envia a oportunidade de um alvo para as marcas com contato. soPendentes = não repete quem já recebeu nessa ocorrência.
@@ -105,20 +144,26 @@ async function enviarOportunidade(emp, tipo, id, opts = {}) {
 async function rodarOutreachAuto() {
   if (!smtpOk()) return;
   let cfgs = [];
-  try { cfgs = db.prepare('SELECT empresa_id, escopo_tipo, escopo_id, dias_antes FROM tmkt_crm_outreach WHERE ativo=1').all(); } catch (e) { return; }
+  try { cfgs = db.prepare('SELECT * FROM tmkt_crm_outreach WHERE ativo=1').all(); } catch (e) { return; }
   for (const c of cfgs) {
     try {
       const o = owner(c.empresa_id, c.escopo_tipo, c.escopo_id);
       if (!o || o.inativo) continue;
-      const target = addDays(hoje(), Number(c.dias_antes) || 15);
-      let occ = null;
-      if (c.escopo_tipo === 'evento') { if (!ocorreEm(o.ev, target)) continue; occ = target; }
-      else if (c.escopo_tipo === 'plano') { if (!o.proxData || o.proxData !== target) continue; occ = o.proxData; }
-      else continue; // espaco: sem data → só disparo manual
-      const r = await enviarOportunidade(c.empresa_id, c.escopo_tipo, c.escopo_id, { ocorrencia: occ, soPendentes: true });
+      let occ = null, soPendentes = true;
+      if (c.escopo_tipo === 'evento') { const target = addDays(hoje(), Number(c.dias_antes) || 15); if (!ocorreEm(o.ev, target)) continue; occ = target; }
+      else if (c.escopo_tipo === 'plano') { const target = addDays(hoje(), Number(c.dias_antes) || 15); if (!o.proxData || o.proxData !== target) continue; occ = o.proxData; }
+      else if (c.escopo_tipo === 'espaco') {
+        // recorrente: a cada N dias, só se houver vaga livre, sem repetir dentro do intervalo
+        if (c.so_com_estoque !== 0 && livresDoEspaco(c.empresa_id, c.escopo_id) <= 0) continue;
+        const intervalo = Math.max(1, Number(c.intervalo_dias) || 15);
+        const last = (db.prepare(`SELECT MAX(enviado_em) m FROM tmkt_outreach_log WHERE empresa_id=? AND escopo_tipo='espaco' AND escopo_id=? AND status='ok'`).get(c.empresa_id, String(c.escopo_id)) || {}).m;
+        if (last) { const dias = (Date.now() - new Date(String(last).replace(' ', 'T') + 'Z').getTime()) / 864e5; if (dias < intervalo) continue; }
+        occ = hoje(); soPendentes = false; // recorrente: reenvia pras marcas a cada intervalo
+      } else continue;
+      const r = await enviarOportunidade(c.empresa_id, c.escopo_tipo, c.escopo_id, { ocorrencia: occ, soPendentes });
       if (r.enviados) console.log(`[outreachAuto] ${c.empresa_id} · ${c.escopo_tipo} ${o.nome}: ${r.enviados} marca(s) avisada(s) p/ ${occ}`);
     } catch (e) { /* pula a que falhar */ }
   }
 }
 
-module.exports = { marcasAlvo, enviarOportunidade, rodarOutreachAuto, proximaOcorrencia, ocorreEm, owner, TIPOS };
+module.exports = { marcasAlvo, enviarOportunidade, rodarOutreachAuto, proximaOcorrencia, ocorreEm, owner, previewHtml, livresDoEspaco, TIPOS };

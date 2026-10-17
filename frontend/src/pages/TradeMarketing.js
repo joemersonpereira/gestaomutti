@@ -890,33 +890,45 @@ function CrmClassif({ API, tipo, id }) {
 
 // Disparo do CRM (e-mail): config de agendamento + envio manual + log. Genérico (tipo/id); só quando o alvo já existe.
 function CrmOutreach({ API, tipo, id }) {
-  const [cfg, setCfg] = useState(null); const [alvos, setAlvos] = useState([]); const [agendavel, setAgendavel] = useState(false);
+  const [cfg, setCfg] = useState(null); const [alvos, setAlvos] = useState([]); const [agendavel, setAgendavel] = useState(false); const [livres, setLivres] = useState(null);
   const [res, setRes] = useState(null); const [enviando, setEnviando] = useState(false); const [log, setLog] = useState([]);
+  const [prev, setPrev] = useState(null);  // html da prévia (modal)
   const carregar = useCallback(() => {
-    API.get(`/trademkt/crm/${tipo}/${id}/outreach`).then(r => { setCfg(r.data.config || { ativo: 0, dias_antes: 15, recorrente: 1 }); setAlvos(r.data.alvos || []); setAgendavel(!!r.data.agendavel); }).catch(() => setCfg({ ativo: 0, dias_antes: 15, recorrente: 1 }));
+    API.get(`/trademkt/crm/${tipo}/${id}/outreach`).then(r => { setCfg(r.data.config || { ativo: 0, dias_antes: 15, recorrente: 1, intervalo_dias: 15, so_com_estoque: 1 }); setAlvos(r.data.alvos || []); setAgendavel(!!r.data.agendavel); setLivres(r.data.livres != null ? r.data.livres : null); }).catch(() => setCfg({ ativo: 0, dias_antes: 15, recorrente: 1, intervalo_dias: 15, so_com_estoque: 1 }));
     API.get(`/trademkt/crm/${tipo}/${id}/outreach/log`).then(r => setLog(r.data.log || [])).catch(() => { });
   }, [API, tipo, id]);
   useEffect(() => { carregar(); }, [carregar]);
   if (!cfg) return null;
   const save = patch => { const n = { ...cfg, ...patch }; setCfg(n); API.put(`/trademkt/crm/${tipo}/${id}/outreach`, n).catch(() => { }); };
   const enviar = () => { setEnviando(true); API.post(`/trademkt/crm/${tipo}/${id}/outreach/enviar`, {}).then(r => { setRes(r.data); carregar(); }).catch(e => setRes({ erro: e.response?.data?.erro || 'Erro.' })).finally(() => setEnviando(false)); };
+  const verPrevia = () => API.get(`/trademkt/crm/${tipo}/${id}/outreach/preview`).then(r => setPrev(r.data.html || '')).catch(() => setPrev('<div style="padding:24px;font-family:Arial">Erro ao gerar prévia.</div>'));
   const rotulo = tipo === 'plano' ? 'plano' : tipo === 'espaco' ? 'espaço' : 'evento';
   return (
     <div style={{ border: '1px solid #eef0f4', borderRadius: 10, padding: '10px 12px', background: '#FBFDFB' }}>
       <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0D9488' }}>📧 Disparo de oportunidade (e-mail)</div>
       <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 6px' }}><b>{alvos.length}</b> marca(s) com e-mail cadastrado seriam avisadas (das classificações salvas). Cadastre contatos em “ver marcas” acima e <b>salve o {rotulo}</b> pra atualizar.</div>
-      {agendavel ? <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+      {tipo === 'espaco' ? <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <label style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={!!cfg.ativo} onChange={e => save({ ativo: e.target.checked ? 1 : 0 })} /> Avisar recorrente</label>
+        <label style={s.lbl}>A cada (dias)<input type="number" min="1" value={cfg.intervalo_dias || 15} onChange={e => save({ intervalo_dias: Number(e.target.value) || 15 })} style={{ ...s.inp, width: 72 }} /></label>
+        <label style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={cfg.so_com_estoque !== 0} onChange={e => save({ so_com_estoque: e.target.checked ? 1 : 0 })} /> só com vaga livre</label>
+        {livres != null && <span style={{ fontSize: 11, color: livres > 0 ? '#1E874B' : '#B91C1C', fontWeight: 600 }}>{livres} vaga(s) livre(s) agora</span>}
+      </div> : agendavel ? <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <label style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={!!cfg.ativo} onChange={e => save({ ativo: e.target.checked ? 1 : 0 })} /> Avisar automaticamente</label>
         <label style={s.lbl}>Dias antes<input type="number" min="1" value={cfg.dias_antes || 15} onChange={e => save({ dias_antes: Number(e.target.value) || 15 })} style={{ ...s.inp, width: 72 }} /></label>
         <span style={{ fontSize: 11, color: '#94a3b8' }}>{cfg.ativo ? `o robô avisa ${cfg.dias_antes || 15} dia(s) antes` : 'automático desligado'}</span>
-      </div> : <div style={{ fontSize: 11, color: '#94a3b8' }}>Este alvo não tem data fixa — o aviso é por <b>disparo manual</b> (botão abaixo).</div>}
+      </div> : <div style={{ fontSize: 11, color: '#94a3b8' }}>Sem data fixa — o aviso é por <b>disparo manual</b> (botão abaixo).</div>}
       <label style={{ ...s.lbl, marginTop: 6 }}>Mensagem extra <span style={{ fontWeight: 400, color: '#94a3b8' }}>(opcional, entra no e-mail)</span><textarea value={cfg.mensagem || ''} onChange={e => setCfg({ ...cfg, mensagem: e.target.value })} onBlur={e => save({ mensagem: e.target.value })} rows={2} placeholder="algo a mais pro e-mail…" style={{ ...s.inp, resize: 'vertical' }} /></label>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
         <button onClick={enviar} disabled={enviando || !alvos.length} style={{ ...s.btn, opacity: (enviando || !alvos.length) ? .5 : 1 }}>{enviando ? 'enviando…' : '📧 Enviar oportunidade agora'}</button>
+        <button onClick={verPrevia} style={s.btnMini}>👁️ Prévia do e-mail</button>
         {res && !res.erro && <span style={{ fontSize: 12, color: '#1E874B' }}>✅ {res.enviados} enviado(s){res.pulados ? ` · ${res.pulados} já avisado(s)` : ''}{res.semContato ? ' · nenhuma marca com e-mail' : ''}</span>}
         {res && res.erro && <span style={{ fontSize: 12, color: '#B91C1C' }}>{res.erro}</span>}
       </div>
       {log.length > 0 && <div style={{ marginTop: 8, fontSize: 11.5, color: '#64748b' }}>Últimos envios: {log.slice(0, 6).map((l, i) => <span key={i}>{i ? ' · ' : ''}{l.marca_nome} <span style={{ color: l.status === 'ok' ? '#1E874B' : '#B91C1C' }}>{l.status === 'ok' ? '✓' : '✗'}</span></span>)}</div>}
+      {prev != null && <div style={s.overlay} onClick={() => setPrev(null)}><div style={{ ...s.modal, maxWidth: 640, padding: 0, overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid #eef0f4' }}><b style={{ fontSize: 14 }}>👁️ Prévia do e-mail</b><button onClick={() => setPrev(null)} style={s.btnMini}>✕</button></div>
+        <iframe title="prévia" srcDoc={prev} style={{ width: '100%', height: '70vh', border: 'none', display: 'block' }} />
+      </div></div>}
     </div>
   );
 }
