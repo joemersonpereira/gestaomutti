@@ -282,6 +282,17 @@
   .ecz.catban{margin:0 18px 2px;border-radius:12px;min-height:72px}
   .eccarrossel{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:0 18px 14px}
   .ecz.card{min-height:210px;border-radius:12px}
+  /* modo edição (WYSIWYG na gestão) */
+  .ecz.eded{cursor:pointer;border:2px dashed #94a3b8;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:52px;padding:8px;transition:.15s;color:#334;text-align:center}
+  .ecz.eded:hover{border-color:#2563eb;background:#eff6ff;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+  .ecz.eded.has{border-style:solid;border-color:#2563eb;background:#eff6ff}
+  .ecz.eded .edlab{font-weight:700;font-size:12.5px}
+  .ecz.eded .edpr{font-size:11.5px;color:#1E874B;font-weight:700}
+  .ecz.eded .edtag{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px}
+  .eccircle.eded{cursor:pointer}
+  .eccircle.eded .ecc{border:2px dashed #94a3b8;display:flex;align-items:center;justify-content:center;font-size:20px;color:#2563eb;font-weight:700}
+  .eccircle.eded:hover .ecc{border-color:#2563eb;background:#eff6ff}
+  .eccircle.eded .ecc.res{border-style:solid;border-color:#2563eb;background:#eff6ff}
   .ecprod{min-height:210px;border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:7px;background:#fff}
   .ecprod .epimg{flex:1;background:#f6f3ee;border-radius:8px}
   .ecprod .epn{font-size:11.5px;color:var(--ink2);line-height:1.3}
@@ -437,6 +448,10 @@ var acesso=sessionStorage.getItem('trade_acesso')||'';
 var _urlAc=new URLSearchParams(location.search).get('acesso');
 if(_urlAc){ acesso=_urlAc; try{sessionStorage.setItem('trade_acesso',_urlAc);}catch(e){} }
 var carrinho={}, espacos=[], escopo=[], planos=[], encReservas={}, _slotArt=null, fLoja='', fArea='', fTab='destaques', fBusca='', fBandeira='', _planoCompra=null;
+// Modo edição (WYSIWYG): a gestão embute esta página em iframe com ?edit=1; os espaços viram
+// clicáveis p/ criar/editar e avisam o pai (gestão) por postMessage, em vez do fluxo do fornecedor.
+var EDIT=new URLSearchParams(location.search).get('edit')==='1';
+function edMsg(seg,area,id){try{parent.postMessage({tmkt:'edit',segmento:seg,area:area,espacoId:id||null},'*');}catch(e){}}
 function h(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function brl(n){return (Number(n)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});}
 function hdrs(extra){var o=extra||{};if(acesso)o['x-acesso']=acesso;return o;}
@@ -873,8 +888,13 @@ function render(){
     bchip('Todas','',!fBandeira)+bandPresentes.map(function(b){return bchip(b,b,fBandeira===b);}).join('')+
     '<span style="font-size:11.5px;color:#94a3b8">Posições “rede toda” aparecem em todas as bandeiras.</span></div></div>'):'';
   function crmById(area,esp){return crmPos.filter(function(e){return e.area===area&&(!esp||e.espaco.indexOf(esp)>=0);})[0];}
+  var EC_LABEL={Topo:'Faixa do topo',Home:'Banner da Home',Categoria:'Banner de categoria',Vitrine:'Card do carrossel',Busca:'Banner da busca',Depto:'Ícone de departamento'};
   function ecZone(area,cls){
-    var e=ecomPos.filter(function(x){return x.area===area;})[0]; if(!e)return '';
+    var e=ecomPos.filter(function(x){return x.area===area;})[0];
+    if(EDIT){ var lbl=EC_LABEL[area]||area;
+      if(e)return '<div class="ecz '+cls+' eded has" data-ed="ecommerce|'+h(area)+'|'+e.id+'"><span class="edlab">'+h(e.espaco||lbl)+'</span><span class="edpr">'+brl(e.preco_unit)+(e.quantidade>1?' · '+e.quantidade+' vagas':'')+'</span><span class="edtag">✎ editar</span></div>';
+      return '<div class="ecz '+cls+' eded new" data-ed="ecommerce|'+h(area)+'|"><span class="edlab">➕ '+h(lbl)+'</span><span class="edtag">criar espaço</span></div>'; }
+    if(!e)return '';
     var arr=encReservas[e.id]||[]; var k=arr.length; var first=arr[0];
     var bg=(first&&first.arte)?' style="background-image:url(data:'+first.mime+';base64,'+first.arte+')"':'';
     return '<div class="ecz '+cls+' '+(k>0?'res':'empty')+'" data-slot="'+e.id+'"'+bg+'>'+
@@ -887,6 +907,7 @@ function render(){
     var e=ecomPos.filter(function(x){return x.area==='Depto';})[0];
     var est=['Ofertas','Medicamentos','Dermo','Mundo Infantil'];
     var out=est.map(function(n){return '<div class="eccircle static"><div class="ecc"></div><span>'+h(n)+'</span></div>';}).join('');
+    if(EDIT){ out+='<div class="eccircle eded" data-ed="ecommerce|Depto|'+(e?e.id:'')+'"><div class="ecc '+(e?'res':'empty')+'">'+(e?'✎':'+')+'</div><span>'+(e?('Depto · '+brl(e.preco_unit)):'➕ criar')+'</span></div>'; return '<div class="eccircles">'+out+'</div>'; }
     if(e){var arr=encReservas[e.id]||[];for(var i=0;i<e.quantidade;i++){var r=arr[i];
       if(r){out+='<div class="eccircle"><div class="ecc res"'+(r.arte?' style="background-image:url(data:'+r.mime+';base64,'+r.arte+')"':'')+'><button class="cellx" data-rem="'+e.id+'" data-idx="'+i+'">✕</button>'+(r.arte?'':'✓')+'</div><span>Sua marca</span></div>';}
       else{out+='<div class="eccircle" data-slot="'+e.id+'"><div class="ecc empty">+</div><span>+ marca · '+brl(e.preco_unit)+'</span></div>';}
@@ -1037,9 +1058,9 @@ function render(){
       '</div>'+
     '</div>'):'')+
     // ===== E-COMMERCE (site e app) =====
-    (ecomPos.length?('<div class="sec" id="ecommerce"><span class="eyebrow">E-commerce · Site e App</span><div class="barline"></div>'+
+    ((ecomPos.length||EDIT)?('<div class="sec" id="ecommerce"><span class="eyebrow">E-commerce · Site e App</span><div class="barline"></div>'+
       '<h2>Loja online — escolha onde a sua marca aparece'+bandTag+'</h2>'+
-      '<p class="intro">No <b>'+h(bi.dom)+'</b> e no app de delivery. Clique na posição que você quer, veja o preço, envie a sua arte e reserve — a vaga trava na hora. O valor é por mês; a <b>compra mínima</b> é o período indicado em cada posição, e a sua arte fica no ar durante todo o período contratado.</p>'+
+      '<p class="intro">'+(EDIT?'<b>Modo edição:</b> clique num espaço da loja pra <b>criar</b> ou <b>editar</b> (preço, vagas, tamanho). É exatamente a vitrine que o fornecedor vê.':'No <b>'+h(bi.dom)+'</b> e no app de delivery. Clique na posição que você quer, veja o preço, envie a sua arte e reserve — a vaga trava na hora. O valor é por mês; a <b>compra mínima</b> é o período indicado em cada posição, e a sua arte fica no ar durante todo o período contratado.')+'</p>'+
       '<div class="ecomock">'+
         ecZone('Topo','faixa')+
         '<div class="echeader"><span class="eclogo">'+bi.logo+'</span>'+
@@ -1196,6 +1217,7 @@ function render(){
   [].forEach.call(app.querySelectorAll('[data-mes]'),function(b){b.onclick=function(){openMes(+b.getAttribute('data-mes'));};});
   [].forEach.call(app.querySelectorAll('[data-band]'),function(b){b.onclick=function(){fBandeira=b.getAttribute('data-band');render();bar();};});
   [].forEach.call(app.querySelectorAll('[data-slot]'),function(b){b.onclick=function(){openSlot(b.getAttribute('data-slot'));};});
+  [].forEach.call(app.querySelectorAll('[data-ed]'),function(b){b.onclick=function(ev){ev.preventDefault();ev.stopPropagation();var p=b.getAttribute('data-ed').split('|');edMsg(p[0],p[1],p[2]);};});
   [].forEach.call(app.querySelectorAll('[data-rem]'),function(b){b.onclick=function(ev){ev.stopPropagation();var id=b.getAttribute('data-rem');var idx=+b.getAttribute('data-idx');if(encReservas[id]){encReservas[id].splice(idx,1);carrinho[id]=encReservas[id].length;if(!carrinho[id])delete carrinho[id];render();bar();}};});
   var bs=el('busca');
   if(bs){ bs.oninput=function(){ fBusca=bs.value; render(); }; }

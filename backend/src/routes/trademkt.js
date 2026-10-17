@@ -744,6 +744,10 @@ router.patch('/portal/espaco/:id', exigePerfil(...GESTAO), (req, res) => {
   if (b.modo_venda != null) { sets.push('modo_venda=?'); vals.push(b.modo_venda === 'insercao' ? 'insercao' : 'periodo'); }
   if (b.limite_dia != null) { sets.push('limite_dia=?'); vals.push(b.limite_dia === '' ? null : Math.max(0, Number(b.limite_dia) || 0)); }
   if (b.limite_mes != null) { sets.push('limite_mes=?'); vals.push(b.limite_mes === '' ? null : Math.max(0, Number(b.limite_mes) || 0)); }
+  if (b.espaco != null) { const nome = String(b.espaco).trim(); if (nome) { sets.push('espaco=?'); vals.push(nome); } }
+  if (b.tamanho != null) { sets.push('tamanho=?'); vals.push(String(b.tamanho).trim() || null); }
+  if (b.descricao != null) { sets.push('descricao=?'); vals.push(String(b.descricao).trim() || null); }
+  if (b.foto != null) { sets.push('foto=?'); vals.push((b.foto && /^data:image\//.test(b.foto)) ? String(b.foto).slice(0, 8_000_000) : null); }
   if (!sets.length) return res.status(400).json({ erro: 'Nada para atualizar.' });
   vals.push(req.params.id, emp);
   db.prepare(`UPDATE tmkt_espaco_loja SET ${sets.join(', ')} WHERE id=? AND empresa_id=?`).run(...vals);
@@ -752,6 +756,12 @@ router.patch('/portal/espaco/:id', exigePerfil(...GESTAO), (req, res) => {
 
 // replicar os valores de UMA posição p/ todas as lojas que têm uma posição com o mesmo nome (mesmo segmento)
 // — atende "preencher por loja ou todas de uma vez" sem recadastrar loja por loja.
+router.delete('/portal/espaco/:id', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const info = db.prepare('DELETE FROM tmkt_espaco_loja WHERE id=? AND empresa_id=?').run(req.params.id, emp);
+  if (!info.changes) return res.status(404).json({ erro: 'Espaço não encontrado.' });
+  res.json({ ok: true });
+});
 router.post('/portal/espaco/:id/replicar', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id;
   const base = db.prepare('SELECT * FROM tmkt_espaco_loja WHERE id=? AND empresa_id=?').get(req.params.id, emp);
@@ -764,6 +774,17 @@ router.post('/portal/espaco/:id/replicar', exigePerfil(...GESTAO), (req, res) =>
 });
 
 // criar uma nova posição comercializável
+// token de acesso de PRÉVIA — a gestão embute o portal (/trade.html?edit=1) num iframe p/ o editor
+// visual; este token persistente abre o catálogo sem precisar do portão de identificação.
+router.get('/portal/preview-token', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const token = 'preview-gestao-' + emp;
+  try {
+    if (!db.prepare('SELECT token FROM tmkt_acesso_sessao WHERE token=?').get(token))
+      db.prepare(`INSERT INTO tmkt_acesso_sessao (token, empresa_id, cnpj, cpf, nome, via, criado_em) VALUES (?,?,?,?,?,?,datetime('now'))`).run(token, emp, '', '', 'Prévia da gestão (editor)', 'gestao');
+  } catch (e) { return res.status(500).json({ erro: e.message }); }
+  res.json({ ok: true, token });
+});
 router.post('/portal/espaco', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id, b = req.body || {};
   const seg = String(b.segmento || '').trim();
@@ -794,7 +815,7 @@ router.post('/portal/espaco', exigePerfil(...GESTAO), (req, res) => {
 // (e-commerce/rádio/CRM/tabloide = PADRÃO DA REDE; espaços físicos = POR LOJA)
 router.get('/portal/posicoes', (req, res) => {
   const emp = req.usuario.empresa_id;
-  const rows = db.prepare(`SELECT id, segmento, area, espaco, loja_nome, preco_unit, quantidade, COALESCE(modo_venda,'periodo') modo_venda, midia, COALESCE(unidade,'mes') unidade, limite_dia, limite_mes, (foto IS NOT NULL AND foto<>'') AS tem_foto, COALESCE(disponivel,1) disponivel, COALESCE(destaque,0) destaque
+  const rows = db.prepare(`SELECT id, segmento, area, espaco, tamanho, descricao, loja_nome, preco_unit, quantidade, COALESCE(modo_venda,'periodo') modo_venda, midia, COALESCE(unidade,'mes') unidade, limite_dia, limite_mes, (foto IS NOT NULL AND foto<>'') AS tem_foto, COALESCE(disponivel,1) disponivel, COALESCE(destaque,0) destaque
     FROM tmkt_espaco_loja WHERE empresa_id=?
     ORDER BY segmento, loja_nome, area, espaco`).all(emp);
   // ocupação atual (vagas já reservadas em vendas ativas, independentemente do período)

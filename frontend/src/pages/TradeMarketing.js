@@ -90,13 +90,91 @@ function Portal({ API, gestao }) {
         📥 Os <b>pedidos do fornecedor</b> agora entram direto no Kanban da aba <b>🗂️ Negociações</b> (coluna <b>Negociação</b>, com a etiqueta 🌐 portal). Abra o card para ver tudo: espaços, material/arte, briefing, contrato, financeiro e comprovação.
       </div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-        {[['planos', '📦 Planos comerciais'], ['calendario', '🗓️ Calendário geral'], ['acesso', '🔑 Liberados & Interessados'], ['posicoes', '🎛️ Posições & preços']].map(([k, l]) =>
+        {[['editor', '🖼️ Editor visual'], ['planos', '📦 Planos comerciais'], ['calendario', '🗓️ Calendário geral'], ['acesso', '🔑 Liberados & Interessados'], ['posicoes', '🎛️ Posições & preços']].map(([k, l]) =>
           <button key={k} onClick={() => setSub(k)} style={{ ...s.chip, ...(sub === k ? s.chipOn : {}) }}>{l}</button>)}
       </div>
+      {sub === 'editor' && <EditorVisual API={API} />}
       {sub === 'planos' && <PortalPlanos API={API} gestao={gestao} />}
       {sub === 'calendario' && <PortalCalendario API={API} gestao={gestao} />}
       {sub === 'acesso' && <PortalAcesso API={API} gestao={gestao} />}
       {sub === 'posicoes' && <PortalPosicoes API={API} gestao={gestao} />}
+    </div>
+  );
+}
+
+// ══════ EDITOR VISUAL (WYSIWYG) — embute o mock REAL do portal (iframe ?edit=1) e, ao clicar
+// num espaço, abre o cadastro já com a área certa. Salvou → o mock recarrega. ══════
+const ED_LABEL = {
+  ecommerce: { Topo: 'Faixa do topo', Home: 'Banner da Home', Categoria: 'Banner de categoria', Vitrine: 'Card do carrossel', Busca: 'Banner da busca', Depto: 'Ícone de departamento' },
+};
+const ED_TAM = { Topo: 'ex.: 1200×120 px', Home: 'ex.: 1080×720 px', Categoria: 'ex.: 1080×300 px', Vitrine: 'ex.: 600×600 px', Busca: 'ex.: 970×250 px', Depto: 'ex.: ícone 200×200 px' };
+function EditorVisual({ API }) {
+  const [token, setToken] = useState(null);
+  const [surface] = useState('ecommerce'); // e-commerce 1º; tabloide/redes nas próximas fases
+  const [edit, setEdit] = useState(null);
+  const [frameKey, setFrameKey] = useState(0);
+  useEffect(() => { API.get('/trademkt/portal/preview-token').then(r => setToken(r.data.token)).catch(() => setToken('')); }, [API]);
+  useEffect(() => {
+    const onMsg = e => { const d = e.data; if (d && d.tmkt === 'edit') setEdit({ segmento: d.segmento, area: d.area, espacoId: d.espacoId || null }); };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+  const anchor = { ecommerce: 'ecommerce', encarte: 'encarte', redes: 'redes' }[surface];
+  const src = token ? `/trade.html?acesso=${encodeURIComponent(token)}&edit=1#${anchor}` : null;
+  return (
+    <div>
+      <div style={{ ...s.card, background: '#EFF6FF', border: '1px solid #DBEAFE', fontSize: 12.5, color: '#1e3a5f' }}>
+        🖼️ <b>Editor visual.</b> Abaixo é a <b>vitrine REAL do e-commerce</b> como o fornecedor vê. Clique num espaço (ex.: Banner da Home) para <b>criar</b> ou <b>editar</b> — preço, vagas e tamanho. Ao salvar, a vitrine atualiza. <span style={{ color: '#64748b' }}>Tabloide e Redes entram nas próximas fases.</span>
+      </div>
+      {src
+        ? <iframe key={frameKey} title="Editor visual do portal" src={src} style={{ width: '100%', height: '74vh', border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }} />
+        : <div style={s.card}>Carregando a prévia…</div>}
+      {edit && <EditorEspacoModal API={API} ed={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); setFrameKey(k => k + 1); }} />}
+    </div>
+  );
+}
+function EditorEspacoModal({ API, ed, onClose, onSaved }) {
+  const [f, setF] = useState(null);
+  const [salv, setSalv] = useState(false);
+  const lbl = (ED_LABEL[ed.segmento] || {})[ed.area] || ed.area;
+  useEffect(() => {
+    let live = true;
+    if (ed.espacoId) {
+      API.get('/trademkt/portal/posicoes').then(r => { if (!live) return; const p = (r.data.posicoes || []).find(x => x.id === ed.espacoId) || {}; setF({ espaco: p.espaco || lbl, tamanho: p.tamanho || '', preco_unit: p.preco_unit != null ? p.preco_unit : '', quantidade: p.quantidade || 1 }); }).catch(() => { if (live) setF({ espaco: lbl, tamanho: '', preco_unit: '', quantidade: 1 }); });
+    } else setF({ espaco: lbl, tamanho: '', preco_unit: '', quantidade: 1 });
+    return () => { live = false; };
+  }, [ed]); // eslint-disable-line
+  const set = (k, v) => setF(o => ({ ...o, [k]: v }));
+  const salvar = () => {
+    if (!f.espaco.trim()) { alert('Dê um nome ao espaço.'); return; }
+    setSalv(true);
+    const body = { espaco: f.espaco.trim(), tamanho: f.tamanho, preco_unit: Number(f.preco_unit) || 0, quantidade: Math.max(1, Number(f.quantidade) || 1) };
+    const req = ed.espacoId
+      ? API.patch(`/trademkt/portal/espaco/${ed.espacoId}`, body)
+      : API.post('/trademkt/portal/espaco', { ...body, segmento: ed.segmento, area: ed.area });
+    req.then(onSaved).catch(e => { alert(e.response?.data?.erro || 'Erro ao salvar.'); setSalv(false); });
+  };
+  const excluir = () => { if (!window.confirm('Remover este espaço da vitrine?')) return; setSalv(true); API.delete(`/trademkt/portal/espaco/${ed.espacoId}`).then(onSaved).catch(e => { alert(e.response?.data?.erro || 'Erro ao remover.'); setSalv(false); }); };
+  if (!f) return null;
+  return (
+    <div style={s.overlay} onClick={onClose}>
+      <div style={{ ...s.modal, maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 15, fontWeight: 800 }}>{ed.espacoId ? '✎ Editar espaço' : '➕ Criar espaço'} · {lbl}</div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>E-commerce · área <b>{ed.area}</b></div>
+        <label style={s.lbl}>Nome do espaço<input value={f.espaco} onChange={e => set('espaco', e.target.value)} style={s.inp} /></label>
+        <label style={s.lbl}>Tamanho / especificação da arte <span style={{ fontWeight: 400, color: '#94a3b8' }}>(o que o fornecedor entrega)</span><input value={f.tamanho} onChange={e => set('tamanho', e.target.value)} placeholder={ED_TAM[ed.area] || 'ex.: 1080×720 px'} style={s.inp} /></label>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <label style={{ ...s.lbl, flex: 1 }}>Preço (R$/mês)<input type="number" value={f.preco_unit} onChange={e => set('preco_unit', e.target.value)} placeholder="0,00" style={s.inp} /></label>
+          <label style={{ ...s.lbl, flex: 1 }}>Nº de vagas<input type="number" min="1" value={f.quantidade} onChange={e => set('quantidade', e.target.value)} style={s.inp} /></label>
+        </div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', marginTop: 14 }}>
+          <div>{ed.espacoId && <button onClick={excluir} disabled={salv} style={{ ...s.btnMini, borderColor: '#C0392B', color: '#C0392B' }}>🗑 remover</button>}</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onClose} style={s.btnMini}>cancelar</button>
+            <button onClick={salvar} disabled={salv} style={{ ...s.btn, opacity: salv ? 0.5 : 1 }}>{salv ? 'salvando…' : 'Salvar'}</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
