@@ -736,6 +736,8 @@ function PlanoEditor({ API, id, onClose, onSaved }) {
         <label style={{ ...s.lbl, flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 18 }}><input type="checkbox" checked={!!p.destaque} onChange={e => set('destaque', e.target.checked)} />⭐ Destaque</label>
         <label style={s.lbl}>Ordem<input type="number" value={p.ordem || 0} onChange={e => set('ordem', e.target.value)} style={{ ...s.inp, width: 70 }} /></label>
       </div>
+      <CrmClassif API={API} tipo="plano" id={id} />
+      <CrmOutreach API={API} tipo="plano" id={id} />
       <button onClick={salvar} style={s.btn}>💾 Salvar plano</button>
     </div>
   </div></div>;
@@ -828,19 +830,23 @@ function PortalCalendario({ API, gestao }) {
     {edit && <CalEditor API={API} id={edit === 'novo' ? null : edit} evento={edit === 'novo' ? null : d.find(x => x.id === edit)} onClose={() => { setEdit(null); carregar(); }} onSaved={carregar} />}
   </div>;
 }
-// CRM proativo: vincula classificação(ões) do Alpha → mostra as marcas-alvo + status do contato (cadastrável)
-function CrmClassif({ API, value, onChange }) {
+// CRM proativo: vincula classificação(ões) do Alpha → mostra as marcas-alvo + status do contato (cadastrável).
+// Genérico: tipo = 'evento' | 'plano' | 'espaco'. Auto-persiste (precisa do id do alvo salvo).
+function CrmClassif({ API, tipo, id }) {
+  const [value, setValue] = useState(null);
   const [q, setQ] = useState(''); const [res, setRes] = useState([]); const [buscando, setBuscando] = useState(false);
   const [aberta, setAberta] = useState(null); const [marcas, setMarcas] = useState({}); const [edit, setEdit] = useState(null);
+  useEffect(() => { API.get(`/trademkt/crm/${tipo}/${id}/classificacoes`).then(r => setValue(r.data.classificacoes || [])).catch(() => setValue([])); }, [API, tipo, id]);
+  const persist = next => { setValue(next); API.put(`/trademkt/crm/${tipo}/${id}/classificacoes`, { classificacoes: next }).catch(() => { }); };
   const buscar = () => { if (q.trim().length < 2) { setRes([]); return; } setBuscando(true); API.get('/trademkt/erp/escopo?tipo=classificacao&q=' + encodeURIComponent(q.trim())).then(r => setRes(r.data.itens || [])).catch(() => setRes([])).finally(() => setBuscando(false)); };
-  const add = c => { if (!value.some(x => String(x.classificacao_id) === String(c.id))) onChange([...value, { classificacao_id: String(c.id), nome: c.nome }]); setQ(''); setRes([]); };
-  const rm = cid => onChange(value.filter(x => String(x.classificacao_id) !== String(cid)));
+  const add = c => { if (!(value || []).some(x => String(x.classificacao_id) === String(c.id))) persist([...(value || []), { classificacao_id: String(c.id), nome: c.nome }]); setQ(''); setRes([]); };
+  const rm = cid => persist((value || []).filter(x => String(x.classificacao_id) !== String(cid)));
   const verMarcas = cid => { if (aberta === cid) { setAberta(null); return; } setAberta(cid); if (!marcas[cid]) API.get(`/trademkt/erp/classificacao/${cid}/marcas`).then(r => setMarcas(m => ({ ...m, [cid]: r.data.marcas || [] }))).catch(() => setMarcas(m => ({ ...m, [cid]: [] }))); };
   const salvarContato = () => { const f = edit; API.put('/trademkt/marcas/contato/' + f.fabricante_id, { marca_nome: f.marca, email: f.email, whatsapp: f.whatsapp, responsavel: f.responsavel }).then(() => { setMarcas(m => { const c = { ...m }; Object.keys(c).forEach(k => c[k] = c[k].map(x => String(x.fabricante_id) === String(f.fabricante_id) ? { ...x, email: f.email, whatsapp: f.whatsapp, responsavel: f.responsavel, tem_contato: !!(f.email || f.whatsapp) } : x)); return c; }); setEdit(null); }).catch(er => alert(er.response?.data?.erro || 'Erro.')); };
   return (
     <div style={{ border: '1px solid #eef0f4', borderRadius: 10, padding: '10px 12px', background: '#FBFDFB' }}>
       <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0D9488' }}>📨 Avisar marcas por classificação <span style={{ fontWeight: 400, color: '#94a3b8' }}>(CRM proativo)</span></div>
-      <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 6px' }}>Vincule a ação a classificações do Alpha. O sistema acha as <b>marcas</b> que vendem aquela classificação pra oferecer a oportunidade (e-mail). Marcas sem contato aparecem com ⚠️ — cadastre o e-mail de trade.</div>
+      <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 6px' }}>Vincule classificações do Alpha. O sistema acha as <b>marcas</b> que vendem aquela classificação pra oferecer a oportunidade (e-mail). Marcas sem contato aparecem com ⚠️ — cadastre o e-mail de trade.</div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
         <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); buscar(); } }} placeholder="buscar classificação (ex.: suplemento, protetor solar)…" style={{ ...s.inp, flex: 1 }} />
         <button onClick={buscar} style={s.btnMini}>{buscando ? '…' : '🔎'}</button>
@@ -848,8 +854,8 @@ function CrmClassif({ API, value, onChange }) {
       {res.length > 0 && <div style={{ border: '1px solid #eee', borderRadius: 8, maxHeight: 140, overflowY: 'auto', marginBottom: 6 }}>
         {res.map(c => <div key={c.id} onClick={() => add(c)} style={{ padding: '5px 8px', fontSize: 12.5, cursor: 'pointer', borderBottom: '1px solid #f4f4f4' }}>+ {c.nome}</div>)}
       </div>}
-      {value.length === 0 && <div style={{ fontSize: 12, color: '#bbb' }}>Nenhuma classificação vinculada.</div>}
-      {value.map(c => (
+      {value !== null && value.length === 0 && <div style={{ fontSize: 12, color: '#bbb' }}>Nenhuma classificação vinculada.</div>}
+      {(value || []).map(c => (
         <div key={c.classificacao_id} style={{ borderTop: '1px solid #f2f2f2', padding: '6px 0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
             <b>{c.nome}</b>
@@ -882,27 +888,28 @@ function CrmClassif({ API, value, onChange }) {
   );
 }
 
-// Disparo do CRM (e-mail): config de agendamento + envio manual + log. Só quando o evento já existe.
-function CrmOutreach({ API, eventoId }) {
-  const [cfg, setCfg] = useState(null); const [alvos, setAlvos] = useState([]);
+// Disparo do CRM (e-mail): config de agendamento + envio manual + log. Genérico (tipo/id); só quando o alvo já existe.
+function CrmOutreach({ API, tipo, id }) {
+  const [cfg, setCfg] = useState(null); const [alvos, setAlvos] = useState([]); const [agendavel, setAgendavel] = useState(false);
   const [res, setRes] = useState(null); const [enviando, setEnviando] = useState(false); const [log, setLog] = useState([]);
   const carregar = useCallback(() => {
-    API.get(`/trademkt/portal/calendario/${eventoId}/outreach`).then(r => { setCfg(r.data.config || { ativo: 0, dias_antes: 15, recorrente: 1 }); setAlvos(r.data.alvos || []); }).catch(() => setCfg({ ativo: 0, dias_antes: 15, recorrente: 1 }));
-    API.get(`/trademkt/portal/calendario/${eventoId}/outreach/log`).then(r => setLog(r.data.log || [])).catch(() => { });
-  }, [API, eventoId]);
+    API.get(`/trademkt/crm/${tipo}/${id}/outreach`).then(r => { setCfg(r.data.config || { ativo: 0, dias_antes: 15, recorrente: 1 }); setAlvos(r.data.alvos || []); setAgendavel(!!r.data.agendavel); }).catch(() => setCfg({ ativo: 0, dias_antes: 15, recorrente: 1 }));
+    API.get(`/trademkt/crm/${tipo}/${id}/outreach/log`).then(r => setLog(r.data.log || [])).catch(() => { });
+  }, [API, tipo, id]);
   useEffect(() => { carregar(); }, [carregar]);
   if (!cfg) return null;
-  const save = patch => { const n = { ...cfg, ...patch }; setCfg(n); API.put(`/trademkt/portal/calendario/${eventoId}/outreach`, n).catch(() => { }); };
-  const enviar = () => { setEnviando(true); API.post(`/trademkt/portal/calendario/${eventoId}/outreach/enviar`, {}).then(r => { setRes(r.data); carregar(); }).catch(e => setRes({ erro: e.response?.data?.erro || 'Erro.' })).finally(() => setEnviando(false)); };
+  const save = patch => { const n = { ...cfg, ...patch }; setCfg(n); API.put(`/trademkt/crm/${tipo}/${id}/outreach`, n).catch(() => { }); };
+  const enviar = () => { setEnviando(true); API.post(`/trademkt/crm/${tipo}/${id}/outreach/enviar`, {}).then(r => { setRes(r.data); carregar(); }).catch(e => setRes({ erro: e.response?.data?.erro || 'Erro.' })).finally(() => setEnviando(false)); };
+  const rotulo = tipo === 'plano' ? 'plano' : tipo === 'espaco' ? 'espaço' : 'evento';
   return (
     <div style={{ border: '1px solid #eef0f4', borderRadius: 10, padding: '10px 12px', background: '#FBFDFB' }}>
       <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0D9488' }}>📧 Disparo de oportunidade (e-mail)</div>
-      <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 6px' }}><b>{alvos.length}</b> marca(s) com e-mail cadastrado seriam avisadas (das classificações salvas). Cadastre contatos em “ver marcas” acima e <b>salve o evento</b> pra atualizar.</div>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 6px' }}><b>{alvos.length}</b> marca(s) com e-mail cadastrado seriam avisadas (das classificações salvas). Cadastre contatos em “ver marcas” acima e <b>salve o {rotulo}</b> pra atualizar.</div>
+      {agendavel ? <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <label style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={!!cfg.ativo} onChange={e => save({ ativo: e.target.checked ? 1 : 0 })} /> Avisar automaticamente</label>
         <label style={s.lbl}>Dias antes<input type="number" min="1" value={cfg.dias_antes || 15} onChange={e => save({ dias_antes: Number(e.target.value) || 15 })} style={{ ...s.inp, width: 72 }} /></label>
-        <span style={{ fontSize: 11, color: '#94a3b8' }}>{cfg.ativo ? `o robô avisa ${cfg.dias_antes || 15} dia(s) antes de cada ocorrência` : 'automático desligado'}</span>
-      </div>
+        <span style={{ fontSize: 11, color: '#94a3b8' }}>{cfg.ativo ? `o robô avisa ${cfg.dias_antes || 15} dia(s) antes` : 'automático desligado'}</span>
+      </div> : <div style={{ fontSize: 11, color: '#94a3b8' }}>Este alvo não tem data fixa — o aviso é por <b>disparo manual</b> (botão abaixo).</div>}
       <label style={{ ...s.lbl, marginTop: 6 }}>Mensagem extra <span style={{ fontWeight: 400, color: '#94a3b8' }}>(opcional, entra no e-mail)</span><textarea value={cfg.mensagem || ''} onChange={e => setCfg({ ...cfg, mensagem: e.target.value })} onBlur={e => save({ mensagem: e.target.value })} rows={2} placeholder="algo a mais pro e-mail…" style={{ ...s.inp, resize: 'vertical' }} /></label>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
         <button onClick={enviar} disabled={enviando || !alvos.length} style={{ ...s.btn, opacity: (enviando || !alvos.length) ? .5 : 1 }}>{enviando ? 'enviando…' : '📧 Enviar oportunidade agora'}</button>
@@ -918,20 +925,14 @@ function CalEditor({ API, id: idInicial, evento, onClose, onSaved }) {
   const [id, setId] = useState(idInicial);
   const [e, setE] = useState(evento || { nome: '', tipo: 'tematico', categoria: '', recorrencia: 'semanal', dia_semana: 1, dia_mes: 1, data: '', data_ini: '', data_fim: '', descricao: '', cor: '#2E5C9E', no_trade: 1, patrocinavel: 1, preco: '', status: 'ativo' });
   const [espacos, setEspacos] = useState([]); const [posicoes, setPosicoes] = useState([]); const [buscaPos, setBuscaPos] = useState('');
-  const [classif, setClassif] = useState([]);  // [{classificacao_id, nome}] — quem avisar (CRM)
   const set = (k, v) => setE(x => ({ ...x, [k]: v }));
   const carregarLinks = useCallback(aid => API.get(`/trademkt/portal/calendario/${aid}/espacos`).then(r => setEspacos(r.data.espacos)).catch(() => { }), [API]);
-  useEffect(() => { API.get('/trademkt/portal/posicoes').then(r => setPosicoes(r.data.posicoes || [])).catch(() => { }); if (id) { carregarLinks(id); API.get(`/trademkt/portal/calendario/${id}/classificacoes`).then(r => setClassif(r.data.classificacoes || [])).catch(() => { }); } }, [API, id, carregarLinks]);
-  const salvar = async () => {
+  useEffect(() => { API.get('/trademkt/portal/posicoes').then(r => setPosicoes(r.data.posicoes || [])).catch(() => { }); if (id) carregarLinks(id); }, [API, id, carregarLinks]);
+  const salvar = () => {
     if (!e.nome.trim()) return alert('Dê um nome ao evento.');
     const body = { ...e, patrocinavel: e.patrocinavel ? 1 : 0, no_trade: e.no_trade ? 1 : 0 };
-    try {
-      let eid = id;
-      if (id) await API.put('/trademkt/portal/calendario/' + id, body);
-      else { const r = await API.post('/trademkt/portal/calendario', body); eid = r.data.id; setId(eid); }
-      await API.put('/trademkt/portal/calendario/' + eid + '/classificacoes', { classificacoes: classif }).catch(() => { });
-      onSaved();
-    } catch (er) { alert(er.response?.data?.erro || 'Erro.'); }
+    if (id) return API.put('/trademkt/portal/calendario/' + id, body).then(onSaved).catch(er => alert(er.response?.data?.erro || 'Erro.'));
+    return API.post('/trademkt/portal/calendario', body).then(r => { setId(r.data.id); onSaved(); }).catch(er => alert(er.response?.data?.erro || 'Erro.'));
   };
   const addEspaco = pid => { const q = window.prompt('Quantidade desta posição:', '1'); if (q === null) return; API.post(`/trademkt/portal/calendario/${id}/espacos`, { espaco_id: pid, quantidade: Math.max(1, Number(q) || 1) }).then(() => carregarLinks(id)); };
   const rmEspaco = lid => API.delete(`/trademkt/portal/calendario/${id}/espacos/${lid}`).then(() => carregarLinks(id));
@@ -975,8 +976,8 @@ function CalEditor({ API, id: idInicial, evento, onClose, onSaved }) {
       <div style={{ fontSize: 11, color: '#64748b', background: '#FBFBFD', border: '1px solid #eef0f4', borderRadius: 8, padding: '7px 10px' }}>
         ⏸ <b>Para suspender a ação toda agora</b> (ex.: parar o "{e.nome || 'Oferta Delivery'}" de todas as semanas), mude o <b>Status para Inativo</b> — sai do portal na hora, sem precisar mexer dia a dia. Para <b>encerrar só a partir de uma data</b>, preencha <b>Termina em</b> acima.
       </div>
-      {e.no_trade ? <CrmClassif API={API} value={classif} onChange={setClassif} /> : null}
-      {e.no_trade && id ? <CrmOutreach API={API} eventoId={id} /> : null}
+      {e.no_trade && id ? <CrmClassif API={API} tipo="evento" id={id} /> : (e.no_trade ? <div style={{ fontSize: 11.5, color: '#94a3b8' }}>💡 Salve o evento pra vincular classificações e avisar as marcas (CRM).</div> : null)}
+      {e.no_trade && id ? <CrmOutreach API={API} tipo="evento" id={id} /> : null}
       <button onClick={salvar} style={s.btn}>💾 Salvar evento</button>
 
       {/* posições vinculadas (o que é comercializável nessa ação) — só depois de salvar e se for de Trade */}
@@ -1533,6 +1534,8 @@ function PosicaoEditModal({ API, p, onClose, onSaved }) {
         <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={f.disponivel} onChange={e => set('disponivel', e.target.checked)} /> Disponível no portal</label>
         <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={f.destaque} onChange={e => set('destaque', e.target.checked)} /> ★ Destaque</label>
       </div>
+      <CrmClassif API={API} tipo="espaco" id={p.id} />
+      <CrmOutreach API={API} tipo="espaco" id={p.id} />
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 2 }}>
         <button onClick={onClose} style={s.btnMini}>Cancelar</button>
         <button onClick={salvar} style={s.btn}>Salvar</button>

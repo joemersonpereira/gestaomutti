@@ -593,43 +593,52 @@ router.put('/marcas/contato/:fabId', exigePerfil(...GESTAO), (req, res) => {
     .run(uuid(), emp, String(req.params.fabId), b.marca_nome || null, b.email || null, b.whatsapp || null, b.responsavel || null, b.obs || null);
   res.json({ ok: true });
 });
-// vínculo da ação do calendário com classificação(ões) do Alpha (quem avisar)
-router.get('/portal/calendario/:id/classificacoes', (req, res) => {
-  res.json({ classificacoes: db.prepare('SELECT classificacao_id, nome FROM tmkt_evento_classificacao WHERE empresa_id=? AND evento_id=?').all(req.usuario.empresa_id, req.params.id) });
+// ── CRM proativo GENÉRICO: alvo = evento | plano | espaco ────────────────────
+const CRM_TIPOS = ['evento', 'plano', 'espaco'];
+const okTipo = t => CRM_TIPOS.includes(t);
+// vínculo alvo ↔ classificação(ões) do Alpha (quem avisar)
+router.get('/crm/:tipo/:id/classificacoes', (req, res) => {
+  if (!okTipo(req.params.tipo)) return res.status(400).json({ erro: 'Tipo inválido.' });
+  res.json({ classificacoes: db.prepare('SELECT classificacao_id, nome FROM tmkt_crm_vinculo WHERE empresa_id=? AND escopo_tipo=? AND escopo_id=?').all(req.usuario.empresa_id, req.params.tipo, String(req.params.id)) });
 });
-router.put('/portal/calendario/:id/classificacoes', exigePerfil(...GESTAO), (req, res) => {
+router.put('/crm/:tipo/:id/classificacoes', exigePerfil(...GESTAO), (req, res) => {
+  if (!okTipo(req.params.tipo)) return res.status(400).json({ erro: 'Tipo inválido.' });
   const emp = req.usuario.empresa_id, arr = Array.isArray((req.body || {}).classificacoes) ? req.body.classificacoes : [];
   const tx = db.transaction(() => {
-    db.prepare('DELETE FROM tmkt_evento_classificacao WHERE empresa_id=? AND evento_id=?').run(emp, req.params.id);
-    const ins = db.prepare(`INSERT INTO tmkt_evento_classificacao (id,empresa_id,evento_id,classificacao_id,nome,criado_em) VALUES (?,?,?,?,?,datetime('now'))`);
-    arr.forEach(c => { if (c && c.classificacao_id) ins.run(uuid(), emp, req.params.id, String(c.classificacao_id), c.nome || null); });
+    db.prepare('DELETE FROM tmkt_crm_vinculo WHERE empresa_id=? AND escopo_tipo=? AND escopo_id=?').run(emp, req.params.tipo, String(req.params.id));
+    const ins = db.prepare(`INSERT INTO tmkt_crm_vinculo (id,empresa_id,escopo_tipo,escopo_id,classificacao_id,nome,criado_em) VALUES (?,?,?,?,?,?,datetime('now'))`);
+    arr.forEach(c => { if (c && c.classificacao_id) ins.run(uuid(), emp, req.params.tipo, String(req.params.id), String(c.classificacao_id), c.nome || null); });
   });
   tx();
   res.json({ ok: true });
 });
-// ── Disparo do CRM proativo (e-mail) por ação ────────────────────────────────
-router.get('/portal/calendario/:id/outreach', async (req, res) => {
+router.get('/crm/:tipo/:id/outreach', async (req, res) => {
+  if (!okTipo(req.params.tipo)) return res.status(400).json({ erro: 'Tipo inválido.' });
   const emp = req.usuario.empresa_id;
-  const config = db.prepare('SELECT ativo, dias_antes, recorrente, assunto, mensagem FROM tmkt_evento_outreach WHERE empresa_id=? AND evento_id=?').get(emp, req.params.id)
+  const config = db.prepare('SELECT ativo, dias_antes, recorrente, assunto, mensagem FROM tmkt_crm_outreach WHERE empresa_id=? AND escopo_tipo=? AND escopo_id=?').get(emp, req.params.tipo, String(req.params.id))
     || { ativo: 0, dias_antes: 15, recorrente: 1, assunto: '', mensagem: '' };
   let alvos = [];
-  try { alvos = await outreach.marcasAlvo(emp, req.params.id); } catch (e) { /* ERP off */ }
-  res.json({ ok: true, config, alvos, com_email: alvos.length });
+  try { alvos = await outreach.marcasAlvo(emp, req.params.tipo, req.params.id); } catch (e) { /* ERP off */ }
+  const o = outreach.owner(emp, req.params.tipo, req.params.id);
+  res.json({ ok: true, config, alvos, com_email: alvos.length, agendavel: !!(o && o.proxData), prox_data: o ? o.proxData : null });
 });
-router.put('/portal/calendario/:id/outreach', exigePerfil(...GESTAO), (req, res) => {
+router.put('/crm/:tipo/:id/outreach', exigePerfil(...GESTAO), (req, res) => {
+  if (!okTipo(req.params.tipo)) return res.status(400).json({ erro: 'Tipo inválido.' });
   const emp = req.usuario.empresa_id, b = req.body || {};
-  const ex = db.prepare('SELECT id FROM tmkt_evento_outreach WHERE empresa_id=? AND evento_id=?').get(emp, req.params.id);
+  const ex = db.prepare('SELECT id FROM tmkt_crm_outreach WHERE empresa_id=? AND escopo_tipo=? AND escopo_id=?').get(emp, req.params.tipo, String(req.params.id));
   const vals = [b.ativo ? 1 : 0, Math.max(1, Number(b.dias_antes) || 15), b.recorrente ? 1 : 0, b.assunto || null, b.mensagem || null];
-  if (ex) db.prepare(`UPDATE tmkt_evento_outreach SET ativo=?, dias_antes=?, recorrente=?, assunto=?, mensagem=?, atualizado_em=datetime('now') WHERE id=?`).run(...vals, ex.id);
-  else db.prepare(`INSERT INTO tmkt_evento_outreach (id,empresa_id,evento_id,ativo,dias_antes,recorrente,assunto,mensagem,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))`).run(uuid(), emp, req.params.id, ...vals);
+  if (ex) db.prepare(`UPDATE tmkt_crm_outreach SET ativo=?, dias_antes=?, recorrente=?, assunto=?, mensagem=?, atualizado_em=datetime('now') WHERE id=?`).run(...vals, ex.id);
+  else db.prepare(`INSERT INTO tmkt_crm_outreach (id,empresa_id,escopo_tipo,escopo_id,ativo,dias_antes,recorrente,assunto,mensagem,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))`).run(uuid(), emp, req.params.tipo, String(req.params.id), ...vals);
   res.json({ ok: true });
 });
-router.post('/portal/calendario/:id/outreach/enviar', exigePerfil(...GESTAO), async (req, res) => {
-  try { const r = await outreach.enviarOportunidade(req.usuario.empresa_id, req.params.id, { ocorrencia: (req.body || {}).ocorrencia, soPendentes: (req.body || {}).soPendentes !== false }); res.json(r); }
+router.post('/crm/:tipo/:id/outreach/enviar', exigePerfil(...GESTAO), async (req, res) => {
+  if (!okTipo(req.params.tipo)) return res.status(400).json({ erro: 'Tipo inválido.' });
+  try { const r = await outreach.enviarOportunidade(req.usuario.empresa_id, req.params.tipo, req.params.id, { ocorrencia: (req.body || {}).ocorrencia, soPendentes: (req.body || {}).soPendentes !== false }); res.json(r); }
   catch (e) { res.status(400).json({ erro: e.message }); }
 });
-router.get('/portal/calendario/:id/outreach/log', (req, res) => {
-  res.json({ log: db.prepare(`SELECT ocorrencia, marca_nome, email, status, erro, enviado_em FROM tmkt_outreach_log WHERE empresa_id=? AND evento_id=? ORDER BY enviado_em DESC LIMIT 50`).all(req.usuario.empresa_id, req.params.id) });
+router.get('/crm/:tipo/:id/outreach/log', (req, res) => {
+  if (!okTipo(req.params.tipo)) return res.status(400).json({ erro: 'Tipo inválido.' });
+  res.json({ log: db.prepare(`SELECT ocorrencia, marca_nome, email, status, erro, enviado_em FROM tmkt_outreach_log WHERE empresa_id=? AND escopo_tipo=? AND escopo_id=? ORDER BY enviado_em DESC LIMIT 50`).all(req.usuario.empresa_id, req.params.tipo, String(req.params.id)) });
 });
 
 // ── Custos / prestação de contas (interno): resultado real do trade = valor − custos ────────────
