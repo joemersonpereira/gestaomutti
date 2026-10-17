@@ -272,6 +272,11 @@
   .ecz .eczlab{font-weight:800;font-size:13px;color:var(--ink)}
   .ecz .eczpr{font-size:12px;font-weight:700;color:var(--accent)}
   .ecz .eczmin{font-size:10.5px;font-weight:600;color:var(--soft)}
+  /* conteúdo real (vídeo do @farmaciamutti_) no slot: overlay escuro + texto branco */
+  .ecz.cont{border-style:solid;border-color:transparent}
+  .ecz.cont::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.12) 40%,rgba(0,0,0,.72));border-radius:inherit}
+  .ecz.cont .eczlab,.ecz.cont .eczpr,.ecz.cont .eczmin{color:#fff;position:relative;z-index:1;text-shadow:0 1px 3px rgba(0,0,0,.55)}
+  .ecz.cont .eczreal{position:absolute;top:6px;left:6px;z-index:1;background:rgba(0,0,0,.5);color:#fff;font-size:9.5px;font-weight:800;padding:2px 7px;border-radius:999px;letter-spacing:.3px}
   .ecz.res{border-style:solid;border-color:var(--accent)}
   .ecmosaic{display:grid;gap:10px;margin:14px 18px}
   .ecmosaic.ecm1{grid-template-columns:1fr}
@@ -870,12 +875,23 @@ function gateBloqueado(msg){
 
 // só o que é catálogo de ESPAÇOS (tira encarte/e-commerce/tabloide, que têm seção própria)
 function ehCatalogo(e){var s=(e.segmento||'');return s!=='encarte'&&s!=='ecommerce'&&s!=='crm'&&s!=='social'&&s!=='radio'&&s!=='endomarketing'&&!/tabloide/i.test(e.area||'');}
+// conteúdo REAL do @farmaciamutti_ p/ ilustrar slots digitais sem foto própria (determinístico por id)
+function contImg(e){
+  var CONT=['/redes/viral2.jpg','/redes/viral3.jpg','/redes/viral4.jpg','/redes/viral5.jpg','/redes/viral1.jpg'];
+  var s=String(e.id||e.espaco||''),n=0; for(var i=0;i<s.length;i++)n=(n*31+s.charCodeAt(i))>>>0;
+  return CONT[n%CONT.length];
+}
 // slot clicável genérico (redes/CRM) — reusa o visual .ecz
 function posZone(e,cls,labelEmpty){
   if(!e)return '';
   var arr=encReservas[e.id]||[]; var k=arr.length; var first=arr[0];
-  var bg=(first&&first.arte)?' style="background-image:url(data:'+first.mime+';base64,'+first.arte+')"':(e.tem_foto?' style="background-image:url('+API+'/espaco/'+e.id+'/foto);background-size:cover;background-position:center"':'');
-  return '<div class="ecz '+(cls||'')+' '+(k>0?'res':(e.tem_foto?'hasimg':'empty'))+'" data-slot="'+e.id+'"'+bg+'>'+
+  // digital sem foto própria → ilustra com conteúdo real nosso (traz realidade)
+  var cont=(!first&&!e.tem_foto&&(e.segmento==='social'))?contImg(e):null;
+  var bg=(first&&first.arte)?' style="background-image:url(data:'+first.mime+';base64,'+first.arte+')"'
+    :(e.tem_foto?' style="background-image:url('+API+'/espaco/'+e.id+'/foto);background-size:cover;background-position:center"'
+    :(cont?' style="background-image:url('+cont+');background-size:cover;background-position:center"':''));
+  return '<div class="ecz '+(cls||'')+(cont?' cont':'')+' '+(k>0?'res':(e.tem_foto||cont?'hasimg':'empty'))+'" data-slot="'+e.id+'"'+bg+'>'+
+    (cont?'<span class="eczreal">🎬 conteúdo real</span>':'')+
     (k>0?('<button class="cellx" data-rem="'+e.id+'" data-idx="0">✕</button><span class="eczok">✓ '+(e.quantidade>1?k+'/'+e.quantidade:'Reservado')+'</span>')
         :('<span class="eczlab">'+(labelEmpty||('+ '+h(e.espaco)))+'</span><span class="eczpr">'+brl(e.preco_unit)+(e.quantidade>1?' · '+e.quantidade+' vagas':'')+'</span>'))+
   '</div>';
