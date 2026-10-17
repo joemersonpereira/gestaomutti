@@ -890,11 +890,11 @@ function CrmClassif({ API, tipo, id }) {
 
 // Disparo do CRM (e-mail): config de agendamento + envio manual + log. Genérico (tipo/id); só quando o alvo já existe.
 function CrmOutreach({ API, tipo, id }) {
-  const [cfg, setCfg] = useState(null); const [alvos, setAlvos] = useState([]); const [agendavel, setAgendavel] = useState(false); const [livres, setLivres] = useState(null);
+  const [cfg, setCfg] = useState(null); const [alvos, setAlvos] = useState([]); const [agendavel, setAgendavel] = useState(false); const [livres, setLivres] = useState(null); const [frases, setFrases] = useState([]);
   const [res, setRes] = useState(null); const [enviando, setEnviando] = useState(false); const [log, setLog] = useState([]);
   const [prev, setPrev] = useState(null);  // html da prévia (modal)
   const carregar = useCallback(() => {
-    API.get(`/trademkt/crm/${tipo}/${id}/outreach`).then(r => { setCfg(r.data.config || { ativo: 0, dias_antes: 15, recorrente: 1, intervalo_dias: 15, so_com_estoque: 1 }); setAlvos(r.data.alvos || []); setAgendavel(!!r.data.agendavel); setLivres(r.data.livres != null ? r.data.livres : null); }).catch(() => setCfg({ ativo: 0, dias_antes: 15, recorrente: 1, intervalo_dias: 15, so_com_estoque: 1 }));
+    API.get(`/trademkt/crm/${tipo}/${id}/outreach`).then(r => { setCfg(r.data.config || { ativo: 0, dias_antes: 15, recorrente: 1, intervalo_dias: 15, so_com_estoque: 1 }); setAlvos(r.data.alvos || []); setAgendavel(!!r.data.agendavel); setLivres(r.data.livres != null ? r.data.livres : null); setFrases(r.data.frases || []); }).catch(() => setCfg({ ativo: 0, dias_antes: 15, recorrente: 1, intervalo_dias: 15, so_com_estoque: 1 }));
     API.get(`/trademkt/crm/${tipo}/${id}/outreach/log`).then(r => setLog(r.data.log || [])).catch(() => { });
   }, [API, tipo, id]);
   useEffect(() => { carregar(); }, [carregar]);
@@ -917,6 +917,12 @@ function CrmOutreach({ API, tipo, id }) {
         <label style={s.lbl}>Dias antes<input type="number" min="1" value={cfg.dias_antes || 15} onChange={e => save({ dias_antes: Number(e.target.value) || 15 })} style={{ ...s.inp, width: 72 }} /></label>
         <span style={{ fontSize: 11, color: '#94a3b8' }}>{cfg.ativo ? `o robô avisa ${cfg.dias_antes || 15} dia(s) antes` : 'automático desligado'}</span>
       </div> : <div style={{ fontSize: 11, color: '#94a3b8' }}>Sem data fixa — o aviso é por <b>disparo manual</b> (botão abaixo).</div>}
+      <label style={{ ...s.lbl, marginTop: 6 }}>Frase de efeito <span style={{ fontWeight: 400, color: '#94a3b8' }}>(título do e-mail)</span>
+        <select value={cfg.frase_id || ''} onChange={e => save({ frase_id: e.target.value || null })} style={s.inp}>
+          <option value="">🎲 Aleatória (varia a cada envio)</option>
+          {frases.map(f => <option key={f.id} value={f.id}>{f.texto.replace('{marca}', 'sua marca')}</option>)}
+        </select>
+      </label>
       <label style={{ ...s.lbl, marginTop: 6 }}>Mensagem extra <span style={{ fontWeight: 400, color: '#94a3b8' }}>(opcional, entra no e-mail)</span><textarea value={cfg.mensagem || ''} onChange={e => setCfg({ ...cfg, mensagem: e.target.value })} onBlur={e => save({ mensagem: e.target.value })} rows={2} placeholder="algo a mais pro e-mail…" style={{ ...s.inp, resize: 'vertical' }} /></label>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
         <button onClick={enviar} disabled={enviando || !alvos.length} style={{ ...s.btn, opacity: (enviando || !alvos.length) ? .5 : 1 }}>{enviando ? 'enviando…' : '📧 Enviar oportunidade agora'}</button>

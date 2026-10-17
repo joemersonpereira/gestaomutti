@@ -593,6 +593,21 @@ router.put('/marcas/contato/:fabId', exigePerfil(...GESTAO), (req, res) => {
     .run(uuid(), emp, String(req.params.fabId), b.marca_nome || null, b.email || null, b.whatsapp || null, b.responsavel || null, b.obs || null);
   res.json({ ok: true });
 });
+// banco de frases de efeito (escolher a que vai no e-mail)
+router.get('/crm/frases', (req, res) => {
+  res.json({ frases: db.prepare('SELECT id, texto, sub, ativo, ordem FROM tmkt_crm_frase WHERE empresa_id=? ORDER BY ordem, criado_em').all(req.usuario.empresa_id) });
+});
+router.post('/crm/frases', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body || {}; if (!b.texto) return res.status(400).json({ erro: 'Informe a frase.' });
+  const id = uuid();
+  db.prepare(`INSERT INTO tmkt_crm_frase (id,empresa_id,texto,sub,ordem,ativo,criado_em) VALUES (?,?,?,?,?,1,datetime('now'))`)
+    .run(id, req.usuario.empresa_id, b.texto, b.sub || null, Number(b.ordem) || 99);
+  res.json({ ok: true, id });
+});
+router.delete('/crm/frases/:id', exigePerfil(...GESTAO), (req, res) => {
+  db.prepare('DELETE FROM tmkt_crm_frase WHERE id=? AND empresa_id=?').run(req.params.id, req.usuario.empresa_id);
+  res.json({ ok: true });
+});
 // ── CRM proativo GENÉRICO: alvo = evento | plano | espaco ────────────────────
 const CRM_TIPOS = ['evento', 'plano', 'espaco'];
 const okTipo = t => CRM_TIPOS.includes(t);
@@ -615,29 +630,31 @@ router.put('/crm/:tipo/:id/classificacoes', exigePerfil(...GESTAO), (req, res) =
 router.get('/crm/:tipo/:id/outreach', async (req, res) => {
   if (!okTipo(req.params.tipo)) return res.status(400).json({ erro: 'Tipo inválido.' });
   const emp = req.usuario.empresa_id;
-  const config = db.prepare('SELECT ativo, dias_antes, recorrente, assunto, mensagem, intervalo_dias, so_com_estoque FROM tmkt_crm_outreach WHERE empresa_id=? AND escopo_tipo=? AND escopo_id=?').get(emp, req.params.tipo, String(req.params.id))
-    || { ativo: 0, dias_antes: 15, recorrente: 1, assunto: '', mensagem: '', intervalo_dias: 15, so_com_estoque: 1 };
+  const config = db.prepare('SELECT ativo, dias_antes, recorrente, assunto, mensagem, intervalo_dias, so_com_estoque, frase_id FROM tmkt_crm_outreach WHERE empresa_id=? AND escopo_tipo=? AND escopo_id=?').get(emp, req.params.tipo, String(req.params.id))
+    || { ativo: 0, dias_antes: 15, recorrente: 1, assunto: '', mensagem: '', intervalo_dias: 15, so_com_estoque: 1, frase_id: null };
   let alvos = [];
   try { alvos = await outreach.marcasAlvo(emp, req.params.tipo, req.params.id); } catch (e) { /* ERP off */ }
   const o = outreach.owner(emp, req.params.tipo, req.params.id);
+  const frases = db.prepare('SELECT id, texto FROM tmkt_crm_frase WHERE empresa_id=? AND ativo=1 ORDER BY ordem, criado_em').all(emp);
   const extra = {};
   if (req.params.tipo === 'espaco') { try { extra.livres = outreach.livresDoEspaco(emp, req.params.id); } catch (e) { } }
-  res.json({ ok: true, config, alvos, com_email: alvos.length, agendavel: !!(o && o.proxData), prox_data: o ? o.proxData : null, ...extra });
+  res.json({ ok: true, config, alvos, com_email: alvos.length, agendavel: !!(o && o.proxData), prox_data: o ? o.proxData : null, frases, ...extra });
 });
 // prévia (simulação) do e-mail que será enviado
 router.get('/crm/:tipo/:id/outreach/preview', async (req, res) => {
   if (!okTipo(req.params.tipo)) return res.status(400).json({ erro: 'Tipo inválido.' });
+  const base = '//' + req.get('host'); // domínio atual (protocol-relative) p/ as imagens carregarem na prévia
   let html = '';
-  try { html = await outreach.previewHtml(req.usuario.empresa_id, req.params.tipo, req.params.id); } catch (e) { html = '<div style="padding:24px;font-family:Arial;color:#b91c1c">Erro ao gerar prévia.</div>'; }
+  try { html = await outreach.previewHtml(req.usuario.empresa_id, req.params.tipo, req.params.id, base); } catch (e) { html = '<div style="padding:24px;font-family:Arial;color:#b91c1c">Erro ao gerar prévia.</div>'; }
   res.json({ ok: true, html });
 });
 router.put('/crm/:tipo/:id/outreach', exigePerfil(...GESTAO), (req, res) => {
   if (!okTipo(req.params.tipo)) return res.status(400).json({ erro: 'Tipo inválido.' });
   const emp = req.usuario.empresa_id, b = req.body || {};
   const ex = db.prepare('SELECT id FROM tmkt_crm_outreach WHERE empresa_id=? AND escopo_tipo=? AND escopo_id=?').get(emp, req.params.tipo, String(req.params.id));
-  const vals = [b.ativo ? 1 : 0, Math.max(1, Number(b.dias_antes) || 15), b.recorrente ? 1 : 0, b.assunto || null, b.mensagem || null, Math.max(1, Number(b.intervalo_dias) || 15), b.so_com_estoque === 0 || b.so_com_estoque === false ? 0 : 1];
-  if (ex) db.prepare(`UPDATE tmkt_crm_outreach SET ativo=?, dias_antes=?, recorrente=?, assunto=?, mensagem=?, intervalo_dias=?, so_com_estoque=?, atualizado_em=datetime('now') WHERE id=?`).run(...vals, ex.id);
-  else db.prepare(`INSERT INTO tmkt_crm_outreach (id,empresa_id,escopo_tipo,escopo_id,ativo,dias_antes,recorrente,assunto,mensagem,intervalo_dias,so_com_estoque,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))`).run(uuid(), emp, req.params.tipo, String(req.params.id), ...vals);
+  const vals = [b.ativo ? 1 : 0, Math.max(1, Number(b.dias_antes) || 15), b.recorrente ? 1 : 0, b.assunto || null, b.mensagem || null, Math.max(1, Number(b.intervalo_dias) || 15), b.so_com_estoque === 0 || b.so_com_estoque === false ? 0 : 1, b.frase_id || null];
+  if (ex) db.prepare(`UPDATE tmkt_crm_outreach SET ativo=?, dias_antes=?, recorrente=?, assunto=?, mensagem=?, intervalo_dias=?, so_com_estoque=?, frase_id=?, atualizado_em=datetime('now') WHERE id=?`).run(...vals, ex.id);
+  else db.prepare(`INSERT INTO tmkt_crm_outreach (id,empresa_id,escopo_tipo,escopo_id,ativo,dias_antes,recorrente,assunto,mensagem,intervalo_dias,so_com_estoque,frase_id,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))`).run(uuid(), emp, req.params.tipo, String(req.params.id), ...vals);
   res.json({ ok: true });
 });
 router.post('/crm/:tipo/:id/outreach/enviar', exigePerfil(...GESTAO), async (req, res) => {

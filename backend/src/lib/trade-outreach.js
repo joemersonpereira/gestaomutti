@@ -36,14 +36,15 @@ function proximaOcorrencia(ev, fromStr) {
 
 const BASE = process.env.PUBLIC_URL || 'http://localhost:3001';
 // resolve o "dono" (nome/descrição/imagem p/ o e-mail + a data relevante p/ o agendamento)
-function owner(emp, tipo, id) {
-  if (tipo === 'evento') { const e = db.prepare('SELECT * FROM tmkt_calendario WHERE id=? AND empresa_id=?').get(id, emp); return e && { tipo, nome: e.nome, descricao: e.descricao, ev: e, inativo: e.status === 'inativo', proxData: proximaOcorrencia(e, hoje()), imagemUrl: e.slogan_foto ? `${BASE}/api/publico/trade/calendario/${id}/slogan` : null }; }
-  if (tipo === 'plano') { const p = db.prepare(`SELECT id, nome, chamada, veic_ini, veic_fim, status, (capa_foto IS NOT NULL AND capa_foto<>'') tem_capa FROM tmkt_plano WHERE id=? AND empresa_id=?`).get(id, emp); return p && { tipo, nome: p.nome, descricao: p.chamada, inativo: ['encerrado', 'arquivado', 'inativo'].includes(p.status), proxData: p.veic_ini ? String(p.veic_ini).slice(0, 10) : null, imagemUrl: p.tem_capa ? `${BASE}/api/publico/trade/plano/${id}/capa` : null }; }
+function owner(emp, tipo, id, base) {
+  const b = base || BASE;
+  if (tipo === 'evento') { const e = db.prepare('SELECT * FROM tmkt_calendario WHERE id=? AND empresa_id=?').get(id, emp); return e && { tipo, nome: e.nome, descricao: e.descricao, ev: e, inativo: e.status === 'inativo', proxData: proximaOcorrencia(e, hoje()), imagemUrl: e.slogan_foto ? `${b}/api/publico/trade/calendario/${id}/slogan` : null }; }
+  if (tipo === 'plano') { const p = db.prepare(`SELECT id, nome, chamada, veic_ini, veic_fim, status, (capa_foto IS NOT NULL AND capa_foto<>'') tem_capa FROM tmkt_plano WHERE id=? AND empresa_id=?`).get(id, emp); return p && { tipo, nome: p.nome, descricao: p.chamada, inativo: ['encerrado', 'arquivado', 'inativo'].includes(p.status), proxData: p.veic_ini ? String(p.veic_ini).slice(0, 10) : null, imagemUrl: p.tem_capa ? `${b}/api/publico/trade/plano/${id}/capa` : null }; }
   if (tipo === 'espaco') {
     const s = db.prepare(`SELECT id, espaco, area, loja_nome, segmento, preco_unit, unidade, (foto IS NOT NULL AND foto<>'') tem_foto FROM tmkt_espaco_loja WHERE id=? AND empresa_id=?`).get(id, emp);
     if (!s) return null;
     const digital = ['social', 'ecommerce', 'crm'].includes(s.segmento) || /instagram|tiktok|reels|stories|feed|whats|digital|rede/i.test(((s.area || '') + ' ' + (s.espaco || '')));
-    return { tipo, nome: s.espaco, descricao: [s.area, (s.loja_nome && s.loja_nome !== 'ESCRITÓRIO') ? s.loja_nome : ''].filter(Boolean).join(' · '), inativo: false, proxData: null, preco: s.preco_unit, unidade: s.unidade, imagemUrl: s.tem_foto ? `${BASE}/api/publico/trade/espaco/${id}/foto` : null, contentUrl: (!s.tem_foto && digital) ? `${BASE}/redes/viral2.jpg` : null };
+    return { tipo, nome: s.espaco, descricao: [s.area, (s.loja_nome && s.loja_nome !== 'ESCRITÓRIO') ? s.loja_nome : ''].filter(Boolean).join(' · '), inativo: false, proxData: null, preco: s.preco_unit, unidade: s.unidade, imagemUrl: s.tem_foto ? `${b}/api/publico/trade/espaco/${id}/foto` : null, contentUrl: (!s.tem_foto && digital) ? `${b}/redes/viral2.jpg` : null };
   }
   return null;
 }
@@ -66,9 +67,22 @@ async function marcasAlvo(emp, tipo, id) {
 }
 
 const ZAP = '557598978941';
+const FRASE_PADRAO = { texto: 'O que a Mutti posta vira conversa. E a {marca} pode estar no meio dela.', sub: 'Os nossos conteúdos viralizam e viram meme — o cliente assiste, comenta e compartilha. A sua marca entra na conversa, no ponto certo da jornada de cuidado.' };
+// escolhe a frase do banco: a definida na config (frase_id), senão uma ATIVA aleatória, senão a padrão
+function escolherFrase(emp, cfg) {
+  try {
+    if (cfg && cfg.frase_id) { const f = db.prepare('SELECT texto, sub FROM tmkt_crm_frase WHERE id=? AND empresa_id=?').get(cfg.frase_id, emp); if (f) return f; }
+    const ativas = db.prepare('SELECT texto, sub FROM tmkt_crm_frase WHERE empresa_id=? AND ativo=1').all(emp);
+    if (ativas.length) return ativas[Math.floor(Math.random() * ativas.length)];
+  } catch (e) { /* tabela nova */ }
+  return FRASE_PADRAO;
+}
 function assuntoDe(cfg, o) { return (cfg && cfg.assunto) ? cfg.assunto : `Oportunidade de Trade · ${o.nome} · Grupo Mutti`; }
 // e-mail bonito e convidativo — apelo "conteúdo que viraliza / entra na conversa" (oportunidade digital)
-function htmlDe(cfg, o, alvo, occ) {
+function htmlDe(cfg, o, alvo, occ, frase) {
+  frase = frase || FRASE_PADRAO;
+  const marcaTxt = s => String(s || '').replace(/\{marca\}/g, alvo.marca);
+  const marcaB = s => String(s || '').replace(/\{marca\}/g, `<b>${alvo.marca}</b>`);
   const zap = `https://wa.me/${ZAP}?text=${encodeURIComponent('Temos interesse em "' + o.nome + '" (Trade Grupo Mutti).')}`;
   const foneBonito = ZAP.replace(/^55(\d\d)(\d{4,5})(\d{4})$/, '($1) $2-$3');
   const extra = (cfg && cfg.mensagem) ? `<p style="margin:16px 0 0;color:#334;font-size:15px;line-height:1.6">${String(cfg.mensagem).replace(/\n/g, '<br>')}</p>` : '';
@@ -97,10 +111,10 @@ function htmlDe(cfg, o, alvo, occ) {
   <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 6px 24px rgba(16,24,40,.08)">
     <div style="background:linear-gradient(135deg,#43C18A,#1F9E67);padding:26px 28px;color:#ffffff">
       <div style="font-size:12.5px;letter-spacing:.6px;opacity:.9;text-transform:uppercase">Grupo Mutti · Trade Marketing</div>
-      <div style="font-size:23px;font-weight:800;margin-top:6px;line-height:1.25;text-shadow:0 1px 2px rgba(0,0,0,.16)">O que a Mutti posta vira conversa.<br>E a ${alvo.marca} pode estar no meio dela.</div>
+      <div style="font-size:23px;font-weight:800;margin-top:6px;line-height:1.25;text-shadow:0 1px 2px rgba(0,0,0,.16)">${marcaTxt(frase.texto)}</div>
     </div>
     <div style="padding:26px 28px;color:#20303a">
-      <p style="margin:0 0 16px;font-size:15px;line-height:1.6">Olá${alvo.responsavel ? ', ' + alvo.responsavel : ''}! Os nossos conteúdos <b>viralizam e viram meme</b> — o cliente assiste, comenta e compartilha. Aqui a sua marca não contrata visibilidade: <b>entra na conversa</b>, no ponto certo da jornada de cuidado — na loja, no delivery e no digital.</p>
+      <p style="margin:0 0 16px;font-size:15px;line-height:1.6">Olá${alvo.responsavel ? ', ' + alvo.responsavel : ''}! ${marcaB(frase.sub)}</p>
       ${bloco}
       ${quando}
       <p style="margin:16px 0 0;font-size:15px;line-height:1.6">Queremos a <b>${alvo.marca}</b> nessa conversa com a gente — com resultado que você <b>mede de verdade</b>. Bora combinar como a sua marca entra?</p>
@@ -114,14 +128,15 @@ function htmlDe(cfg, o, alvo, occ) {
   </div>
 </div>`;
 }
-// prévia do e-mail (simulação) — usa a 1ª marca-alvo com contato, ou "Sua Marca" de exemplo
-async function previewHtml(emp, tipo, id) {
-  const o = owner(emp, tipo, id);
+// prévia do e-mail (simulação) — usa a 1ª marca-alvo com contato, ou "Sua Marca" de exemplo.
+// base: domínio a usar nas imagens (na prévia vem do request, p/ carregar no navegador).
+async function previewHtml(emp, tipo, id, base) {
+  const o = owner(emp, tipo, id, base);
   if (!o) return '<div style="font-family:Arial;padding:24px;color:#64748b">Alvo não encontrado.</div>';
   const cfg = db.prepare('SELECT * FROM tmkt_crm_outreach WHERE empresa_id=? AND escopo_tipo=? AND escopo_id=?').get(emp, tipo, String(id)) || {};
   let alvo = { marca: 'Sua Marca', responsavel: null };
   try { const al = await marcasAlvo(emp, tipo, id); if (al.length) alvo = { marca: al[0].marca, responsavel: al[0].responsavel }; } catch (e) { /* ERP off */ }
-  return htmlDe(cfg, o, alvo, o.proxData || hoje());
+  return htmlDe(cfg, o, alvo, o.proxData || hoje(), escolherFrase(emp, cfg));
 }
 // vagas livres de um espaço (p/ a recorrência "só com estoque livre")
 const OCUPA_ST = ['pedido', 'rascunho', 'negociacao', 'confirmado', 'briefing', 'aguardando', 'vigente', 'vendido', 'concluido'];
@@ -146,11 +161,12 @@ async function enviarOportunidade(emp, tipo, id, opts = {}) {
   if (!alvos.length) return { ok: true, ocorrencia: occ, enviados: 0, pulados: 0, alvos: 0, semContato: true };
   const jaOk = new Set(db.prepare(`SELECT fabricante_id FROM tmkt_outreach_log WHERE empresa_id=? AND escopo_tipo=? AND escopo_id=? AND ocorrencia=? AND canal='email' AND status='ok'`).all(emp, tipo, String(id), occ).map(r => String(r.fabricante_id)));
   const insLog = db.prepare(`INSERT INTO tmkt_outreach_log (id,empresa_id,evento_id,escopo_tipo,escopo_id,ocorrencia,fabricante_id,marca_nome,email,canal,status,erro,enviado_em) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`);
+  const frase = escolherFrase(emp, cfg);
   let enviados = 0, pulados = 0;
   for (const a of alvos) {
     if (soPendentes && jaOk.has(String(a.fabricante_id))) { pulados++; continue; }
     try {
-      await enviarEmail({ to: a.email, subject: assuntoDe(cfg, o), html: htmlDe(cfg, o, a, occ) });
+      await enviarEmail({ to: a.email, subject: assuntoDe(cfg, o), html: htmlDe(cfg, o, a, occ, frase) });
       insLog.run(uuid(), emp, (tipo === 'evento' ? String(id) : null), tipo, String(id), occ, a.fabricante_id, a.marca, a.email, 'email', 'ok', null);
       enviados++;
     } catch (e) {
