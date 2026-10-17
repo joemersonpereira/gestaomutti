@@ -239,6 +239,13 @@ function Colaboradores({ API }) {
             {editId && (form.tangerino_id
               ? <div style={{ fontSize: 11, color: '#1E7A46', background: '#EAF7EF', border: '1px solid #BCE6CD', borderRadius: 6, padding: '5px 8px', marginBottom: 6 }}>🕐 <strong>Ponto vinculado</strong> ao Tangerino{form.tangerino_nome ? <> como <strong>{form.tangerino_nome}</strong></> : ''} (o vínculo é automático pelo CPF).</div>
               : <div style={{ fontSize: 11, color: '#8A6D3B', background: '#FFF8E6', border: '1px solid #F0E0B0', borderRadius: 6, padding: '5px 8px', marginBottom: 6 }}>🕐 <strong>Sem vínculo com o Ponto (Tangerino).</strong> {form.cpf ? 'Rode a vinculação por CPF em Ponto → Vínculos.' : 'Informe o CPF acima para vincular automaticamente.'}</div>)}
+            <label style={{ fontSize: 10, color: '#999' }}>E-mail de acesso *</label>
+            <input style={s.campo} type="email" placeholder="nome@farmaciasmutti.com.br" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
+            {!editId && <>
+              <label style={{ fontSize: 10, color: '#999' }}>Senha de acesso (inicial)</label>
+              <input style={s.campo} placeholder="deixe em branco para usar 12345" value={form.senha || ''} onChange={e => setForm({ ...form, senha: e.target.value })} />
+              <div style={{ fontSize: 10, color: '#999', marginTop: -4, marginBottom: 4 }}>💡 Você define a senha inicial. O colaborador troca no 1º acesso.</div>
+            </>}
           </div>
         </div>
         <div style={s.dica}>📸 Peça uma <strong>foto de rosto, sorrindo</strong> 😊. Ela é usada em <strong>ações internas</strong> (Comunidade, datas comemorativas).</div>

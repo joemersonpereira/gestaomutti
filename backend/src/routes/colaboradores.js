@@ -91,8 +91,10 @@ router.post('/', exigePerfil('Gestor Geral', 'Diretor Geral', 'RH'), (req, res) 
   const existe = db.prepare('SELECT id FROM colaboradores WHERE email = ?').get(email);
   if (existe) return res.status(400).json({ erro: 'E-mail já cadastrado.' });
 
-  // Senha padrão (o colaborador troca no 1º acesso)
-  const senhaProvisoria = '12345';
+  // Senha inicial: o RH pode definir uma no cadastro; senão usa o padrão. O colaborador troca no 1º acesso.
+  const senhaInformada = String(req.body.senha || '').trim();
+  if (senhaInformada && senhaInformada.length < 4) return res.status(400).json({ erro: 'A senha precisa ter ao menos 4 caracteres.' });
+  const senhaProvisoria = senhaInformada || '12345';
   const hash = bcrypt.hashSync(senhaProvisoria, 10);
   const id = uuidv4();
 

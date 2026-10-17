@@ -279,3 +279,14 @@ function rodarConversaoEcomm() {
 }
 setTimeout(rodarConversaoEcomm, 60000);
 setInterval(rodarConversaoEcomm, 5 * 60 * 1000);
+
+// Trade Marketing — cobrança automática (opt-in por empresa): reenvia e-mail das parcelas vencidas
+// em aberto que não foram cobradas na janela configurada. Boot (90s) + 1x/dia. Só roda onde a gestão ligou.
+function rodarCobrancaTrade() {
+  try {
+    const { rodarCobrancaAuto } = require('./lib/cobranca');
+    rodarCobrancaAuto().catch(e => console.error('[cobrancaAuto]', e.message));
+  } catch { /* lib ou tabela ainda não disponível */ }
+}
+setTimeout(rodarCobrancaTrade, 90000);
+setInterval(rodarCobrancaTrade, 24 * 60 * 60 * 1000); // 1x/dia

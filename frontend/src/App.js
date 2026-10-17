@@ -158,8 +158,8 @@ const REMOVIDOS = new Set([
   'relatorios', 'avaliacao-admin', 'diretoria', 'ranking',
   // Supervisão (inteira) + Atendimento Online
   'supervisor', 'auditoria', 'premiacao-equipe', 'metas', 'entrega',
-  // Comercial — Trade & Fornecedores (mantém só o Painel de Compras)
-  'acordos', 'trademkt',
+  // Comercial — Trade & Fornecedores (Trade Marketing voltou ao menu 2026-10-16 — pedido do Joe)
+  'acordos',
   // Logística / Configurações
   'conferentes', 'almoxarifado', 'integracoes', 'email-tarefas',
   // Gente & Gestão — restantes
