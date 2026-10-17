@@ -290,3 +290,13 @@ function rodarCobrancaTrade() {
 }
 setTimeout(rodarCobrancaTrade, 90000);
 setInterval(rodarCobrancaTrade, 24 * 60 * 60 * 1000); // 1x/dia
+
+// CRM proativo de Trade: X dias antes de cada ação, avisa as marcas vinculadas (e-mail)
+function rodarOutreachTrade() {
+  try {
+    const { rodarOutreachAuto } = require('./lib/trade-outreach');
+    rodarOutreachAuto().catch(e => console.error('[outreachAuto]', e.message));
+  } catch { /* lib ou tabela ainda não disponível */ }
+}
+setTimeout(rodarOutreachTrade, 110000);
+setInterval(rodarOutreachTrade, 24 * 60 * 60 * 1000); // 1x/dia

@@ -7,6 +7,7 @@ const { erpQuery, habilitado } = require('../db/erp');
 const { auth, exigePerfil } = require('../middleware/auth');
 const { enviarEmail, smtpOk } = require('../lib/mailer');
 const { cobrarVenda } = require('../lib/cobranca');
+const outreach = require('../lib/trade-outreach');
 
 const GESTAO = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing'];
 // fluxo do Kanban (Joe 2026-10-16): rascunho → negociação → confirmado → briefing (material/arte pendente)
@@ -113,7 +114,7 @@ router.get('/cadastros', (req, res) => {
   });
 });
 // ── Áreas detalhadas (canal/tamanho/descrição + fotos) ─────────────────────
-const CANAIS = ['fisico', 'ecommerce', 'crm', 'endomarketing'];
+const CANAIS = ['fisico', 'encarte', 'ecommerce', 'social', 'crm_filipeta', 'crm_pdv', 'radio_ext', 'radio_int', 'endomarketing'];
 const COBRANCAS = ['mensal', 'insercao', 'diario', 'unidade', 'hora'];
 const normCobranca = v => (COBRANCAS.includes(v) ? v : null);
 router.post('/areas', exigePerfil(...GESTAO), (req, res) => {
@@ -554,6 +555,83 @@ router.get('/erp/escopo', async (req, res) => {
   } catch (e) { res.json({ itens: [], erro: e.message }); }
 });
 
+// ── CRM PROATIVO DE TRADE (fase 1) — classificação do Alpha → MARCAS → contato da marca ──────────
+// marcas (fabricantes) que têm produto naquela classificação + se já têm contato cadastrado no Mutti
+router.get('/erp/classificacao/:id/marcas', async (req, res) => {
+  const emp = req.usuario.empresa_id;
+  if (!habilitado()) return res.json({ marcas: [] });
+  let rows = [];
+  try {
+    rows = await erpQuery(`SELECT fab.id fabricante_id, COALESCE(pp.razaosocial, pp.nome) marca, COUNT(DISTINCT cp.produtoid) produtos
+      FROM classificacaoproduto cp
+      JOIN produto pr ON pr.id = cp.produtoid
+      JOIN fabricante fab ON fab.id = pr.fabricanteid
+      JOIN pessoa pp ON pp.id = fab.pessoaid
+      WHERE cp.classificacaoid = $1
+      GROUP BY fab.id, pp.razaosocial, pp.nome
+      ORDER BY produtos DESC LIMIT 300`, [req.params.id]);
+  } catch (e) { return res.json({ marcas: [], erro: e.message }); }
+  const contatos = db.prepare('SELECT fabricante_id, email, whatsapp, responsavel FROM tmkt_marca_contato WHERE empresa_id=?').all(emp)
+    .reduce((m, c) => (m[String(c.fabricante_id)] = c, m), {});
+  res.json({
+    marcas: rows.map(r => {
+      const c = contatos[String(r.fabricante_id)];
+      return { fabricante_id: String(r.fabricante_id), marca: r.marca, produtos: Number(r.produtos) || 0, email: (c && c.email) || null, whatsapp: (c && c.whatsapp) || null, responsavel: (c && c.responsavel) || null, tem_contato: !!(c && (c.email || c.whatsapp)) };
+    })
+  });
+});
+// cadastro do contato de TRADE da marca (o ERP não tem; a gente mantém)
+router.get('/marcas/contatos', (req, res) => {
+  res.json({ contatos: db.prepare('SELECT id, fabricante_id, marca_nome, email, whatsapp, responsavel, obs FROM tmkt_marca_contato WHERE empresa_id=? ORDER BY marca_nome').all(req.usuario.empresa_id) });
+});
+router.put('/marcas/contato/:fabId', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id, b = req.body || {};
+  const ex = db.prepare('SELECT id FROM tmkt_marca_contato WHERE empresa_id=? AND fabricante_id=?').get(emp, String(req.params.fabId));
+  if (ex) db.prepare(`UPDATE tmkt_marca_contato SET marca_nome=?, email=?, whatsapp=?, responsavel=?, obs=?, atualizado_em=datetime('now') WHERE id=?`)
+    .run(b.marca_nome || null, b.email || null, b.whatsapp || null, b.responsavel || null, b.obs || null, ex.id);
+  else db.prepare(`INSERT INTO tmkt_marca_contato (id,empresa_id,fabricante_id,marca_nome,email,whatsapp,responsavel,obs,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))`)
+    .run(uuid(), emp, String(req.params.fabId), b.marca_nome || null, b.email || null, b.whatsapp || null, b.responsavel || null, b.obs || null);
+  res.json({ ok: true });
+});
+// vínculo da ação do calendário com classificação(ões) do Alpha (quem avisar)
+router.get('/portal/calendario/:id/classificacoes', (req, res) => {
+  res.json({ classificacoes: db.prepare('SELECT classificacao_id, nome FROM tmkt_evento_classificacao WHERE empresa_id=? AND evento_id=?').all(req.usuario.empresa_id, req.params.id) });
+});
+router.put('/portal/calendario/:id/classificacoes', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id, arr = Array.isArray((req.body || {}).classificacoes) ? req.body.classificacoes : [];
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM tmkt_evento_classificacao WHERE empresa_id=? AND evento_id=?').run(emp, req.params.id);
+    const ins = db.prepare(`INSERT INTO tmkt_evento_classificacao (id,empresa_id,evento_id,classificacao_id,nome,criado_em) VALUES (?,?,?,?,?,datetime('now'))`);
+    arr.forEach(c => { if (c && c.classificacao_id) ins.run(uuid(), emp, req.params.id, String(c.classificacao_id), c.nome || null); });
+  });
+  tx();
+  res.json({ ok: true });
+});
+// ── Disparo do CRM proativo (e-mail) por ação ────────────────────────────────
+router.get('/portal/calendario/:id/outreach', async (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const config = db.prepare('SELECT ativo, dias_antes, recorrente, assunto, mensagem FROM tmkt_evento_outreach WHERE empresa_id=? AND evento_id=?').get(emp, req.params.id)
+    || { ativo: 0, dias_antes: 15, recorrente: 1, assunto: '', mensagem: '' };
+  let alvos = [];
+  try { alvos = await outreach.marcasAlvo(emp, req.params.id); } catch (e) { /* ERP off */ }
+  res.json({ ok: true, config, alvos, com_email: alvos.length });
+});
+router.put('/portal/calendario/:id/outreach', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id, b = req.body || {};
+  const ex = db.prepare('SELECT id FROM tmkt_evento_outreach WHERE empresa_id=? AND evento_id=?').get(emp, req.params.id);
+  const vals = [b.ativo ? 1 : 0, Math.max(1, Number(b.dias_antes) || 15), b.recorrente ? 1 : 0, b.assunto || null, b.mensagem || null];
+  if (ex) db.prepare(`UPDATE tmkt_evento_outreach SET ativo=?, dias_antes=?, recorrente=?, assunto=?, mensagem=?, atualizado_em=datetime('now') WHERE id=?`).run(...vals, ex.id);
+  else db.prepare(`INSERT INTO tmkt_evento_outreach (id,empresa_id,evento_id,ativo,dias_antes,recorrente,assunto,mensagem,criado_em,atualizado_em) VALUES (?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))`).run(uuid(), emp, req.params.id, ...vals);
+  res.json({ ok: true });
+});
+router.post('/portal/calendario/:id/outreach/enviar', exigePerfil(...GESTAO), async (req, res) => {
+  try { const r = await outreach.enviarOportunidade(req.usuario.empresa_id, req.params.id, { ocorrencia: (req.body || {}).ocorrencia, soPendentes: (req.body || {}).soPendentes !== false }); res.json(r); }
+  catch (e) { res.status(400).json({ erro: e.message }); }
+});
+router.get('/portal/calendario/:id/outreach/log', (req, res) => {
+  res.json({ log: db.prepare(`SELECT ocorrencia, marca_nome, email, status, erro, enviado_em FROM tmkt_outreach_log WHERE empresa_id=? AND evento_id=? ORDER BY enviado_em DESC LIMIT 50`).all(req.usuario.empresa_id, req.params.id) });
+});
+
 // ── Custos / prestação de contas (interno): resultado real do trade = valor − custos ────────────
 router.get('/vendas/:id/custos', (req, res) => {
   const v = db.prepare('SELECT valor FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, req.usuario.empresa_id);
@@ -802,6 +880,7 @@ router.patch('/portal/espaco/:id', exigePerfil(...GESTAO), (req, res) => {
   const sets = [], vals = [];
   if (b.quantidade != null) { sets.push('quantidade=?'); vals.push(Math.max(1, Number(b.quantidade) || 1)); }
   if (b.preco_unit != null) { sets.push('preco_unit=?'); vals.push(Number(b.preco_unit) || 0); }
+  if (b.preco_min !== undefined) { sets.push('preco_min=?'); vals.push((b.preco_min === '' || b.preco_min == null) ? null : (Number(b.preco_min) || null)); }
   if (b.disponivel != null) { sets.push('disponivel=?'); vals.push(b.disponivel ? 1 : 0); }
   if (b.destaque != null) { sets.push('destaque=?'); vals.push(b.destaque ? 1 : 0); }
   if (b.midia != null) { sets.push('midia=?'); vals.push(['off', 'on', 'ambos'].includes(b.midia) ? b.midia : 'off'); }
@@ -870,18 +949,19 @@ router.post('/portal/espaco', exigePerfil(...GESTAO), (req, res) => {
   const unidade = ['mes', 'dia', 'semana', 'edicao', 'periodo'].includes(b.unidade) ? b.unidade
     : (seg === 'encarte' ? 'edicao' : fisico ? 'periodo' : 'mes');
   const foto = (b.foto && /^data:image\//.test(b.foto)) ? String(b.foto).slice(0, 8_000_000) : null;
-  db.prepare(`INSERT INTO tmkt_espaco_loja (id, empresa_id, segmento, area, espaco, tamanho, descricao, loja_nome, loja_id, preco_unit, quantidade, midia, modo_venda, unidade, foto, disponivel, destaque)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,0)`)
+  const precoMin = (b.preco_min === '' || b.preco_min == null) ? null : (Number(b.preco_min) || null);
+  db.prepare(`INSERT INTO tmkt_espaco_loja (id, empresa_id, segmento, area, espaco, tamanho, descricao, loja_nome, loja_id, preco_unit, preco_min, quantidade, midia, modo_venda, unidade, foto, disponivel, destaque)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,0)`)
     .run(id, emp, seg, String(b.area || '').trim() || null, espaco, String(b.tamanho || '').trim() || null,
       String(b.descricao || '').trim() || null, loja_nome, b.loja_id || null,
-      Number(b.preco_unit) || 0, Math.max(1, Number(b.quantidade) || 1), midia, modo_venda, unidade, foto);
+      Number(b.preco_unit) || 0, precoMin, Math.max(1, Number(b.quantidade) || 1), midia, modo_venda, unidade, foto);
   res.json({ ok: true, id });
 });
 // lista TUDO que é comercializável p/ a gestão configurar + disponibilidade
 // (e-commerce/rádio/CRM/tabloide = PADRÃO DA REDE; espaços físicos = POR LOJA)
 router.get('/portal/posicoes', (req, res) => {
   const emp = req.usuario.empresa_id;
-  const rows = db.prepare(`SELECT id, segmento, area, espaco, tamanho, descricao, loja_nome, preco_unit, quantidade, COALESCE(modo_venda,'periodo') modo_venda, midia, COALESCE(unidade,'mes') unidade, limite_dia, limite_mes, (foto IS NOT NULL AND foto<>'') AS tem_foto, COALESCE(disponivel,1) disponivel, COALESCE(destaque,0) destaque
+  const rows = db.prepare(`SELECT id, segmento, area, espaco, tamanho, descricao, loja_nome, preco_unit, preco_min, quantidade, COALESCE(modo_venda,'periodo') modo_venda, midia, COALESCE(unidade,'mes') unidade, limite_dia, limite_mes, (foto IS NOT NULL AND foto<>'') AS tem_foto, COALESCE(disponivel,1) disponivel, COALESCE(destaque,0) destaque
     FROM tmkt_espaco_loja WHERE empresa_id=?
     ORDER BY segmento, loja_nome, area, espaco`).all(emp);
   // ocupação atual (vagas já reservadas em vendas ativas, independentemente do período)
@@ -922,6 +1002,51 @@ router.get('/portal/posicoes', (req, res) => {
       };
     })
   });
+});
+
+// ── MONITOR DE CAPACIDADE (gestão) ─────────────────────────────────────────
+// Ocupação por MÊS das posições que têm teto (limite_dia/limite_mes): a capacidade
+// se constrói na base diária (limite_dia × dias do mês), com limite_mes como teto opcional.
+router.get('/portal/capacidade', (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const mes = /^\d{4}-\d{2}$/.test(req.query.mes || '') ? req.query.mes : new Date().toISOString().slice(0, 7);
+  const [ano, m] = mes.split('-').map(Number);
+  const diasMes = new Date(ano, m, 0).getDate();
+  const ini = `${mes}-01`, fim = `${mes}-${String(diasMes).padStart(2, '0')}`;
+  const ov = (ai, af, bi, bf) => (!!ai && !!af && !!bi && !!bf && ai <= bf && bi <= af); // YYYY-MM-DD comparam lexicograficamente
+  const pos = db.prepare(`SELECT id, area, espaco, segmento, loja_nome, quantidade, limite_dia, limite_mes, COALESCE(disponivel,1) disponivel
+    FROM tmkt_espaco_loja WHERE empresa_id=? AND ((limite_dia IS NOT NULL AND limite_dia>0) OR (limite_mes IS NOT NULL AND limite_mes>0))
+    ORDER BY loja_nome, area, espaco`).all(emp);
+  if (!pos.length) return res.json({ ok: true, mes, dias_mes: diasMes, itens: [] });
+  // comprometido por vendas ativas que cruzam o mês
+  const OCUPA = ['pedido', 'rascunho', 'negociacao', 'confirmado', 'briefing', 'aguardando', 'vigente', 'vendido', 'concluido'];
+  const ph = OCUPA.map(() => '?').join(',');
+  const comp = {};
+  db.prepare(`SELECT ve.espaco_id eid, ve.quantidade q, v.vigencia_ini vi, v.vigencia_fim vf
+      FROM tmkt_venda_espacos ve JOIN tmkt_vendas v ON v.id=ve.venda_id
+      WHERE ve.empresa_id=? AND v.status IN (${ph})`).all(emp, ...OCUPA)
+    .forEach(r => { if (ov(ini, fim, r.vi, r.vf)) comp[r.eid] = (comp[r.eid] || 0) + (Number(r.q) || 1); });
+  // comprometido por plano publicado cujo período de veiculação cruza o mês (cota-weighted)
+  try {
+    db.prepare(`SELECT pe.espaco_id eid, pe.quantidade q, p.veic_ini vi, p.veic_fim vf,
+        COALESCE((SELECT c.quantidade FROM tmkt_plano_cotas c WHERE c.id=pe.cota_id),
+                 (SELECT SUM(c2.quantidade) FROM tmkt_plano_cotas c2 WHERE c2.plano_id=p.id), p.cota_qtd, 1) cotas
+        FROM tmkt_plano_espacos pe JOIN tmkt_plano p ON p.id=pe.plano_id
+        WHERE pe.empresa_id=? AND p.status IN ('publicado','vigente')`).all(emp)
+      .forEach(r => { if (ov(ini, fim, r.vi, r.vf)) comp[r.eid] = (comp[r.eid] || 0) + (Number(r.q) || 1) * (Number(r.cotas) || 1); });
+  } catch (e) { /* bases antigas */ }
+  const itens = pos.map(p => {
+    const capDia = (p.limite_dia != null && p.limite_dia > 0) ? p.limite_dia : null;
+    const capMes = (p.limite_mes != null && p.limite_mes > 0) ? p.limite_mes : (capDia ? capDia * diasMes : (Number(p.quantidade) || 0));
+    const usado = comp[p.id] || 0;
+    return {
+      id: p.id, area: p.area, espaco: p.espaco, segmento: p.segmento,
+      local: (['encarte', 'ecommerce', 'crm', 'social', 'endomarketing'].includes(p.segmento)) ? (p.loja_nome || 'ESCRITÓRIO') : (p.loja_nome || '—'),
+      disponivel: !!p.disponivel, cap_dia: capDia, cap_mes: capMes, usado,
+      livres: Math.max(0, capMes - usado), pct: capMes ? Math.round(usado / capMes * 100) : 0,
+    };
+  }).sort((a, b) => b.pct - a.pct);
+  res.json({ ok: true, mes, dias_mes: diasMes, itens });
 });
 
 // ── PLANOS COMERCIAIS (gestão) ────────────────────────────────────────────

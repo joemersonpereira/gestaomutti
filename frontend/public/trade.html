@@ -471,7 +471,7 @@ var token=new URLSearchParams(location.search).get('t');
 var acesso=sessionStorage.getItem('trade_acesso')||'';
 var _urlAc=new URLSearchParams(location.search).get('acesso');
 if(_urlAc){ acesso=_urlAc; try{sessionStorage.setItem('trade_acesso',_urlAc);}catch(e){} }
-var carrinho={}, espacos=[], escopo=[], planos=[], encReservas={}, _slotArt=null, fLoja='', fArea='', fTab='destaques', fBusca='', fBandeira='', _planoCompra=null;
+var carrinho={}, espacos=[], escopo=[], planos=[], encReservas={}, encAgenda={}, _slotArt=null, fLoja='', fArea='', fTab='destaques', fBusca='', fBandeira='', _planoCompra=null;
 // Modo edição (WYSIWYG): a gestão embute esta página em iframe com ?edit=1; os espaços viram
 // clicáveis p/ criar/editar e avisam o pai (gestão) por postMessage, em vez do fluxo do fornecedor.
 var EDIT=new URLSearchParams(location.search).get('edit')==='1';
@@ -719,20 +719,34 @@ function patrocinarDia(e,dia,mesNum,ano,mesModal){
   var dd=ano+'-'+('0'+mesNum).slice(-2)+'-'+('0'+dia).slice(-2);
   var wa='https://wa.me/557598978941?text='+encodeURIComponent('Quero patrocinar "'+e.nome+'" no dia '+dia+'/'+mesNum+'/'+ano+'.');
   if(!vinc.length){ window.open(wa,'_blank'); return; }
+  // disponibilidade do dia → quantas vagas livres por posição
+  get('/disponibilidade?ini='+dd+'&fim='+dd).then(function(r){
+    var disp=(r&&r.disp)||{};
+    montarSeletorVinc(e,vinc,dia,mesNum,ano,dd,wa,disp,mesModal);
+  }).catch(function(){ montarSeletorVinc(e,vinc,dia,mesNum,ano,dd,wa,{},mesModal); });
+}
+function montarSeletorVinc(e,vinc,dia,mesNum,ano,dd,wa,disp,mesModal){
   var unLbl={mes:'/mês',dia:'/dia',semana:'/sem',edicao:'/edição',periodo:'período'};
   var cards=vinc.map(function(v){
-    var ind=v.disponivel===false;
+    var livres=(disp[v.espaco_id]!=null)?Number(disp[v.espaco_id]):(Number(v.quantidade)||1);
+    var ind=(v.disponivel===false)||livres<=0;
+    var temHora=(v.modo_venda==='insercao'); // ex.: Stories, Reels, rádio — pode ter horário
     var ico='<div class="ecz" style="height:92px;background:'+phBg(v)+';display:flex;align-items:center;justify-content:center">'+phIcon(v)+'</div>';
     var pic=v.tem_foto?('<div class="ecz" style="height:92px;background:center/cover no-repeat url('+API+'/espaco/'+v.espaco_id+'/foto)"></div>'):ico;
     return '<div class="vcard'+(ind?' ind':'')+'" data-eid="'+v.espaco_id+'">'+pic+
       '<div style="padding:10px 12px">'+
         '<div style="font-weight:800;font-size:13.5px;color:#243">'+h(v.espaco)+'</div>'+
         '<div style="font-size:11.5px;color:#64748b;margin-top:1px">'+h([v.area,(v.loja_nome&&v.loja_nome!=='ESCRITÓRIO')?v.loja_nome:''].filter(Boolean).join(' · ')||'Padrão da rede')+(v.tamanho?' · '+h(v.tamanho):'')+'</div>'+
+        '<div style="font-size:11px;font-weight:700;margin-top:4px;color:'+(ind?'#b91c1c':'#1E874B')+'">'+(ind?'esgotado':(livres+' '+(livres>1?'disponíveis':'disponível')))+'</div>'+
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px">'+
           '<div style="font-weight:800;color:var(--accent)">'+brl(v.preco_unit)+'<span style="font-weight:600;font-size:11px;color:#94a3b8"> '+(unLbl[v.unidade]||'')+'</span></div>'+
           (ind?'<span style="font-size:11px;color:#b91c1c;font-weight:700">indisponível</span>'
-            :'<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#334;cursor:pointer"><input type="checkbox" class="vsel" data-eid="'+v.espaco_id+'" checked> anunciar <input type="number" class="vqt" data-eid="'+v.espaco_id+'" value="1" min="1" max="'+(Number(v.quantidade)||99)+'" style="width:48px;padding:4px 6px;border:1px solid #e2e8f0;border-radius:7px"></label>')+
+            :'<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#334;cursor:pointer"><input type="checkbox" class="vsel" data-eid="'+v.espaco_id+'" checked> anunciar <input type="number" class="vqt" data-eid="'+v.espaco_id+'" value="1" min="1" max="'+livres+'" style="width:48px;padding:4px 6px;border:1px solid #e2e8f0;border-radius:7px"></label>')+
         '</div>'+
+        ((!ind&&temHora)?('<div style="margin-top:8px;border-top:1px dashed #eef2f7;padding-top:8px;font-size:12px;color:#475569">'+
+          '<label style="display:flex;align-items:center;gap:6px;margin-bottom:4px;cursor:pointer"><input type="checkbox" class="vlivre" data-eid="'+v.espaco_id+'"> horário livre <span style="color:#94a3b8">(a Mutti define o melhor)</span></label>'+
+          '<label style="display:flex;align-items:center;gap:6px">⏰ horário <input type="time" class="vhora" data-eid="'+v.espaco_id+'" style="padding:3px 6px;border:1px solid #e2e8f0;border-radius:7px"></label>'+
+        '</div>'):'')+
       '</div></div>';
   }).join('');
   var m=document.createElement('div');m.className='modal';
@@ -740,7 +754,7 @@ function patrocinarDia(e,dia,mesNum,ano,mesModal){
     '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">'+
       '<div><h2 style="margin:0">'+h(e.nome)+'</h2><div style="font-size:12.5px;color:#64748b;margin-top:2px">Ação de '+dia+'/'+mesNum+'/'+ano+(e.descricao?' · '+h(e.descricao):'')+'</div></div>'+
       '<button class="pclose" id="vcan">✕</button></div>'+
-    '<div style="font-size:12px;color:#334;background:#f0f7ff;border:1px solid #cfe3fb;border-radius:10px;padding:9px 12px;margin:12px 0">🎯 Nesta ação a sua marca anuncia <b>nas posições vinculadas a ela</b>. Escolha onde quer aparecer e a quantidade.</div>'+
+    '<div style="font-size:12px;color:#334;background:#f0f7ff;border:1px solid #cfe3fb;border-radius:10px;padding:9px 12px;margin:12px 0">🎯 Nesta ação a sua marca anuncia <b>nas posições vinculadas a ela</b>. Escolha onde quer aparecer, a quantidade e, se quiser, o horário.</div>'+
     '<div class="vgrid">'+cards+'</div>'+
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px">'+
       '<a href="'+wa+'" target="_blank" rel="noopener" style="font-size:12.5px;color:#64748b">Prefiro falar no WhatsApp</a>'+
@@ -748,11 +762,21 @@ function patrocinarDia(e,dia,mesNum,ano,mesModal){
     '</div>';
   document.body.appendChild(m);
   el('vcan').onclick=function(){m.remove();};m.onclick=function(ev){if(ev.target===m)m.remove();};
+  // "horário livre" desabilita o campo de hora
+  [].forEach.call(m.querySelectorAll('.vlivre'),function(cb){cb.onchange=function(){var hv=m.querySelector('.vhora[data-eid="'+cb.getAttribute('data-eid')+'"]');if(hv){hv.disabled=cb.checked;if(cb.checked)hv.value='';}};});
   el('vok').onclick=function(){
     var escolhidos=[];
     [].forEach.call(m.querySelectorAll('.vsel'),function(cb){ if(cb.checked){ var eid=cb.getAttribute('data-eid'); var qi=m.querySelector('.vqt[data-eid="'+eid+'"]'); escolhidos.push({espaco_id:eid,q:Math.max(1,Number(qi&&qi.value)||1)}); } });
     if(!escolhidos.length){ alert('Selecione pelo menos uma posição pra anunciar.'); return; }
-    escolhidos.forEach(function(x){ if(!encReservas[x.espaco_id])encReservas[x.espaco_id]=[]; for(var i=0;i<x.q;i++)encReservas[x.espaco_id].push({arte:null,mime:null,criarArte:false}); carrinho[x.espaco_id]=encReservas[x.espaco_id].length; });
+    escolhidos.forEach(function(x){
+      if(!encReservas[x.espaco_id])encReservas[x.espaco_id]=[];
+      for(var i=0;i<x.q;i++)encReservas[x.espaco_id].push({arte:null,mime:null,criarArte:false});
+      carrinho[x.espaco_id]=encReservas[x.espaco_id].length;
+      // horário escolhido vira a "agenda" do item (já vai pro pedido)
+      var lv=m.querySelector('.vlivre[data-eid="'+x.espaco_id+'"]'), hv=m.querySelector('.vhora[data-eid="'+x.espaco_id+'"]');
+      if(lv&&lv.checked) encAgenda[x.espaco_id]='Horário livre (a definir pela Mutti)';
+      else if(hv&&hv.value) encAgenda[x.espaco_id]='Horário preferido: '+hv.value;
+    });
     _planoCompra={id:undefined,nome:e.nome,cota:'Patrocínio do dia '+dia+'/'+mesNum,veic_ini:dd,veic_fim:dd};
     m.remove(); if(mesModal)mesModal.remove();
     abrirPedido();
@@ -1418,7 +1442,7 @@ function abrirPedido(){
         return '<div class="criabox" data-cid="'+h(e.id)+'" style="border:1px solid #e2e8f0;border-radius:12px;padding:12px;margin-bottom:10px">'+
           '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div><b>'+h(e.espaco)+'</b> <span style="font-size:11px;font-weight:700;color:#2563eb;background:#eff6ff;padding:2px 8px;border-radius:999px">'+(ins?'Inserção':'Período fechado')+'</span></div><b id="cst_'+h(e.id)+'" style="color:#1E874B">'+brl(Number(e.preco_unit)||0)+'</b></div>'+
           '<div style="font-size:11px;color:#94a3b8;margin-top:2px">'+(ins?'Cobrado por inserção — preço × nº de inserções.':(e.unidade==='mes'?'Cobrado por mês × o período que você escolher abaixo.':'Preço único pelo período que você escolher abaixo.'))+'</div>'+
-          (ins?'<div class="row" style="margin-top:8px"><label style="margin:0"><b>Inserções</b><input type="number" class="c_ins" min="1" value="'+(carrinho[e.id]||1)+'"></label><label style="margin:0;flex:2"><b>Datas / horários desejados</b><input class="c_ag" placeholder="ex.: 3×/semana, 12h e 18h"></label></div>':'')+
+          (ins?'<div class="row" style="margin-top:8px"><label style="margin:0"><b>Inserções</b><input type="number" class="c_ins" min="1" value="'+(carrinho[e.id]||1)+'"></label><label style="margin:0;flex:2"><b>Datas / horários desejados</b><input class="c_ag" value="'+h(encAgenda[e.id]||'')+'" placeholder="ex.: 3×/semana, 12h e 18h"></label></div>':'')+
           '<div style="margin-top:8px;font-size:13px;font-weight:700">Como entra a peça?</div>'+
           '<label class="optarte"><input type="radio" name="ct_'+h(e.id)+'" value="anexo" checked> <span>Já tenho a arte / spot / vídeo</span></label>'+
           '<div class="c_anexo"><input type="file" class="c_file" accept="image/*,video/*,audio/*"><div class="c_prev"></div></div>'+
@@ -1478,7 +1502,7 @@ function abrirPedido(){
 }
 function addPag(){var box=el('pags');var d=document.createElement('div');d.className='pagrow row';d.style.marginTop='8px';
   d.innerHTML='<label style="margin:0"><b>Data</b><input type="date" class="pv"></label><label style="margin:0"><b>Valor</b><input type="number" class="pvl" placeholder="0,00"></label>';box.appendChild(d);}
-function sucesso(j){_planoCompra=null;app.innerHTML='<div class="ok"><div class="big">✅</div><h2>Pedido enviado!</h2><p>Código <b>'+h(j.codigo)+'</b> · '+brl(j.valor)+'</p><p style="color:#64748b">Nossa equipe vai confirmar. Guarde o link de acompanhamento:</p><p><a href="/trade.html?t='+h(j.token)+'">Acompanhar meu pedido</a></p></div>';var b=document.querySelector('.bar');if(b)b.remove();}
+function sucesso(j){_planoCompra=null;encAgenda={};app.innerHTML='<div class="ok"><div class="big">✅</div><h2>Pedido enviado!</h2><p>Código <b>'+h(j.codigo)+'</b> · '+brl(j.valor)+'</p><p style="color:#64748b">Nossa equipe vai confirmar. Guarde o link de acompanhamento:</p><p><a href="/trade.html?t='+h(j.token)+'">Acompanhar meu pedido</a></p></div>';var b=document.querySelector('.bar');if(b)b.remove();}
 
 // ===== LOGIN =====
 function loginModal(){

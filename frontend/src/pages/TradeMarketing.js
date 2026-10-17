@@ -65,7 +65,7 @@ export default function TradeMarketing() {
         {gestao && <button onClick={() => setModelo(true)} style={bannerBtn}>📄 Modelo de contrato</button>}
       </Banner>
       <div style={{ display: 'flex', gap: 6, margin: '10px 0 14px', flexWrap: 'wrap' }}>
-        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['espacos', '🗂️ Áreas & Espaços'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
+        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
       </div>
       {modelo && <ModeloContrato API={API} onClose={() => setModelo(false)} />}
@@ -74,6 +74,7 @@ export default function TradeMarketing() {
       {aba === 'dashboard' && <Dashboard API={API} />}
       {aba === 'vendas' && <Vendas API={API} gestao={gestao} />}
       {aba === 'porloja' && <EspacoLoja API={API} gestao={gestao} />}
+      {aba === 'capacidade' && <Capacidade API={API} />}
       {aba === 'espacos' && <Espacos API={API} gestao={gestao} />}
       {aba === 'grupos' && <GruposEconomicos API={API} gestao={gestao} />}
     </div>
@@ -384,7 +385,7 @@ function NovaPosicao({ API, lojas, onClose, onSaved }) {
   const MODS = [['off', '🏬 Espaço físico'], ['encarte', '📰 Tabloide'], ['ecommerce', '🛒 E-commerce'], ['social', '📱 Digital / Redes'], ['crm_filipeta', '🧾 Filipeta'], ['crm_pdv', '🖥️ PDV+'], ['radio_ext', '📻 Rádio externa (cidade)'], ['radio_int', '📻 Rádio interna'], ['endomarketing', '🎉 Endomarketing']];
   const REDES = ['Instagram', 'TikTok', 'Facebook', 'YouTube', 'WhatsApp', 'Kwai', 'Outra'];
   const BANDEIRAS = ['ESCRITÓRIO', 'Farmácia Mutti', 'Ultra Popular', 'Farma Rocha'];
-  const [f, setF] = useState({ mod: 'off', espaco: '', tamanho: '', descricao: '', loja_nome: '', rede: 'Instagram', bandeiras: ['ESCRITÓRIO'], bandMode: 'cada', midia: 'ambos', modo_venda: 'periodo', unidade: 'periodo', quantidade: 1, preco_unit: '' });
+  const [f, setF] = useState({ mod: 'off', espaco: '', tamanho: '', descricao: '', loja_nome: '', rede: 'Instagram', bandeiras: ['ESCRITÓRIO'], bandMode: 'cada', midia: 'ambos', modo_venda: 'periodo', unidade: 'periodo', quantidade: 1, preco_unit: '', preco_min: '' });
   const [foto, setFoto] = useState(null);
   const ehRede = ['social', 'ecommerce', 'encarte', 'crm_filipeta', 'crm_pdv'].includes(f.mod);
   const set = (k, v) => setF(x => ({ ...x, [k]: v }));
@@ -409,7 +410,7 @@ function NovaPosicao({ API, lojas, onClose, onSaved }) {
     const base = {
       segmento, area, espaco: f.espaco.trim(), tamanho: f.tamanho, descricao: f.descricao,
       midia: ehFis ? f.midia : undefined, modo_venda: f.modo_venda, unidade: f.unidade,
-      quantidade: f.quantidade, preco_unit: f.preco_unit,
+      quantidade: f.quantidade, preco_unit: f.preco_unit, preco_min: f.preco_min,
       foto: foto ? foto.b64 : undefined, foto_mime: foto ? foto.mime : undefined
     };
     Promise.all(alvos.map(ln => API.post('/trademkt/portal/espaco', { ...base, loja_nome: ln })))
@@ -452,7 +453,8 @@ function NovaPosicao({ API, lojas, onClose, onSaved }) {
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <label style={s.lbl}>Vagas<input type="number" value={f.quantidade} onChange={e => set('quantidade', e.target.value)} style={{ ...s.inp, width: 90 }} /></label>
-        <label style={s.lbl}>Preço R$<input type="number" step="0.01" value={f.preco_unit} onChange={e => set('preco_unit', e.target.value)} placeholder="99,90" style={{ ...s.inp, width: 120 }} /></label>
+        <label style={s.lbl}>Preço de venda R$<input type="number" step="0.01" value={f.preco_unit} onChange={e => set('preco_unit', e.target.value)} placeholder="99,90" style={{ ...s.inp, width: 120 }} /></label>
+        <label style={s.lbl}><span>Piso de negociação R$ <span style={{ fontWeight: 400, color: '#B7791F' }}>🔒 só interno</span></span><input type="number" step="0.01" value={f.preco_min} onChange={e => set('preco_min', e.target.value)} placeholder="até onde pode descer" style={{ ...s.inp, width: 150 }} /></label>
       </div>
       <button onClick={salvar} style={s.btn}>💾 Criar posição</button>
     </div>
@@ -770,6 +772,7 @@ function PortalCalendario({ API, gestao }) {
   if (!d) return <div style={s.card}>Carregando…</div>;
   const navMes = dir => setMref(p => { let m = p.mes + dir, a = p.ano; if (m < 1) { m = 12; a--; } if (m > 12) { m = 1; a++; } return { ano: a, mes: m }; });
   const del = id => { if (window.confirm('Excluir este evento?')) API.delete('/trademkt/portal/calendario/' + id).then(carregar); };
+  const suspender = e => API.put('/trademkt/portal/calendario/' + e.id, { status: e.status === 'inativo' ? 'ativo' : 'inativo' }).then(carregar).catch(() => {});
   const subirComprov = (id, file) => { if (!file) return; const r = new FileReader(); r.onload = () => API.post(`/trademkt/portal/calendario/${id}/comprovacao`, { foto: r.result, mime: file.type }).then(carregar); r.readAsDataURL(file); };
   const verComprov = id => API.get(`/trademkt/portal/calendario/${id}/comprovacao`, { responseType: 'blob' }).then(r => window.open(URL.createObjectURL(r.data), '_blank')).catch(() => { });
   const grupos = {}; d.forEach(e => { (grupos[e.tipo] = grupos[e.tipo] || []).push(e); });
@@ -796,7 +799,7 @@ function PortalCalendario({ API, gestao }) {
         for (let dia = 1; dia <= nd; dia++) { const evs = porDia[dia] || []; const isHoje = (mref.ano === hoje.getFullYear() && mref.mes === hoje.getMonth() + 1 && dia === hoje.getDate());
           cells.push(<div key={dia} style={{ minHeight: 76, border: '1px solid #eef2f7', borderRadius: 8, padding: '3px 4px', overflow: 'hidden', background: isHoje ? '#eff6ff' : '#fff' }}>
             <div style={{ fontSize: 11, fontWeight: isHoje ? 800 : 700, color: isHoje ? '#2563eb' : '#334' }}>{dia}</div>
-            {evs.map((e, i) => <div key={i} onClick={() => setEdit(e.id)} title={e.nome + (e.descricao ? ' — ' + e.descricao : '')} style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: e.cor || '#2563eb', borderRadius: 5, padding: '1px 5px', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}>{e.no_trade ? '🛒 ' : ''}{e.nome}</div>)}
+            {evs.map((e, i) => { const off = e.status === 'inativo'; return <div key={i} onClick={() => setEdit(e.id)} title={e.nome + (off ? ' (suspenso)' : '') + (e.descricao ? ' — ' + e.descricao : '')} style={{ fontSize: 10, fontWeight: 700, color: off ? '#64748b' : '#fff', background: off ? '#e5e7eb' : (e.cor || '#2563eb'), borderRadius: 5, padding: '1px 5px', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', textDecoration: off ? 'line-through' : 'none' }}>{off ? '⏸ ' : (e.no_trade ? '🛒 ' : '')}{e.nome}</div>; })}
           </div>);
         }
         return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4 }}>{dow.map(w => <div key={w} style={{ textAlign: 'center', fontSize: 10.5, fontWeight: 800, color: '#94a3b8' }}>{w}</div>)}{cells}</div>;
@@ -805,15 +808,16 @@ function PortalCalendario({ API, gestao }) {
     </div> : tipos.map(t => <div key={t} style={s.card}>
       <h4 style={{ marginTop: 0 }}>{CAL_TIPON[t] || t} <span style={{ fontWeight: 400, color: '#aaa', fontSize: 12 }}>· {grupos[t].length}</span></h4>
       <div style={{ display: 'grid', gap: 8 }}>
-        {grupos[t].map(e => <div key={e.id} style={{ borderTop: '1px solid #f3f3f3', paddingTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        {grupos[t].map(e => <div key={e.id} style={{ borderTop: '1px solid #f3f3f3', paddingTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', opacity: e.status === 'inativo' ? .55 : 1 }}>
           <div style={{ flex: 1, minWidth: 220 }}>
-            <div><b>{e.cor ? <span style={{ color: e.cor }}>● </span> : ''}{e.nome}</b> {e.categoria ? <span style={{ fontSize: 11, color: '#64748b', background: '#f1f5f9', padding: '1px 7px', borderRadius: 999 }}>{e.categoria}</span> : ''} {e.no_trade ? <span style={{ fontSize: 10.5, fontWeight: 700, color: '#1E874B', background: '#E6F4EC', padding: '1px 7px', borderRadius: 999 }}>🛒 Trade</span> : <span style={{ fontSize: 10.5, color: '#94a3b8', background: '#f1f5f9', padding: '1px 7px', borderRadius: 999 }}>interno</span>}</div>
+            <div><b>{e.cor ? <span style={{ color: e.cor }}>● </span> : ''}{e.nome}</b> {e.status === 'inativo' ? <span style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', background: '#e5e7eb', padding: '1px 7px', borderRadius: 999 }}>⏸ suspenso</span> : ''} {e.categoria ? <span style={{ fontSize: 11, color: '#64748b', background: '#f1f5f9', padding: '1px 7px', borderRadius: 999 }}>{e.categoria}</span> : ''} {e.no_trade ? <span style={{ fontSize: 10.5, fontWeight: 700, color: '#1E874B', background: '#E6F4EC', padding: '1px 7px', borderRadius: 999 }}>🛒 Trade</span> : <span style={{ fontSize: 10.5, color: '#94a3b8', background: '#f1f5f9', padding: '1px 7px', borderRadius: 999 }}>interno</span>}</div>
             <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>🗓️ {quandoTxt(e)}{e.patrocinavel ? ` · 💰 patrocinável${e.preco ? ' ' + brl(e.preco) : ''}` : ' · não patrocinável'}{e.patrocinador_nome ? ` · 🏷️ ${e.patrocinador_nome}` : ''}</div>
             {e.descricao && <div style={{ fontSize: 12, color: '#555', marginTop: 2 }}>{e.descricao}</div>}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             {e.tem_comprov ? <button onClick={() => verComprov(e.id)} style={{ ...s.mv, color: '#1E874B' }}>✅ ver comprovação</button> : null}
             {gestao && <label style={{ ...s.mv, cursor: 'pointer', color: '#2E5C9E' }}>📷 {e.tem_comprov ? 'trocar' : 'comprovação'}<input type="file" accept="image/*" style={{ display: 'none' }} onChange={ev => subirComprov(e.id, ev.target.files[0])} /></label>}
+            {gestao && <button onClick={() => suspender(e)} style={{ ...s.mv, color: e.status === 'inativo' ? '#1E874B' : '#B7791F' }} title={e.status === 'inativo' ? 'reativar (volta pro portal)' : 'suspender a ação toda (sai do portal)'}>{e.status === 'inativo' ? '▶ reativar' : '⏸ suspender'}</button>}
             {gestao && <button onClick={() => setEdit(e.id)} style={s.mv}>✏️</button>}
             {gestao && <button onClick={() => del(e.id)} style={{ ...s.mv, color: '#B91C1C' }}>✕</button>}
           </div>
@@ -824,18 +828,110 @@ function PortalCalendario({ API, gestao }) {
     {edit && <CalEditor API={API} id={edit === 'novo' ? null : edit} evento={edit === 'novo' ? null : d.find(x => x.id === edit)} onClose={() => { setEdit(null); carregar(); }} onSaved={carregar} />}
   </div>;
 }
+// CRM proativo: vincula classificação(ões) do Alpha → mostra as marcas-alvo + status do contato (cadastrável)
+function CrmClassif({ API, value, onChange }) {
+  const [q, setQ] = useState(''); const [res, setRes] = useState([]); const [buscando, setBuscando] = useState(false);
+  const [aberta, setAberta] = useState(null); const [marcas, setMarcas] = useState({}); const [edit, setEdit] = useState(null);
+  const buscar = () => { if (q.trim().length < 2) { setRes([]); return; } setBuscando(true); API.get('/trademkt/erp/escopo?tipo=classificacao&q=' + encodeURIComponent(q.trim())).then(r => setRes(r.data.itens || [])).catch(() => setRes([])).finally(() => setBuscando(false)); };
+  const add = c => { if (!value.some(x => String(x.classificacao_id) === String(c.id))) onChange([...value, { classificacao_id: String(c.id), nome: c.nome }]); setQ(''); setRes([]); };
+  const rm = cid => onChange(value.filter(x => String(x.classificacao_id) !== String(cid)));
+  const verMarcas = cid => { if (aberta === cid) { setAberta(null); return; } setAberta(cid); if (!marcas[cid]) API.get(`/trademkt/erp/classificacao/${cid}/marcas`).then(r => setMarcas(m => ({ ...m, [cid]: r.data.marcas || [] }))).catch(() => setMarcas(m => ({ ...m, [cid]: [] }))); };
+  const salvarContato = () => { const f = edit; API.put('/trademkt/marcas/contato/' + f.fabricante_id, { marca_nome: f.marca, email: f.email, whatsapp: f.whatsapp, responsavel: f.responsavel }).then(() => { setMarcas(m => { const c = { ...m }; Object.keys(c).forEach(k => c[k] = c[k].map(x => String(x.fabricante_id) === String(f.fabricante_id) ? { ...x, email: f.email, whatsapp: f.whatsapp, responsavel: f.responsavel, tem_contato: !!(f.email || f.whatsapp) } : x)); return c; }); setEdit(null); }).catch(er => alert(er.response?.data?.erro || 'Erro.')); };
+  return (
+    <div style={{ border: '1px solid #eef0f4', borderRadius: 10, padding: '10px 12px', background: '#FBFDFB' }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0D9488' }}>📨 Avisar marcas por classificação <span style={{ fontWeight: 400, color: '#94a3b8' }}>(CRM proativo)</span></div>
+      <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 6px' }}>Vincule a ação a classificações do Alpha. O sistema acha as <b>marcas</b> que vendem aquela classificação pra oferecer a oportunidade (e-mail). Marcas sem contato aparecem com ⚠️ — cadastre o e-mail de trade.</div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); buscar(); } }} placeholder="buscar classificação (ex.: suplemento, protetor solar)…" style={{ ...s.inp, flex: 1 }} />
+        <button onClick={buscar} style={s.btnMini}>{buscando ? '…' : '🔎'}</button>
+      </div>
+      {res.length > 0 && <div style={{ border: '1px solid #eee', borderRadius: 8, maxHeight: 140, overflowY: 'auto', marginBottom: 6 }}>
+        {res.map(c => <div key={c.id} onClick={() => add(c)} style={{ padding: '5px 8px', fontSize: 12.5, cursor: 'pointer', borderBottom: '1px solid #f4f4f4' }}>+ {c.nome}</div>)}
+      </div>}
+      {value.length === 0 && <div style={{ fontSize: 12, color: '#bbb' }}>Nenhuma classificação vinculada.</div>}
+      {value.map(c => (
+        <div key={c.classificacao_id} style={{ borderTop: '1px solid #f2f2f2', padding: '6px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+            <b>{c.nome}</b>
+            <button onClick={() => verMarcas(c.classificacao_id)} style={{ ...s.mv, padding: '2px 7px' }}>{aberta === c.classificacao_id ? 'ocultar marcas' : 'ver marcas'}</button>
+            <button onClick={() => rm(c.classificacao_id)} style={{ ...s.mv, padding: '2px 7px', marginLeft: 'auto' }}>✕</button>
+          </div>
+          {aberta === c.classificacao_id && <div style={{ marginTop: 6, paddingLeft: 8 }}>
+            {!marcas[c.classificacao_id] ? <span style={{ fontSize: 11, color: '#aaa' }}>carregando marcas…</span>
+              : marcas[c.classificacao_id].length === 0 ? <span style={{ fontSize: 11, color: '#aaa' }}>nenhuma marca encontrada (ERP sem compras nessa classificação).</span>
+                : marcas[c.classificacao_id].map(mk => (
+                  <div key={mk.fabricante_id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '3px 0' }}>
+                    <span>{mk.tem_contato ? '✅' : '⚠️'}</span>
+                    <span style={{ flex: 1 }}>{mk.marca} <span style={{ color: '#bbb' }}>· {mk.produtos} prod.</span>{mk.email ? <span style={{ color: '#64748b' }}> · {mk.email}</span> : <span style={{ color: '#B7791F' }}> · sem contato</span>}</span>
+                    <button onClick={() => setEdit({ fabricante_id: mk.fabricante_id, marca: mk.marca, email: mk.email || '', whatsapp: mk.whatsapp || '', responsavel: mk.responsavel || '' })} style={{ ...s.mv, padding: '2px 7px' }}>{mk.tem_contato ? '✎' : '+ contato'}</button>
+                  </div>
+                ))}
+          </div>}
+        </div>
+      ))}
+      {edit && <div style={s.overlay} onClick={() => setEdit(null)}><div style={{ ...s.modal, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Contato de trade · {edit.marca}</div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          <label style={s.lbl}>E-mail<input value={edit.email} onChange={e => setEdit({ ...edit, email: e.target.value })} placeholder="trade@marca.com" style={s.inp} /></label>
+          <label style={s.lbl}>WhatsApp <span style={{ fontWeight: 400, color: '#94a3b8' }}>(fase futura)</span><input value={edit.whatsapp} onChange={e => setEdit({ ...edit, whatsapp: e.target.value })} placeholder="(75) 9…." style={s.inp} /></label>
+          <label style={s.lbl}>Responsável<input value={edit.responsavel} onChange={e => setEdit({ ...edit, responsavel: e.target.value })} placeholder="nome do contato" style={s.inp} /></label>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}><button onClick={() => setEdit(null)} style={s.btnMini}>Cancelar</button><button onClick={salvarContato} style={s.btn}>Salvar contato</button></div>
+        </div>
+      </div></div>}
+    </div>
+  );
+}
+
+// Disparo do CRM (e-mail): config de agendamento + envio manual + log. Só quando o evento já existe.
+function CrmOutreach({ API, eventoId }) {
+  const [cfg, setCfg] = useState(null); const [alvos, setAlvos] = useState([]);
+  const [res, setRes] = useState(null); const [enviando, setEnviando] = useState(false); const [log, setLog] = useState([]);
+  const carregar = useCallback(() => {
+    API.get(`/trademkt/portal/calendario/${eventoId}/outreach`).then(r => { setCfg(r.data.config || { ativo: 0, dias_antes: 15, recorrente: 1 }); setAlvos(r.data.alvos || []); }).catch(() => setCfg({ ativo: 0, dias_antes: 15, recorrente: 1 }));
+    API.get(`/trademkt/portal/calendario/${eventoId}/outreach/log`).then(r => setLog(r.data.log || [])).catch(() => { });
+  }, [API, eventoId]);
+  useEffect(() => { carregar(); }, [carregar]);
+  if (!cfg) return null;
+  const save = patch => { const n = { ...cfg, ...patch }; setCfg(n); API.put(`/trademkt/portal/calendario/${eventoId}/outreach`, n).catch(() => { }); };
+  const enviar = () => { setEnviando(true); API.post(`/trademkt/portal/calendario/${eventoId}/outreach/enviar`, {}).then(r => { setRes(r.data); carregar(); }).catch(e => setRes({ erro: e.response?.data?.erro || 'Erro.' })).finally(() => setEnviando(false)); };
+  return (
+    <div style={{ border: '1px solid #eef0f4', borderRadius: 10, padding: '10px 12px', background: '#FBFDFB' }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0D9488' }}>📧 Disparo de oportunidade (e-mail)</div>
+      <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 6px' }}><b>{alvos.length}</b> marca(s) com e-mail cadastrado seriam avisadas (das classificações salvas). Cadastre contatos em “ver marcas” acima e <b>salve o evento</b> pra atualizar.</div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <label style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={!!cfg.ativo} onChange={e => save({ ativo: e.target.checked ? 1 : 0 })} /> Avisar automaticamente</label>
+        <label style={s.lbl}>Dias antes<input type="number" min="1" value={cfg.dias_antes || 15} onChange={e => save({ dias_antes: Number(e.target.value) || 15 })} style={{ ...s.inp, width: 72 }} /></label>
+        <span style={{ fontSize: 11, color: '#94a3b8' }}>{cfg.ativo ? `o robô avisa ${cfg.dias_antes || 15} dia(s) antes de cada ocorrência` : 'automático desligado'}</span>
+      </div>
+      <label style={{ ...s.lbl, marginTop: 6 }}>Mensagem extra <span style={{ fontWeight: 400, color: '#94a3b8' }}>(opcional, entra no e-mail)</span><textarea value={cfg.mensagem || ''} onChange={e => setCfg({ ...cfg, mensagem: e.target.value })} onBlur={e => save({ mensagem: e.target.value })} rows={2} placeholder="algo a mais pro e-mail…" style={{ ...s.inp, resize: 'vertical' }} /></label>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+        <button onClick={enviar} disabled={enviando || !alvos.length} style={{ ...s.btn, opacity: (enviando || !alvos.length) ? .5 : 1 }}>{enviando ? 'enviando…' : '📧 Enviar oportunidade agora'}</button>
+        {res && !res.erro && <span style={{ fontSize: 12, color: '#1E874B' }}>✅ {res.enviados} enviado(s){res.pulados ? ` · ${res.pulados} já avisado(s)` : ''}{res.semContato ? ' · nenhuma marca com e-mail' : ''}</span>}
+        {res && res.erro && <span style={{ fontSize: 12, color: '#B91C1C' }}>{res.erro}</span>}
+      </div>
+      {log.length > 0 && <div style={{ marginTop: 8, fontSize: 11.5, color: '#64748b' }}>Últimos envios: {log.slice(0, 6).map((l, i) => <span key={i}>{i ? ' · ' : ''}{l.marca_nome} <span style={{ color: l.status === 'ok' ? '#1E874B' : '#B91C1C' }}>{l.status === 'ok' ? '✓' : '✗'}</span></span>)}</div>}
+    </div>
+  );
+}
+
 function CalEditor({ API, id: idInicial, evento, onClose, onSaved }) {
   const [id, setId] = useState(idInicial);
   const [e, setE] = useState(evento || { nome: '', tipo: 'tematico', categoria: '', recorrencia: 'semanal', dia_semana: 1, dia_mes: 1, data: '', data_ini: '', data_fim: '', descricao: '', cor: '#2E5C9E', no_trade: 1, patrocinavel: 1, preco: '', status: 'ativo' });
   const [espacos, setEspacos] = useState([]); const [posicoes, setPosicoes] = useState([]); const [buscaPos, setBuscaPos] = useState('');
+  const [classif, setClassif] = useState([]);  // [{classificacao_id, nome}] — quem avisar (CRM)
   const set = (k, v) => setE(x => ({ ...x, [k]: v }));
   const carregarLinks = useCallback(aid => API.get(`/trademkt/portal/calendario/${aid}/espacos`).then(r => setEspacos(r.data.espacos)).catch(() => { }), [API]);
-  useEffect(() => { API.get('/trademkt/portal/posicoes').then(r => setPosicoes(r.data.posicoes || [])).catch(() => { }); if (id) carregarLinks(id); }, [API, id, carregarLinks]);
-  const salvar = () => {
+  useEffect(() => { API.get('/trademkt/portal/posicoes').then(r => setPosicoes(r.data.posicoes || [])).catch(() => { }); if (id) { carregarLinks(id); API.get(`/trademkt/portal/calendario/${id}/classificacoes`).then(r => setClassif(r.data.classificacoes || [])).catch(() => { }); } }, [API, id, carregarLinks]);
+  const salvar = async () => {
     if (!e.nome.trim()) return alert('Dê um nome ao evento.');
     const body = { ...e, patrocinavel: e.patrocinavel ? 1 : 0, no_trade: e.no_trade ? 1 : 0 };
-    if (id) return API.put('/trademkt/portal/calendario/' + id, body).then(onSaved).catch(er => alert(er.response?.data?.erro || 'Erro.'));
-    return API.post('/trademkt/portal/calendario', body).then(r => { setId(r.data.id); onSaved(); }).catch(er => alert(er.response?.data?.erro || 'Erro.'));
+    try {
+      let eid = id;
+      if (id) await API.put('/trademkt/portal/calendario/' + id, body);
+      else { const r = await API.post('/trademkt/portal/calendario', body); eid = r.data.id; setId(eid); }
+      await API.put('/trademkt/portal/calendario/' + eid + '/classificacoes', { classificacoes: classif }).catch(() => { });
+      onSaved();
+    } catch (er) { alert(er.response?.data?.erro || 'Erro.'); }
   };
   const addEspaco = pid => { const q = window.prompt('Quantidade desta posição:', '1'); if (q === null) return; API.post(`/trademkt/portal/calendario/${id}/espacos`, { espaco_id: pid, quantidade: Math.max(1, Number(q) || 1) }).then(() => carregarLinks(id)); };
   const rmEspaco = lid => API.delete(`/trademkt/portal/calendario/${id}/espacos/${lid}`).then(() => carregarLinks(id));
@@ -867,14 +963,20 @@ function CalEditor({ API, id: idInicial, evento, onClose, onSaved }) {
         {rec === 'mensal' && <label style={s.lbl}>Dia do mês<input type="number" min="1" max="31" value={e.dia_mes} onChange={ev => set('dia_mes', Number(ev.target.value))} style={{ ...s.inp, width: 80 }} /></label>}
       </div> : e.tipo === 'acao' ? <label style={s.lbl}>Data<input type="date" value={(e.data || '').slice(0, 10)} onChange={ev => set('data', ev.target.value)} style={s.inp} /></label>
         : <div style={{ display: 'flex', gap: 8 }}><label style={s.lbl}>Início<input type="date" value={(e.data_ini || '').slice(0, 10)} onChange={ev => set('data_ini', ev.target.value)} style={s.inp} /></label><label style={s.lbl}>Fim<input type="date" value={(e.data_fim || '').slice(0, 10)} onChange={ev => set('data_fim', ev.target.value)} style={s.inp} /></label></div>}
-      {e.tipo === 'tematico' && <div style={{ display: 'flex', gap: 8 }}><label style={s.lbl}>Vale de<input type="date" value={(e.data_ini || '').slice(0, 10)} onChange={ev => set('data_ini', ev.target.value)} style={s.inp} /></label><label style={s.lbl}>até <span style={{ fontWeight: 400, color: '#94a3b8' }}>(opcional)</span><input type="date" value={(e.data_fim || '').slice(0, 10)} onChange={ev => set('data_fim', ev.target.value)} style={s.inp} /></label></div>}
+      {e.tipo === 'tematico' && <div><div style={{ display: 'flex', gap: 8 }}><label style={s.lbl}>Começa em <span style={{ fontWeight: 400, color: '#94a3b8' }}>(opcional)</span><input type="date" value={(e.data_ini || '').slice(0, 10)} onChange={ev => set('data_ini', ev.target.value)} style={s.inp} /></label><label style={s.lbl}>Termina em <span style={{ fontWeight: 400, color: '#94a3b8' }}>(opcional)</span><input type="date" value={(e.data_fim || '').slice(0, 10)} onChange={ev => set('data_fim', ev.target.value)} style={s.inp} /></label></div>
+        <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 3 }}>Vazio = recorre sem data de fim. Preencha <b>Termina em</b> pra <b>encerrar a recorrência</b> nessa data (mantém o histórico).</div></div>}
       <label style={s.lbl}>Descrição<textarea value={e.descricao || ''} onChange={ev => set('descricao', ev.target.value)} rows={2} placeholder="o que é, o que a marca ganha patrocinando esse dia…" style={{ ...s.inp, resize: 'vertical' }} /></label>
       <label style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'center', background: e.no_trade ? '#E6F4EC' : '#f1f5f9', padding: '8px 10px', borderRadius: 8 }}><input type="checkbox" checked={!!e.no_trade} onChange={ev => set('no_trade', ev.target.checked)} /><b>Aparece no Trade</b> — pode ser comercializado (o fornecedor vê e patrocina)</label>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         {e.no_trade && <label style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={!!e.patrocinavel} onChange={ev => set('patrocinavel', ev.target.checked)} />Patrocinável</label>}
         {e.no_trade && e.patrocinavel ? <label style={s.lbl}>Investimento sugerido R$<input type="number" step="0.01" value={e.preco || ''} onChange={ev => set('preco', ev.target.value)} placeholder="99,90" style={{ ...s.inp, width: 120 }} /></label> : null}
-        <label style={s.lbl}>Status<select value={e.status || 'ativo'} onChange={ev => set('status', ev.target.value)} style={s.inp}><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></label>
+        <label style={s.lbl}>Status<select value={e.status || 'ativo'} onChange={ev => set('status', ev.target.value)} style={s.inp}><option value="ativo">✅ Ativo</option><option value="inativo">⏸ Inativo (suspenso)</option></select></label>
       </div>
+      <div style={{ fontSize: 11, color: '#64748b', background: '#FBFBFD', border: '1px solid #eef0f4', borderRadius: 8, padding: '7px 10px' }}>
+        ⏸ <b>Para suspender a ação toda agora</b> (ex.: parar o "{e.nome || 'Oferta Delivery'}" de todas as semanas), mude o <b>Status para Inativo</b> — sai do portal na hora, sem precisar mexer dia a dia. Para <b>encerrar só a partir de uma data</b>, preencha <b>Termina em</b> acima.
+      </div>
+      {e.no_trade ? <CrmClassif API={API} value={classif} onChange={setClassif} /> : null}
+      {e.no_trade && id ? <CrmOutreach API={API} eventoId={id} /> : null}
       <button onClick={salvar} style={s.btn}>💾 Salvar evento</button>
 
       {/* posições vinculadas (o que é comercializável nessa ação) — só depois de salvar e se for de Trade */}
@@ -981,12 +1083,10 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
   const [id, setId] = useState(idInicial);
   const [aba, setAba] = useState('dados');
   const [v, setV] = useState({ fornecedor_nome: '', status: 'rascunho', valor: '', eans: [], espacos: [], parcelas: [] });
-  const [cad, setCad] = useState({ areas: [], espacos: [], temas: [] });
   const [lojas, setLojas] = useState([]); const [espLoja, setEspLoja] = useState([]); const [espLojaSel, setEspLojaSel] = useState(''); const [verContrato, setVerContrato] = useState(false);
   const [sell, setSell] = useState(null);
   const recarregar = useCallback(aid => API.get(`/trademkt/vendas/${aid}`).then(r => setV(r.data.venda)), [API]);
   useEffect(() => {
-    API.get('/trademkt/cadastros').then(r => setCad(r.data)).catch(() => {});
     API.get('/compras/lojas').then(r => setLojas(r.data.lojas || [])).catch(() => {});
     API.get('/trademkt/espaco-loja').then(r => setEspLoja(r.data.itens || [])).catch(() => {});
     if (id) recarregar(id);
@@ -1043,7 +1143,6 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
           <label style={s.lbl}>Início vigência<input type="date" value={v.vigencia_ini || ''} onChange={e => set('vigencia_ini', e.target.value)} style={s.inp} /></label>
           <label style={s.lbl}>Fim vigência<input type="date" value={v.vigencia_fim || ''} onChange={e => set('vigencia_fim', e.target.value)} style={s.inp} /></label>
           <label style={s.lbl}>Forma pgto<select value={v.forma_pagamento || ''} onChange={e => set('forma_pagamento', e.target.value)} style={s.inp}><option value="">—</option>{['Boleto', 'Depósito', 'Desconto em boleto', 'Bonificação', 'Brinde'].map(f => <option key={f}>{f}</option>)}</select></label>
-          <label style={s.lbl}>Tema<select value={v.tema_id || ''} onChange={e => { const t = cad.temas.find(x => x.id === e.target.value); set('tema_id', e.target.value); set('tema_desc', t ? t.descricao : ''); }} style={s.inp}><option value="">—</option>{cad.temas.map(t => <option key={t.id} value={t.id}>{t.descricao}</option>)}</select></label>
           <label style={s.lbl}>Valor total R$<input type="number" value={v.valor} onChange={e => set('valor', e.target.value)} style={{ ...s.inp, width: 120 }} /></label>
           <label style={s.lbl}>Status<select value={v.status} onChange={e => set('status', e.target.value)} style={s.inp}>{COLS.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}<option value="cancelado">Cancelado</option></select></label>
         </div>
@@ -1386,7 +1485,7 @@ function PosicaoEditModal({ API, p, onClose, onSaved }) {
   const [f, setF] = useState({
     area: p.area || '', espaco: p.espaco || '', tamanho: p.tamanho || '', descricao: p.descricao || '',
     midia: p.midia || 'ambos', modo_venda: p.modo_venda || 'periodo', unidade: p.unidade || 'mes',
-    quantidade: p.quantidade || 1, preco_unit: p.preco_unit ?? '',
+    quantidade: p.quantidade || 1, preco_unit: p.preco_unit ?? '', preco_min: p.preco_min ?? '',
     limite_dia: p.limite_dia ?? '', limite_mes: p.limite_mes ?? '',
     disponivel: !!p.disponivel, destaque: !!p.destaque,
   });
@@ -1395,7 +1494,7 @@ function PosicaoEditModal({ API, p, onClose, onSaved }) {
     if (!String(f.espaco).trim()) return alert('Dê um nome à posição.');
     const body = {
       area: f.area, espaco: f.espaco, tamanho: f.tamanho, descricao: f.descricao,
-      modo_venda: f.modo_venda, unidade: f.unidade, quantidade: f.quantidade, preco_unit: f.preco_unit,
+      modo_venda: f.modo_venda, unidade: f.unidade, quantidade: f.quantidade, preco_unit: f.preco_unit, preco_min: f.preco_min,
       disponivel: f.disponivel, destaque: f.destaque,
     };
     if (ehFis) body.midia = f.midia;
@@ -1426,8 +1525,9 @@ function PosicaoEditModal({ API, p, onClose, onSaved }) {
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <label style={s.lbl}>Vagas<input type="number" value={f.quantidade} onChange={e => set('quantidade', e.target.value)} style={{ ...s.inp, width: 100 }} /></label>
-        <label style={s.lbl}>Preço R$<input type="number" step="0.01" value={f.preco_unit} onChange={e => set('preco_unit', e.target.value)} placeholder="99,90" style={{ ...s.inp, width: 120 }} /></label>
+        <label style={s.lbl}>Vagas<input type="number" value={f.quantidade} onChange={e => set('quantidade', e.target.value)} style={{ ...s.inp, width: 90 }} /></label>
+        <label style={s.lbl}>Preço de venda R$<input type="number" step="0.01" value={f.preco_unit} onChange={e => set('preco_unit', e.target.value)} placeholder="99,90" style={{ ...s.inp, width: 110 }} /></label>
+        <label style={s.lbl}><span>Piso negociação R$ <span style={{ fontWeight: 400, color: '#B7791F' }}>🔒 só interno</span></span><input type="number" step="0.01" value={f.preco_min} onChange={e => set('preco_min', e.target.value)} placeholder="até onde pode descer" style={{ ...s.inp, width: 140 }} /></label>
       </div>
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12.5 }}>
         <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={f.disponivel} onChange={e => set('disponivel', e.target.checked)} /> Disponível no portal</label>
@@ -1453,7 +1553,7 @@ function LinhaPosicao({ p, API, gestao, carregar, onEdit }) {
       <td style={s.td}>{p.espaco}{p.tamanho ? <span style={s.tag}>{p.tamanho}</span> : null}</td>
       <td style={s.td}><span style={{ fontSize: 11, color: '#777' }}>{UNID[p.unidade] || p.unidade}{p.modo_venda === 'insercao' ? ' · inserção' : ''}{p.limite_dia ? <span style={{ color: '#B7791F' }}> · máx {p.limite_dia}/dia</span> : (p.limite_mes ? <span style={{ color: '#B7791F' }}> · máx {p.limite_mes}/mês</span> : null)}</span></td>
       <td style={s.tdR}><span style={{ color: p.livres > 0 ? '#1E874B' : '#B91C1C', fontWeight: 600 }}>{p.ocupadas || 0}/{p.quantidade}</span></td>
-      <td style={s.tdR}>{brl(p.preco_unit)}</td>
+      <td style={s.tdR}>{brl(p.preco_unit)}{p.preco_min != null ? <div style={{ fontSize: 10.5, color: '#B7791F' }} title="piso de negociação (interno)">🔒 piso {brl(p.preco_min)}</div> : null}</td>
       <td style={{ ...s.tdR, color: '#1E874B' }}>{brl((p.quantidade || 0) * (p.preco_unit || 0))}</td>
       {gestao && <td style={s.tdR}><div style={{ display: 'flex', gap: 3, justifyContent: 'flex-end', alignItems: 'center' }}>
         <button onClick={() => patch({ disponivel: !p.disponivel })} title={p.disponivel ? 'no portal (clique p/ ocultar)' : 'oculto (clique p/ publicar)'} style={{ ...s.mv, padding: '3px 7px', color: p.disponivel ? '#1E874B' : '#bbb' }}>{p.disponivel ? '●' : '○'}</button>
@@ -1506,20 +1606,25 @@ function GrupoLojaPosicoes({ local, arr, API, gestao, carregar, onEdit, aberto, 
 function EspacoLoja({ API, gestao }) {
   const [itens, setItens] = useState(null);
   const [lojaSel, setLojaSel] = useState(''); const [busca, setBusca] = useState('');
+  const [canalSel, setCanalSel] = useState(''); const [areaSel, setAreaSel] = useState('');
   const [abertas, setAbertas] = useState({});
   const [editP, setEditP] = useState(null); const [novo, setNovo] = useState(false);
   const carregar = useCallback(() => API.get('/trademkt/portal/posicoes').then(r => setItens(r.data.posicoes || [])).catch(() => setItens([])), [API]);
   useEffect(() => { carregar(); }, [carregar]);
   if (!itens) return <div style={s.card}>Carregando…</div>;
   const locais = [...new Set(itens.map(i => i.local))].sort();
+  const canaisPresentes = FAM_ORDEM.filter(f => itens.some(i => familiaDe(i) === f));
+  const areasPresentes = [...new Set(itens.filter(i => !canalSel || familiaDe(i) === canalSel).map(i => i.area).filter(Boolean))].sort();
   const q = busca.trim().toLowerCase();
   const filtrados = itens.filter(i => (!lojaSel || i.local === lojaSel)
+    && (!canalSel || familiaDe(i) === canalSel)
+    && (!areaSel || i.area === areaSel)
     && (!q || `${i.area || ''} ${i.espaco || ''} ${i.tamanho || ''} ${i.descricao || ''}`.toLowerCase().includes(q)));
   const grupos = {}; filtrados.forEach(i => { (grupos[i.local] = grupos[i.local] || []).push(i); });
   const nomes = Object.keys(grupos).sort((a, b) => (a === 'ESCRITÓRIO' ? -1 : b === 'ESCRITÓRIO' ? 1 : a.localeCompare(b)));
   const totV = filtrados.reduce((a, i) => a + (i.quantidade || 0), 0);
   const pot = filtrados.reduce((a, i) => a + (i.quantidade || 0) * (i.preco_unit || 0), 0);
-  const autoOpen = !!lojaSel || !!q || nomes.length <= 1;
+  const autoOpen = !!lojaSel || !!q || !!canalSel || !!areaSel || nomes.length <= 1;
   const estaAberto = n => abertas[n] != null ? abertas[n] : autoOpen;
   const toggle = n => setAbertas(a => ({ ...a, [n]: !estaAberto(n) }));
   const lojasFis = [...new Set(itens.filter(i => i.escopo !== 'rede').map(i => i.local))].filter(Boolean).sort();
@@ -1532,7 +1637,9 @@ function EspacoLoja({ API, gestao }) {
       </div>
       <div style={{ ...s.card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <select value={lojaSel} onChange={e => setLojaSel(e.target.value)} style={s.inp}><option value="">Todas · rede + lojas</option>{locais.map(l => <option key={l} value={l}>{l}</option>)}</select>
-        <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔎 buscar posição, área…" style={{ ...s.inp, flex: 1, minWidth: 150 }} />
+        <select value={canalSel} onChange={e => { setCanalSel(e.target.value); setAreaSel(''); }} style={s.inp}><option value="">Todos os canais</option>{canaisPresentes.map(f => <option key={f} value={f}>{(FAMN[f] || f).replace(/\s*\(.*\)$/, '')}</option>)}</select>
+        <select value={areaSel} onChange={e => setAreaSel(e.target.value)} style={s.inp}><option value="">Todas as áreas</option>{areasPresentes.map(a => <option key={a} value={a}>{a}</option>)}</select>
+        <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔎 buscar espaço…" style={{ ...s.inp, flex: 1, minWidth: 130 }} />
         {nomes.length > 1 && <button onClick={() => { const abrir = !nomes.every(estaAberto); const m = {}; nomes.forEach(n => m[n] = abrir); setAbertas(m); }} style={s.btnMini}>{nomes.every(estaAberto) ? 'Recolher tudo' : 'Expandir tudo'}</button>}
         <span style={{ fontSize: 12.5, color: '#666' }}>{filtrados.length} posição(ões) · <b>{totV}</b> vagas · potencial <b style={{ color: '#1E874B' }}>{brl(pot)}</b></span>
         {gestao && <button onClick={() => setNovo(true)} style={s.btn}>➕ Nova posição</button>}
@@ -1546,11 +1653,67 @@ function EspacoLoja({ API, gestao }) {
   );
 }
 
+// Monitor de ocupação por mês das posições com teto de capacidade (anti-oversell)
+function Capacidade({ API }) {
+  const [mes, setMes] = useState(() => new Date().toISOString().slice(0, 7));
+  const [d, setD] = useState(null);
+  const carregar = useCallback(() => API.get('/trademkt/portal/capacidade?mes=' + mes).then(r => setD(r.data)).catch(() => setD({ itens: [], dias_mes: 30 })), [API, mes]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const shift = n => { const [a, m] = mes.split('-').map(Number); setMes(new Date(a, m - 1 + n, 1).toISOString().slice(0, 7)); };
+  const nomeMes = (() => { const [a, m] = mes.split('-').map(Number); return new Date(a, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }); })();
+  if (!d) return <div style={s.card}>Carregando…</div>;
+  const itens = d.itens || [];
+  const grupos = {}; itens.forEach(i => { (grupos[i.local] = grupos[i.local] || []).push(i); });
+  const nomes = Object.keys(grupos).sort((a, b) => (a === 'ESCRITÓRIO' ? -1 : b === 'ESCRITÓRIO' ? 1 : a.localeCompare(b)));
+  const cheio = itens.filter(i => i.pct >= 100).length, perto = itens.filter(i => i.pct >= 80 && i.pct < 100).length;
+  const cor = p => p >= 100 ? '#C0392B' : p >= 80 ? '#B7791F' : '#1E874B';
+  return (
+    <div>
+      <div style={{ ...s.card, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button onClick={() => shift(-1)} style={s.btnMini}>‹</button>
+        <b style={{ textTransform: 'capitalize', minWidth: 150, textAlign: 'center' }}>{nomeMes}</b>
+        <button onClick={() => shift(1)} style={s.btnMini}>›</button>
+        <span style={{ fontSize: 12.5, color: '#666', marginLeft: 8 }}>{itens.length} posição(ões) com teto · {d.dias_mes} dias no mês</span>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 10, fontSize: 12, flexWrap: 'wrap' }}>
+          {cheio > 0 && <span style={{ color: '#C0392B', fontWeight: 700 }}>⛔ {cheio} esgotada(s)</span>}
+          {perto > 0 && <span style={{ color: '#B7791F', fontWeight: 700 }}>⚠️ {perto} perto do limite</span>}
+          {cheio === 0 && perto === 0 && itens.length > 0 && <span style={{ color: '#1E874B' }}>✓ tudo dentro da capacidade</span>}
+        </span>
+      </div>
+      <div style={{ ...s.card, background: '#FBFBFD', fontSize: 12, color: '#475569' }}>
+        🧮 A capacidade sai do <b>limite por dia × dias do mês</b> (ou do teto mensal, se definido). O comprometido são pedidos ativos e planos publicados que cruzam o mês. Defina os tetos em <b>🏬 Espaços por loja → ✎ editar</b>.
+      </div>
+      {nomes.map(loc => (
+        <div key={loc} style={s.card}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>{loc === 'ESCRITÓRIO' ? '🌐' : '🏬'} {loc}</div>
+          {grupos[loc].map(i => (
+            <div key={i.id} style={{ padding: '7px 0', borderTop: '1px solid #f2f2f2' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12.5, marginBottom: 4, flexWrap: 'wrap' }}>
+                <span><b>{i.espaco}</b> <span style={{ color: '#999' }}>{i.area ? ('· ' + i.area) : ''}{i.cap_dia ? (' · máx ' + i.cap_dia + '/dia') : ''}{!i.disponivel ? ' · (oculto)' : ''}</span></span>
+                <span style={{ color: cor(i.pct), fontWeight: 700 }}>{i.usado}/{i.cap_mes} no mês · {i.livres} livre(s)</span>
+              </div>
+              <div style={{ height: 8, background: '#eef0f4', borderRadius: 6, overflow: 'hidden' }}>
+                <div style={{ width: Math.min(100, i.pct) + '%', height: '100%', background: cor(i.pct) }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+      {itens.length === 0 && <div style={s.card}>Nenhuma posição com teto de capacidade definido. Defina em <b>🏬 Espaços por loja → ✎ editar</b> (limite por dia) pra o sistema monitorar e travar o oversell.</div>}
+    </div>
+  );
+}
+
 const CANAIS_META = [
-  { k: 'fisico', label: 'Loja física', icon: '🏬', cor: '#1E874B', dica: 'Ponto na loja (gôndola, ilha, frente de caixa, vitrine…)' },
+  { k: 'fisico', label: 'Espaço físico', icon: '🏬', cor: '#1E874B', dica: 'Ponto na loja (gôndola, ilha, frente de caixa, vitrine…)' },
+  { k: 'encarte', label: 'Tabloide', icon: '📰', cor: '#B45309', dica: 'Encarte/tabloide de ofertas (impresso e digital)' },
   { k: 'ecommerce', label: 'E-commerce', icon: '🛒', cor: '#2E5C9E', dica: 'Banner/posição no site e no delivery' },
-  { k: 'crm', label: 'CRM', icon: '📨', cor: '#8E44AD', dica: 'Tabloide, SMS, push, WhatsApp — base de clientes' },
-  { k: 'endomarketing', label: 'Endomarketing', icon: '📣', cor: '#B7791F', dica: 'Comunicação interna (mural, comunidade, treinamento)' },
+  { k: 'social', label: 'Digital / Redes', icon: '📱', cor: '#C026D3', dica: 'Instagram, TikTok, WhatsApp — conteúdo nas redes' },
+  { k: 'crm_filipeta', label: 'Filipeta', icon: '🧾', cor: '#0D9488', dica: 'Filipeta personalizada por perfil (Trivio/CRM)' },
+  { k: 'crm_pdv', label: 'PDV+', icon: '🖥️', cor: '#0369A1', dica: 'Tela do PDV+ no caixa (Trivio)' },
+  { k: 'radio_ext', label: 'Rádio externa', icon: '📻', cor: '#DC2626', dica: 'Rádio da cidade (spot/inserção)' },
+  { k: 'radio_int', label: 'Rádio interna', icon: '📻', cor: '#EA580C', dica: 'Rádio interna da loja' },
+  { k: 'endomarketing', label: 'Endomarketing', icon: '🎉', cor: '#B7791F', dica: 'Comunicação interna (mural, comunidade, treinamento)' },
 ];
 const canalMeta = k => CANAIS_META.find(c => c.k === k) || CANAIS_META[0];
 const COBRANCAS_META = [
