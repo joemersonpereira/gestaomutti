@@ -108,9 +108,10 @@ const ED_LABEL = {
   ecommerce: { Topo: 'Faixa do topo', Home: 'Banner da Home', Categoria: 'Banner de categoria', Vitrine: 'Card do carrossel', Busca: 'Banner da busca', Depto: 'Ícone de departamento' },
 };
 const ED_TAM = { Topo: 'ex.: 1200×120 px', Home: 'ex.: 1080×720 px', Categoria: 'ex.: 1080×300 px', Vitrine: 'ex.: 600×600 px', Busca: 'ex.: 970×250 px', Depto: 'ex.: ícone 200×200 px' };
+const ED_SURFACES = [['ecommerce', '🛒 E-commerce'], ['encarte', '📰 Tabloide']];
 function EditorVisual({ API }) {
   const [token, setToken] = useState(null);
-  const [surface] = useState('ecommerce'); // e-commerce 1º; tabloide/redes nas próximas fases
+  const [surface, setSurface] = useState('ecommerce');
   const [edit, setEdit] = useState(null);
   const [frameKey, setFrameKey] = useState(0);
   useEffect(() => { API.get('/trademkt/portal/preview-token').then(r => setToken(r.data.token)).catch(() => setToken('')); }, [API]);
@@ -121,10 +122,14 @@ function EditorVisual({ API }) {
   }, []);
   const anchor = { ecommerce: 'ecommerce', encarte: 'encarte', redes: 'redes' }[surface];
   const src = token ? `/trade.html?acesso=${encodeURIComponent(token)}&edit=1#${anchor}` : null;
+  const nome = surface === 'encarte' ? 'tabloide' : 'vitrine do e-commerce';
   return (
     <div>
       <div style={{ ...s.card, background: '#EFF6FF', border: '1px solid #DBEAFE', fontSize: 12.5, color: '#1e3a5f' }}>
-        🖼️ <b>Editor visual.</b> Abaixo é a <b>vitrine REAL do e-commerce</b> como o fornecedor vê. Clique num espaço (ex.: Banner da Home) para <b>criar</b> ou <b>editar</b> — preço, vagas e tamanho. Ao salvar, a vitrine atualiza. <span style={{ color: '#64748b' }}>Tabloide e Redes entram nas próximas fases.</span>
+        🖼️ <b>Editor visual.</b> Abaixo é a <b>{nome} REAL</b> como o fornecedor vê. Clique num espaço para <b>criar</b> ou <b>editar</b> — preço, vagas e tamanho. Ao salvar, atualiza na hora. <span style={{ color: '#64748b' }}>Redes entra na próxima fase.</span>
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+        {ED_SURFACES.map(([k, l]) => <button key={k} onClick={() => setSurface(k)} style={{ ...s.chip, ...(surface === k ? s.chipOn : {}) }}>{l}</button>)}
       </div>
       {src
         ? <iframe key={frameKey} title="Editor visual do portal" src={src} style={{ width: '100%', height: '74vh', border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff' }} />
@@ -136,12 +141,15 @@ function EditorVisual({ API }) {
 function EditorEspacoModal({ API, ed, onClose, onSaved }) {
   const [f, setF] = useState(null);
   const [salv, setSalv] = useState(false);
-  const lbl = (ED_LABEL[ed.segmento] || {})[ed.area] || ed.area;
+  const ehEncarte = ed.segmento === 'encarte';
+  const lbl = ehEncarte ? ('Tabloide · ' + ed.area) : ((ED_LABEL[ed.segmento] || {})[ed.area] || ed.area);
+  const nomeDefault = ehEncarte ? '' : lbl; // no tabloide o usuário nomeia a posição (Faixa de Marca, Produto em Oferta…)
+  const tamPH = ehEncarte ? 'ex.: 1/4 de página · 1 página' : (ED_TAM[ed.area] || 'ex.: 1080×720 px');
   useEffect(() => {
     let live = true;
     if (ed.espacoId) {
-      API.get('/trademkt/portal/posicoes').then(r => { if (!live) return; const p = (r.data.posicoes || []).find(x => x.id === ed.espacoId) || {}; setF({ espaco: p.espaco || lbl, tamanho: p.tamanho || '', preco_unit: p.preco_unit != null ? p.preco_unit : '', quantidade: p.quantidade || 1 }); }).catch(() => { if (live) setF({ espaco: lbl, tamanho: '', preco_unit: '', quantidade: 1 }); });
-    } else setF({ espaco: lbl, tamanho: '', preco_unit: '', quantidade: 1 });
+      API.get('/trademkt/portal/posicoes').then(r => { if (!live) return; const p = (r.data.posicoes || []).find(x => x.id === ed.espacoId) || {}; setF({ espaco: p.espaco || nomeDefault, tamanho: p.tamanho || '', preco_unit: p.preco_unit != null ? p.preco_unit : '', quantidade: p.quantidade || 1 }); }).catch(() => { if (live) setF({ espaco: nomeDefault, tamanho: '', preco_unit: '', quantidade: 1 }); });
+    } else setF({ espaco: nomeDefault, tamanho: '', preco_unit: '', quantidade: 1 });
     return () => { live = false; };
   }, [ed]); // eslint-disable-line
   const set = (k, v) => setF(o => ({ ...o, [k]: v }));
@@ -160,9 +168,9 @@ function EditorEspacoModal({ API, ed, onClose, onSaved }) {
     <div style={s.overlay} onClick={onClose}>
       <div style={{ ...s.modal, maxWidth: 460 }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 15, fontWeight: 800 }}>{ed.espacoId ? '✎ Editar espaço' : '➕ Criar espaço'} · {lbl}</div>
-        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>E-commerce · área <b>{ed.area}</b></div>
-        <label style={s.lbl}>Nome do espaço<input value={f.espaco} onChange={e => set('espaco', e.target.value)} style={s.inp} /></label>
-        <label style={s.lbl}>Tamanho / especificação da arte <span style={{ fontWeight: 400, color: '#94a3b8' }}>(o que o fornecedor entrega)</span><input value={f.tamanho} onChange={e => set('tamanho', e.target.value)} placeholder={ED_TAM[ed.area] || 'ex.: 1080×720 px'} style={s.inp} /></label>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>{ehEncarte ? 'Tabloide · página' : 'E-commerce · área'} <b>{ed.area}</b></div>
+        <label style={s.lbl}>Nome do espaço{ehEncarte ? <span style={{ fontWeight: 400, color: '#94a3b8' }}> (ex.: Faixa de Marca, Produto em Oferta)</span> : ''}<input value={f.espaco} onChange={e => set('espaco', e.target.value)} placeholder={ehEncarte ? 'ex.: Faixa de Marca' : ''} style={s.inp} /></label>
+        <label style={s.lbl}>Tamanho / especificação da arte <span style={{ fontWeight: 400, color: '#94a3b8' }}>(o que o fornecedor entrega)</span><input value={f.tamanho} onChange={e => set('tamanho', e.target.value)} placeholder={tamPH} style={s.inp} /></label>
         <div style={{ display: 'flex', gap: 10 }}>
           <label style={{ ...s.lbl, flex: 1 }}>Preço (R$/mês)<input type="number" value={f.preco_unit} onChange={e => set('preco_unit', e.target.value)} placeholder="0,00" style={s.inp} /></label>
           <label style={{ ...s.lbl, flex: 1 }}>Nº de vagas<input type="number" min="1" value={f.quantidade} onChange={e => set('quantidade', e.target.value)} style={s.inp} /></label>

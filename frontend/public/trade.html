@@ -234,6 +234,13 @@
   .tabloide{display:grid;grid-template-columns:repeat(auto-fit,minmax(224px,1fr));gap:16px;margin-top:22px}
   .tpage{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column}
   .tplabel{font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:#fff;background:linear-gradient(95deg,var(--g1),var(--accent-d));border-radius:10px;padding:9px 12px;text-align:center;margin-bottom:12px}
+  .encpos.eded{cursor:pointer;border:2px dashed #94a3b8;border-radius:10px;padding:9px 11px;margin-bottom:8px;background:#f8fafc;transition:.15s}
+  .encpos.eded:hover{border-color:#2563eb;background:#eff6ff;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+  .encpos.eded.has{border-style:solid;border-color:#cbd5e1}
+  .encpos.eded.new{text-align:center;color:#2563eb;display:flex;flex-direction:column;gap:2px}
+  .encpos.eded .edmeta{font-size:11px;color:#64748b;margin-top:3px;display:flex;justify-content:space-between;align-items:center}
+  .encpos.eded .edlab{font-weight:800;font-size:13px}
+  .encpos.eded .edtag{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px}
   .encpos{margin-top:12px}
   .eptitle{font-size:12.5px;font-weight:800;color:var(--ink);display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:7px}
   .eptitle .epprice{font-size:11.5px;font-weight:800;color:var(--accent);background:var(--accent2);padding:3px 9px;border-radius:999px;white-space:nowrap}
@@ -1031,13 +1038,18 @@ function render(){
     // ===== SELETOR DE BANDEIRA (redes/e-commerce/tabloide) =====
     bandBar+
     // ===== ENCARTE / TABLOIDE =====
-    (encartes.length?('<div class="sec" id="encarte"><span class="eyebrow">Encarte · Tabloide</span><div class="barline"></div>'+
+    ((encartes.length||EDIT)?('<div class="sec" id="encarte"><span class="eyebrow">Encarte · Tabloide</span><div class="barline"></div>'+
       '<h2>Tabloide de ofertas — monte a sua posição'+bandTag+'</h2>'+
-      '<p class="intro">O tabloide da rede tem 4 páginas (frente e verso). Clique na posição onde você quer a sua marca ou produto, veja o preço, envie a sua arte e reserve — a vaga trava na hora. As posições são padrão; o layout da edição é montado pela nossa equipe.</p>'+
+      '<p class="intro">'+(EDIT?'<b>Modo edição:</b> clique numa posição pra editar, ou em "➕ criar posição" pra criar numa página.':'O tabloide da rede tem 4 páginas (frente e verso). Clique na posição onde você quer a sua marca ou produto, veja o preço, envie a sua arte e reserve — a vaga trava na hora. As posições são padrão; o layout da edição é montado pela nossa equipe.')+'</p>'+
       '<div class="tabloide">'+
         ['Capa','Página 2','Página 3','Contracapa'].map(function(pg){
           var its=encartes.filter(function(e){return e.area===pg;});
-          if(!its.length)return '';
+          if(!its.length && !EDIT)return '';
+          if(EDIT){
+            var blk=its.map(function(e){return '<div class="encpos eded has" data-ed="encarte|'+h(pg)+'|'+e.id+'"><div class="eptitle"><span>'+h((e.espaco||'').replace(e.area+' — ',''))+'</span><span class="epprice">'+brl(e.preco_unit)+'</span></div><div class="edmeta">'+(e.quantidade>1?e.quantidade+' vagas':'1 vaga')+(e.tamanho?' · '+h(e.tamanho):'')+' <span class="edtag">✎ editar</span></div></div>';}).join('');
+            blk+='<div class="encpos eded new" data-ed="encarte|'+h(pg)+'|"><span class="edlab">➕ criar posição</span><span class="edtag">nesta página</span></div>';
+            return '<div class="tpage"><div class="tplabel">'+h(pg)+'</div>'+blk+'</div>';
+          }
           function cell(e,i,isB){var r=(encReservas[e.id]||[])[i];
             if(r)return '<div class="cell res'+(isB?' brand':'')+'"'+(r.arte?' style="background-image:url(data:'+r.mime+';base64,'+r.arte+')"':'')+'><button class="cellx" data-rem="'+e.id+'" data-idx="'+i+'">✕</button>'+(r.arte?'':'<span class="cellok">✓</span>')+'</div>';
             return '<div class="cell empty'+(isB?' brand':'')+'" data-slot="'+e.id+'"><span class="cellp">+ '+(isB?'sua marca':'produto')+'</span></div>';}
