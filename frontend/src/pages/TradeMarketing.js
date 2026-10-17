@@ -65,7 +65,7 @@ export default function TradeMarketing() {
         {gestao && <button onClick={() => setModelo(true)} style={bannerBtn}>📄 Modelo de contrato</button>}
       </Banner>
       <div style={{ display: 'flex', gap: 6, margin: '10px 0 14px', flexWrap: 'wrap' }}>
-        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['espacos', '🗂️ Áreas & Espaços'], ['temas', '🎨 Temas'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
+        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['espacos', '🗂️ Áreas & Espaços'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
       </div>
       {modelo && <ModeloContrato API={API} onClose={() => setModelo(false)} />}
@@ -75,7 +75,6 @@ export default function TradeMarketing() {
       {aba === 'vendas' && <Vendas API={API} gestao={gestao} />}
       {aba === 'porloja' && <EspacoLoja API={API} gestao={gestao} />}
       {aba === 'espacos' && <Espacos API={API} gestao={gestao} />}
-      {aba === 'temas' && <Temas API={API} gestao={gestao} />}
       {aba === 'grupos' && <GruposEconomicos API={API} gestao={gestao} />}
     </div>
   );
@@ -90,14 +89,13 @@ function Portal({ API, gestao }) {
         📥 Os <b>pedidos do fornecedor</b> agora entram direto no Kanban da aba <b>🗂️ Negociações</b> (coluna <b>Negociação</b>, com a etiqueta 🌐 portal). Abra o card para ver tudo: espaços, material/arte, briefing, contrato, financeiro e comprovação.
       </div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-        {[['editor', '🖼️ Editor visual'], ['planos', '📦 Planos comerciais'], ['calendario', '🗓️ Calendário geral'], ['acesso', '🔑 Liberados & Interessados'], ['posicoes', '🎛️ Posições & preços']].map(([k, l]) =>
+        {[['editor', '🖼️ Editor visual'], ['planos', '📦 Planos comerciais'], ['calendario', '🗓️ Calendário geral'], ['acesso', '🔑 Liberados & Interessados']].map(([k, l]) =>
           <button key={k} onClick={() => setSub(k)} style={{ ...s.chip, ...(sub === k ? s.chipOn : {}) }}>{l}</button>)}
       </div>
       {sub === 'editor' && <EditorVisual API={API} />}
       {sub === 'planos' && <PortalPlanos API={API} gestao={gestao} />}
       {sub === 'calendario' && <PortalCalendario API={API} gestao={gestao} />}
       {sub === 'acesso' && <PortalAcesso API={API} gestao={gestao} />}
-      {sub === 'posicoes' && <PortalPosicoes API={API} gestao={gestao} />}
     </div>
   );
 }
@@ -381,70 +379,6 @@ const UNID_OPTS = [['mes', 'por mês'], ['dia', 'por dia'], ['semana', 'por sema
 const MIDIA_OPTS = [['off', 'OFF (loja física)'], ['on', 'ON (digital no ponto)'], ['ambos', 'Ambos (all-line)']];
 const MIDIA_BADGE = { off: { t: 'OFF', c: '#8A6D3B', b: '#FBF0DA' }, on: { t: 'ON', c: '#2E5C9E', b: '#E7F0FB' }, ambos: { t: 'AMBOS', c: '#1E874B', b: '#E6F4EC' } };
 
-function PortalPosicoes({ API, gestao }) {
-  const [d, setD] = useState(null);
-  const [lojaF, setLojaF] = useState('');       // filtro de loja p/ os espaços físicos
-  const [novo, setNovo] = useState(false);
-  const carregar = useCallback(() => API.get('/trademkt/portal/posicoes').then(r => setD(r.data.posicoes)).catch(() => setD([])), [API]);
-  useEffect(() => { carregar(); }, [carregar]);
-  if (!d) return <div style={s.card}>Carregando…</div>;
-  const save = (id, campo, val) => API.patch('/trademkt/portal/espaco/' + id, { [campo]: val }).then(carregar);
-  const saveFoto = (id, file) => { if (!file) return; const r = new FileReader(); r.onload = () => API.put('/trademkt/espaco-loja/' + id + '/foto', { foto: r.result }).then(carregar).catch(e => alert(e.response?.data?.erro || 'Erro.')); r.readAsDataURL(file); };
-  const replicar = p => { if (window.confirm(`Aplicar preço, vagas e mídia de "${p.espaco}" a TODAS as lojas que têm essa posição?`)) API.post(`/trademkt/portal/espaco/${p.id}/replicar`).then(r => { alert(`${r.data.atualizadas} loja(s) atualizada(s).`); carregar(); }); };
-
-  const grupos = {}; d.forEach(p => { const f = familiaDe(p); (grupos[f] = grupos[f] || []).push(p); });
-  const fams = Object.keys(grupos).sort((a, b) => FAM_ORDEM.indexOf(a) - FAM_ORDEM.indexOf(b));
-  const lojasFis = [...new Set((grupos.fisico || []).map(p => p.local))].sort();
-
-  return <div style={{ display: 'grid', gap: 14 }}>
-    <div style={{ ...s.card, background: '#f0f7ff', border: '1px solid #cfe3fb', fontSize: 12.5, color: '#334', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-      <div><b>Disponibilidade do que é comercializável.</b> Tabloide, e-commerce, redes e rádio interna são <b>padrão da rede</b>. Os <b>espaços físicos</b> são <b>por loja</b> e a <b>rádio externa</b> é <b>por cidade</b>. A coluna <b>Un.</b> diz a que a vaga se refere (mês, dia, edição…). <b>Livres</b> = ainda não reservadas.</div>
-      {gestao && <button onClick={() => setNovo(true)} style={s.btn}>➕ Nova posição</button>}
-    </div>
-    {novo && <NovaPosicao API={API} lojas={lojasFis} onClose={() => setNovo(false)} onSaved={() => { setNovo(false); carregar(); }} />}
-
-    {fams.map(fam => {
-      const ehFis = fam === 'fisico';
-      const ehSocial = fam === 'social';
-      let itens = grupos[fam];
-      if (ehFis && lojaF) itens = itens.filter(p => p.local === lojaF);
-      return <div key={fam} style={s.card}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-          <h4 style={{ margin: 0 }}>{FAMN[fam] || fam} <span style={{ fontWeight: 400, color: '#aaa', fontSize: 12 }}>· {grupos[fam].length}</span></h4>
-          {ehFis && <label style={{ fontSize: 12, color: '#666' }}>Loja: <select value={lojaF} onChange={e => setLojaF(e.target.value)} style={{ ...s.inp, width: 190, display: 'inline-block' }}><option value="">Todas as lojas</option>{lojasFis.map(l => <option key={l} value={l}>{l}</option>)}</select></label>}
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', fontSize: 12.5, borderCollapse: 'collapse', marginTop: 8, minWidth: 720 }}><thead><tr style={{ color: '#888', textAlign: 'left' }}>
-          <th>Posição</th><th>{ehFis ? 'Loja' : fam === 'radio_ext' ? 'Cidade' : 'Local'}</th>{ehFis && <th>Mídia</th>}<th>Venda</th><th>Vagas</th>{ehSocial && <th title="máximo por dia">Lim/dia</th>}{ehSocial && <th title="máximo por mês">Lim/mês</th>}<th>Un.</th><th>Preço</th><th>Livres</th><th>Disp.</th><th>Dest.</th>{ehFis && gestao && <th></th>}
-        </tr></thead><tbody>
-          {itens.map(p => <tr key={p.id} style={{ borderTop: '1px solid #f3f3f3' }}>
-            <td style={{ padding: '5px 0' }}>{p.espaco} {gestao && <label style={{ cursor: 'pointer', fontSize: 12, color: p.tem_foto ? '#1E874B' : '#2E5C9E' }} title={p.tem_foto ? 'tem imagem — trocar (aparece no portal)' : 'adicionar imagem (aparece no portal)'}>{p.tem_foto ? '🖼️✓' : '🖼️'}<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => saveFoto(p.id, e.target.files[0])} /></label>}</td>
-            <td style={{ color: p.escopo !== 'loja' ? '#1E874B' : '#555', fontWeight: p.escopo !== 'loja' ? 700 : 400 }}>{p.local}</td>
-            {ehFis && <td>{gestao
-              ? <select value={p.midia || 'ambos'} onChange={e => save(p.id, 'midia', e.target.value)} style={{ ...s.inp, width: 96, padding: '3px 4px' }}>{MIDIA_OPTS.map(([v, l]) => <option key={v} value={v}>{l.split(' ')[0]}</option>)}</select>
-              : (() => { const m = MIDIA_BADGE[p.midia] || MIDIA_BADGE.ambos; return <span style={{ fontSize: 10.5, fontWeight: 700, color: m.c, background: m.b, padding: '2px 6px', borderRadius: 6 }}>{m.t}</span>; })()}</td>}
-            <td>{gestao
-              ? <select value={p.modo_venda} onChange={e => save(p.id, 'modo_venda', e.target.value)} style={{ ...s.inp, width: 90, padding: '3px 4px' }}><option value="periodo">Período</option><option value="insercao">Inserção</option></select>
-              : <span style={{ fontSize: 11, color: '#777' }}>{p.modo_venda === 'insercao' ? 'Inserção' : 'Período'}</span>}</td>
-            <td><input type="number" defaultValue={p.quantidade} disabled={!gestao} onBlur={e => gestao && Number(e.target.value) !== p.quantidade && save(p.id, 'quantidade', Number(e.target.value))} style={{ ...s.inp, width: 52 }} /></td>
-            {ehSocial && <td><input type="number" defaultValue={p.limite_dia ?? ''} placeholder="—" disabled={!gestao} onBlur={e => gestao && String(e.target.value) !== String(p.limite_dia ?? '') && save(p.id, 'limite_dia', e.target.value)} style={{ ...s.inp, width: 48 }} /></td>}
-            {ehSocial && <td><input type="number" defaultValue={p.limite_mes ?? ''} placeholder="—" disabled={!gestao} onBlur={e => gestao && String(e.target.value) !== String(p.limite_mes ?? '') && save(p.id, 'limite_mes', e.target.value)} style={{ ...s.inp, width: 48 }} /></td>}
-            <td>{gestao
-              ? <select value={p.unidade} onChange={e => save(p.id, 'unidade', e.target.value)} style={{ ...s.inp, width: 82, padding: '3px 4px' }}>{UNID_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-              : <span style={{ fontSize: 11, color: '#777' }}>{UNID[p.unidade] || ''}</span>}</td>
-            <td><input type="number" step="0.01" defaultValue={p.preco_unit} disabled={!gestao} onBlur={e => gestao && Number(e.target.value) !== p.preco_unit && save(p.id, 'preco_unit', Number(e.target.value))} style={{ ...s.inp, width: 82 }} /></td>
-            <td style={{ fontWeight: 700, color: p.livres > 0 ? '#1E874B' : '#B91C1C' }}>{p.livres}</td>
-            <td><input type="checkbox" checked={!!p.disponivel} disabled={!gestao} onChange={e => save(p.id, 'disponivel', e.target.checked)} /></td>
-            <td><input type="checkbox" checked={!!p.destaque} disabled={!gestao} onChange={e => save(p.id, 'destaque', e.target.checked)} /></td>
-            {ehFis && gestao && <td><button onClick={() => replicar(p)} title="Aplicar estes valores a todas as lojas com esta posição" style={s.mv}>⇊ todas</button></td>}
-          </tr>)}
-        </tbody></table>
-        </div>
-      </div>;
-    })}
-  </div>;
-}
-
 // cadastro de uma nova posição comercializável
 function NovaPosicao({ API, lojas, onClose, onSaved }) {
   const MODS = [['off', '🏬 Espaço físico'], ['encarte', '📰 Tabloide'], ['ecommerce', '🛒 E-commerce'], ['social', '📱 Digital / Redes'], ['crm_filipeta', '🧾 Filipeta'], ['crm_pdv', '🖥️ PDV+'], ['radio_ext', '📻 Rádio externa (cidade)'], ['radio_int', '📻 Rádio interna'], ['endomarketing', '🎉 Endomarketing']];
@@ -527,6 +461,33 @@ function NovaPosicao({ API, lojas, onClose, onSaved }) {
 
 // ── PLANOS COMERCIAIS (gestão) ──────────────────────────────────────────────
 const PLANO_CAPA = id => `/api/publico/trade/plano/${id}/capa`;
+// Ajustador de enquadramento: a "caixa" é o formato do card do portal; arraste a imagem p/ escolher o que aparece.
+function FocoImagem({ src, pos, onChange }) {
+  const ref = useRef(); const [drag, setDrag] = useState(null);
+  const parse = p => { const m = /(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%/.exec(p || '50% 50%'); return m ? { x: +m[1], y: +m[2] } : { x: 50, y: 50 }; };
+  const cur = parse(pos);
+  const onDown = e => { e.preventDefault(); const r = ref.current.getBoundingClientRect(); setDrag({ r, start: cur, px: e.clientX, py: e.clientY }); };
+  useEffect(() => {
+    if (!drag) return;
+    const move = e => {
+      const dx = (e.clientX - drag.px) / drag.r.width * 100, dy = (e.clientY - drag.py) / drag.r.height * 100;
+      const x = Math.max(0, Math.min(100, Math.round(drag.start.x - dx))), y = Math.max(0, Math.min(100, Math.round(drag.start.y - dy)));
+      onChange(`${x}% ${y}%`);
+    };
+    const up = () => setDrag(null);
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+  }, [drag, onChange]);
+  return (
+    <div style={{ display: 'grid', gap: 3 }}>
+      <div ref={ref} onMouseDown={onDown} title="arraste pra escolher o que aparece no card do portal"
+        style={{ width: 150, height: 150, borderRadius: 12, border: '1px solid #ddd', cursor: drag ? 'grabbing' : 'grab', backgroundImage: `url(${src})`, backgroundSize: 'cover', backgroundPosition: pos || '50% 50%', position: 'relative' }}>
+        <div style={{ position: 'absolute', inset: 0, borderRadius: 12, boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.65)', pointerEvents: 'none' }} />
+      </div>
+      <span style={{ fontSize: 10, color: '#94a3b8' }}>Enquadramento · arraste</span>
+    </div>
+  );
+}
 function PortalPlanos({ API, gestao }) {
   const [d, setD] = useState(null); const [edit, setEdit] = useState(null);
   const carregar = useCallback(() => API.get('/trademkt/portal/planos').then(r => setD(r.data.planos)).catch(() => setD([])), [API]);
@@ -583,6 +544,7 @@ function PlanoEditor({ API, id, onClose, onSaved }) {
     veic_ini: p.veic_ini, veic_fim: p.veic_fim, por_que: p.por_que, o_que_mostrar: p.o_que_mostrar, publico: p.publico,
     produtos_foco: p.produtos_foco, sellout_potencial: p.sellout_potencial, oportunidades: p.oportunidades,
     conteudo_redes: p.conteudo_redes, midias_on: p.midias_on, midias_off: p.midias_off, midias_online: p.midias_online,
+    capa_pos: p.capa_pos || null,
     formatos: p.formatos || [], lojas: p.lojas || [], faq: p.faq || []
   }).then(() => { onSaved(); onClose(); });
   const subirCapa = file => { if (!file) return; const r = new FileReader(); r.onload = () => API.post('/trademkt/portal/plano/' + id + '/capa', { foto: r.result, mime: file.type }).then(carregar); r.readAsDataURL(file); };
@@ -617,10 +579,15 @@ function PlanoEditor({ API, id, onClose, onSaved }) {
       <b style={{ fontSize: 15 }}>📦 Plano comercial</b><button onClick={onClose} style={s.btnMini}>✕</button>
     </div>
     <div style={{ display: 'grid', gap: 10, maxHeight: '72vh', overflowY: 'auto', paddingRight: 4 }}>
-      {/* capa */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <div style={{ width: 120, height: 72, borderRadius: 10, background: p.tem_capa ? `center/cover no-repeat url(${PLANO_CAPA(id)}?v=${Date.now()})` : 'linear-gradient(135deg,#6d28d9,#2563eb)', flex: '0 0 auto' }} />
-        <label style={{ ...s.mv, cursor: 'pointer' }}>🖼️ {p.tem_capa ? 'trocar capa' : 'subir capa'}<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => subirCapa(e.target.files[0])} /></label>
+      {/* capa + enquadramento */}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {p.tem_capa
+          ? <FocoImagem src={`${PLANO_CAPA(id)}?v=${p.capa_pos || ''}`} pos={p.capa_pos} onChange={v => set('capa_pos', v)} />
+          : <div style={{ width: 150, height: 150, borderRadius: 12, background: 'linear-gradient(135deg,#6d28d9,#2563eb)', flex: '0 0 auto' }} />}
+        <div style={{ display: 'grid', gap: 6 }}>
+          <label style={{ ...s.mv, cursor: 'pointer' }}>🖼️ {p.tem_capa ? 'trocar capa' : 'subir capa'}<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => subirCapa(e.target.files[0])} /></label>
+          {p.tem_capa && <span style={{ fontSize: 11, color: '#94a3b8', maxWidth: 200 }}>Arraste a imagem na caixa pra escolher a área que aparece no card do portal. Salve o plano pra aplicar.</span>}
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <label style={{ ...s.lbl, flex: 2, minWidth: 200 }}>Nome *<input value={p.nome || ''} onChange={e => set('nome', e.target.value)} style={s.inp} /></label>
@@ -1412,115 +1379,380 @@ function FotoPonto({ API, item, gestao, onChange }) {
   );
 }
 
-function TabelaEspacoLoja({ loja, arr, API, gestao, carregar, del }) {
+// Edição completa de uma posição comercializável (tmkt_espaco_loja) — PATCH /portal/espaco/:id
+function PosicaoEditModal({ API, p, onClose, onSaved }) {
+  const fam = familiaDe(p);
+  const ehFis = fam === 'fisico';
+  const [f, setF] = useState({
+    area: p.area || '', espaco: p.espaco || '', tamanho: p.tamanho || '', descricao: p.descricao || '',
+    midia: p.midia || 'ambos', modo_venda: p.modo_venda || 'periodo', unidade: p.unidade || 'mes',
+    quantidade: p.quantidade || 1, preco_unit: p.preco_unit ?? '',
+    limite_dia: p.limite_dia ?? '', limite_mes: p.limite_mes ?? '',
+    disponivel: !!p.disponivel, destaque: !!p.destaque,
+  });
+  const set = (k, v) => setF(x => ({ ...x, [k]: v }));
+  const salvar = () => {
+    if (!String(f.espaco).trim()) return alert('Dê um nome à posição.');
+    const body = {
+      area: f.area, espaco: f.espaco, tamanho: f.tamanho, descricao: f.descricao,
+      modo_venda: f.modo_venda, unidade: f.unidade, quantidade: f.quantidade, preco_unit: f.preco_unit,
+      disponivel: f.disponivel, destaque: f.destaque,
+    };
+    if (ehFis) body.midia = f.midia;
+    body.limite_dia = f.limite_dia; body.limite_mes = f.limite_mes;
+    API.patch(`/trademkt/portal/espaco/${p.id}`, body).then(() => { onSaved(); onClose(); }).catch(e => alert(e.response?.data?.erro || 'Erro ao salvar.'));
+  };
+  return <div style={s.overlay} onClick={onClose}><div style={{ ...s.modal, maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+      <b style={{ fontSize: 15 }}>✎ Editar posição</b><button onClick={onClose} style={s.btnMini}>✕</button>
+    </div>
+    <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 10 }}>{FAMN[fam] || fam} · {p.local}</div>
+    <div style={{ display: 'grid', gap: 10 }}>
+      <label style={s.lbl}>Área<input value={f.area} onChange={e => set('area', e.target.value)} style={s.inp} /></label>
+      <label style={s.lbl}>Posição (espaço)<input value={f.espaco} onChange={e => set('espaco', e.target.value)} style={s.inp} /></label>
+      <label style={s.lbl}>Tamanho / especificação<input value={f.tamanho} onChange={e => set('tamanho', e.target.value)} placeholder="ex.: 1/4 de página, 1,20m, 1080×1080" style={s.inp} /></label>
+      <label style={s.lbl}>O que é / descrição <span style={{ fontWeight: 400, color: '#94a3b8' }}>(aparece no portal)</span><input value={f.descricao} onChange={e => set('descricao', e.target.value)} style={s.inp} /></label>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {ehFis && <label style={s.lbl}>Mídia<select value={f.midia} onChange={e => set('midia', e.target.value)} style={s.inp}>{MIDIA_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>}
+        <label style={s.lbl}>Modo de venda<select value={f.modo_venda} onChange={e => set('modo_venda', e.target.value)} style={s.inp}><option value="periodo">Período fechado</option><option value="insercao">Inserção (qtd)</option></select></label>
+        <label style={s.lbl}>Cobrança (unidade)<select value={f.unidade} onChange={e => set('unidade', e.target.value)} style={s.inp}>{UNID_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+      </div>
+      <div style={{ background: '#FBFBFD', border: '1px solid #eef0f4', borderRadius: 10, padding: '8px 10px' }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: '#475569', marginBottom: 2 }}>🧮 Capacidade de entrega <span style={{ fontWeight: 400, color: '#94a3b8' }}>(trava anti-oversell — o portal só vende até isso)</span></div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={s.lbl}>Limite por dia<input type="number" value={f.limite_dia} onChange={e => set('limite_dia', e.target.value)} placeholder="sem teto" style={{ ...s.inp, width: 100 }} /></label>
+          <label style={s.lbl}>Teto por mês <span style={{ fontWeight: 400, color: '#94a3b8' }}>(opcional)</span><input type="number" value={f.limite_mes} onChange={e => set('limite_mes', e.target.value)} placeholder={f.limite_dia ? `≈ ${Number(f.limite_dia) * 30}` : 'sem teto'} style={{ ...s.inp, width: 110 }} /></label>
+          {f.limite_dia ? <span style={{ fontSize: 11, color: '#1E874B', paddingBottom: 7 }}>≈ <b>{Number(f.limite_dia) * 30}</b>/mês a partir do diário</span> : null}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <label style={s.lbl}>Vagas<input type="number" value={f.quantidade} onChange={e => set('quantidade', e.target.value)} style={{ ...s.inp, width: 100 }} /></label>
+        <label style={s.lbl}>Preço R$<input type="number" step="0.01" value={f.preco_unit} onChange={e => set('preco_unit', e.target.value)} placeholder="99,90" style={{ ...s.inp, width: 120 }} /></label>
+      </div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12.5 }}>
+        <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={f.disponivel} onChange={e => set('disponivel', e.target.checked)} /> Disponível no portal</label>
+        <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={f.destaque} onChange={e => set('destaque', e.target.checked)} /> ★ Destaque</label>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 2 }}>
+        <button onClick={onClose} style={s.btnMini}>Cancelar</button>
+        <button onClick={salvar} style={s.btn}>Salvar</button>
+      </div>
+    </div>
+  </div></div>;
+}
+
+function LinhaPosicao({ p, API, gestao, carregar, onEdit }) {
+  const ehFis = familiaDe(p) === 'fisico';
+  const patch = campo => API.patch(`/trademkt/portal/espaco/${p.id}`, campo).then(carregar).catch(() => {});
+  const replicar = () => { if (window.confirm(`Aplicar preço, vagas e mídia de "${p.espaco}" a TODAS as lojas que têm essa posição?`)) API.post(`/trademkt/portal/espaco/${p.id}/replicar`).then(r => { alert(`${r.data.atualizadas} loja(s) atualizada(s).`); carregar(); }).catch(e => alert(e.response?.data?.erro || 'Erro.')); };
+  const del = () => { if (window.confirm(`Remover a posição "${p.espaco}"?`)) API.delete(`/trademkt/portal/espaco/${p.id}`).then(carregar); };
+  return (
+    <tr style={{ borderTop: '1px solid #f2f2f2', opacity: p.disponivel ? 1 : .5 }}>
+      <td style={s.td}><FotoPonto API={API} item={p} gestao={gestao} onChange={carregar} /></td>
+      <td style={s.td}>{p.area}</td>
+      <td style={s.td}>{p.espaco}{p.tamanho ? <span style={s.tag}>{p.tamanho}</span> : null}</td>
+      <td style={s.td}><span style={{ fontSize: 11, color: '#777' }}>{UNID[p.unidade] || p.unidade}{p.modo_venda === 'insercao' ? ' · inserção' : ''}{p.limite_dia ? <span style={{ color: '#B7791F' }}> · máx {p.limite_dia}/dia</span> : (p.limite_mes ? <span style={{ color: '#B7791F' }}> · máx {p.limite_mes}/mês</span> : null)}</span></td>
+      <td style={s.tdR}><span style={{ color: p.livres > 0 ? '#1E874B' : '#B91C1C', fontWeight: 600 }}>{p.ocupadas || 0}/{p.quantidade}</span></td>
+      <td style={s.tdR}>{brl(p.preco_unit)}</td>
+      <td style={{ ...s.tdR, color: '#1E874B' }}>{brl((p.quantidade || 0) * (p.preco_unit || 0))}</td>
+      {gestao && <td style={s.tdR}><div style={{ display: 'flex', gap: 3, justifyContent: 'flex-end', alignItems: 'center' }}>
+        <button onClick={() => patch({ disponivel: !p.disponivel })} title={p.disponivel ? 'no portal (clique p/ ocultar)' : 'oculto (clique p/ publicar)'} style={{ ...s.mv, padding: '3px 7px', color: p.disponivel ? '#1E874B' : '#bbb' }}>{p.disponivel ? '●' : '○'}</button>
+        <button onClick={() => patch({ destaque: !p.destaque })} title="destaque no portal" style={{ ...s.mv, padding: '3px 7px', color: p.destaque ? '#B7791F' : '#ccc' }}>★</button>
+        <button onClick={() => onEdit(p)} title="editar" style={s.mv}>✎</button>
+        {ehFis && <button onClick={replicar} title="replicar a todas as lojas" style={s.mv}>⇊</button>}
+        <button onClick={del} title="remover" style={s.mv}>✕</button>
+      </div></td>}
+    </tr>
+  );
+}
+
+function GrupoLojaPosicoes({ local, arr, API, gestao, carregar, onEdit, aberto, toggle }) {
   const COLS = [
-    { k: 'area', label: 'Área', tipo: 'txt', get: i => i.area || '' },
-    { k: 'espaco', label: 'Espaço', tipo: 'txt', get: i => i.espaco || '' },
-    { k: 'vagas', label: 'Vagas', tipo: 'num', right: true, get: i => i.quantidade || 0 },
-    { k: 'preco', label: 'Preço unit.', tipo: 'num', right: true, get: i => i.preco_unit || 0 },
-    { k: 'potencial', label: 'Potencial', tipo: 'num', right: true, get: i => (i.quantidade || 0) * (i.preco_unit || 0) },
+    { k: 'area', label: 'Área', tipo: 'txt', get: p => p.area || '' },
+    { k: 'espaco', label: 'Posição', tipo: 'txt', get: p => p.espaco || '' },
+    { k: 'un', label: 'Un.', tipo: 'txt', get: p => p.unidade || '' },
+    { k: 'vagas', label: 'Vagas', tipo: 'num', right: true, get: p => p.quantidade || 0 },
+    { k: 'preco', label: 'Preço', tipo: 'num', right: true, get: p => p.preco_unit || 0 },
+    { k: 'potencial', label: 'Potencial', tipo: 'num', right: true, get: p => (p.quantidade || 0) * (p.preco_unit || 0) },
   ];
   const { linhas, ordem, clicar, seta } = useOrdenavel(arr, COLS, { col: 'potencial', dir: 'desc' });
+  const vagas = arr.reduce((a, p) => a + (p.quantidade || 0), 0);
+  const pot = arr.reduce((a, p) => a + (p.quantidade || 0) * (p.preco_unit || 0), 0);
+  const escopo = arr[0] && arr[0].escopo;
+  const icone = escopo === 'rede' ? '🌐' : escopo === 'cidade' ? '📍' : '🏬';
   return (
-    <div style={s.card}>
-      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>🏬 {loja} <span style={{ fontWeight: 400, color: '#999', fontSize: 12 }}>· {arr.length} espaço(s)</span></div>
-      <div style={{ overflowX: 'auto' }}>
+    <div style={{ ...s.card, padding: aberto ? '10px 12px' : '8px 12px' }}>
+      <div onClick={toggle} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
+        <span style={{ fontSize: 12, color: '#999', width: 12 }}>{aberto ? '▾' : '▸'}</span>
+        <span style={{ fontSize: 14, fontWeight: 700 }}>{icone} {local}</span>
+        <span style={{ fontWeight: 400, color: '#999', fontSize: 12 }}>· {arr.length} posição(ões) · {vagas} vagas</span>
+        <span style={{ marginLeft: 'auto', fontSize: 12.5, color: '#1E874B', fontWeight: 600 }}>{brl(pot)}</span>
+      </div>
+      {aberto && <div style={{ overflowX: 'auto', marginTop: 8 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
           <thead><tr>
             <th style={{ ...s.th, textAlign: 'left' }}>Foto</th>
             {COLS.map(c => <ThOrd key={c.k} c={c} ordem={ordem} clicar={clicar} seta={seta} base={s.th} />)}
             <th style={s.th}></th>
           </tr></thead>
-          <tbody>{linhas.map(i => { const cheio = (i.disponiveis != null ? i.disponiveis : i.quantidade) <= 0; return (
-            <tr key={i.id} style={{ borderTop: '1px solid #f2f2f2' }}>
-              <td style={s.td}><FotoPonto API={API} item={i} gestao={gestao} onChange={carregar} /></td>
-              <td style={s.td}>{i.area}</td><td style={s.td}>{i.espaco}</td>
-              <td style={s.tdR}><span style={{ color: cheio ? '#C0392B' : (i.ocupados ? '#B7791F' : '#1E874B'), fontWeight: 600 }}>{i.ocupados || 0}/{i.quantidade}</span></td><td style={s.tdR}>{brl(i.preco_unit)}</td>
-              <td style={{ ...s.tdR, color: '#1E874B' }}>{brl((i.quantidade || 0) * (i.preco_unit || 0))}</td>
-              <td style={s.tdR}>{gestao && <button onClick={() => del(i.id)} style={s.mv}>✕</button>}</td>
-            </tr>); })}</tbody>
+          <tbody>{linhas.map(p => <LinhaPosicao key={p.id} p={p} API={API} gestao={gestao} carregar={carregar} onEdit={onEdit} />)}</tbody>
         </table>
+      </div>}
+    </div>
+  );
+}
+
+// "Espaços por loja" = a seção ÚNICA de posições & preços (tudo o que é comercializável).
+function EspacoLoja({ API, gestao }) {
+  const [itens, setItens] = useState(null);
+  const [lojaSel, setLojaSel] = useState(''); const [busca, setBusca] = useState('');
+  const [abertas, setAbertas] = useState({});
+  const [editP, setEditP] = useState(null); const [novo, setNovo] = useState(false);
+  const carregar = useCallback(() => API.get('/trademkt/portal/posicoes').then(r => setItens(r.data.posicoes || [])).catch(() => setItens([])), [API]);
+  useEffect(() => { carregar(); }, [carregar]);
+  if (!itens) return <div style={s.card}>Carregando…</div>;
+  const locais = [...new Set(itens.map(i => i.local))].sort();
+  const q = busca.trim().toLowerCase();
+  const filtrados = itens.filter(i => (!lojaSel || i.local === lojaSel)
+    && (!q || `${i.area || ''} ${i.espaco || ''} ${i.tamanho || ''} ${i.descricao || ''}`.toLowerCase().includes(q)));
+  const grupos = {}; filtrados.forEach(i => { (grupos[i.local] = grupos[i.local] || []).push(i); });
+  const nomes = Object.keys(grupos).sort((a, b) => (a === 'ESCRITÓRIO' ? -1 : b === 'ESCRITÓRIO' ? 1 : a.localeCompare(b)));
+  const totV = filtrados.reduce((a, i) => a + (i.quantidade || 0), 0);
+  const pot = filtrados.reduce((a, i) => a + (i.quantidade || 0) * (i.preco_unit || 0), 0);
+  const autoOpen = !!lojaSel || !!q || nomes.length <= 1;
+  const estaAberto = n => abertas[n] != null ? abertas[n] : autoOpen;
+  const toggle = n => setAbertas(a => ({ ...a, [n]: !estaAberto(n) }));
+  const lojasFis = [...new Set(itens.filter(i => i.escopo !== 'rede').map(i => i.local))].filter(Boolean).sort();
+  return (
+    <div>
+      {novo && <NovaPosicao API={API} lojas={lojasFis} onClose={() => setNovo(false)} onSaved={() => { setNovo(false); carregar(); }} />}
+      {editP && <PosicaoEditModal API={API} p={editP} onClose={() => setEditP(null)} onSaved={carregar} />}
+      <div style={{ ...s.card, background: '#f0f7ff', border: '1px solid #cfe3fb', fontSize: 12, color: '#334' }}>
+        Tudo o que é <b>comercializável</b> vive aqui: espaços físicos <b>por loja</b> e os itens <b>padrão da rede</b> (tabloide, e-commerce, redes, rádio) sob <b>🌐 ESCRITÓRIO</b>. Cada posição tem <b>preço, vagas e unidade de cobrança</b> e aparece no portal do fornecedor.
+      </div>
+      <div style={{ ...s.card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select value={lojaSel} onChange={e => setLojaSel(e.target.value)} style={s.inp}><option value="">Todas · rede + lojas</option>{locais.map(l => <option key={l} value={l}>{l}</option>)}</select>
+        <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔎 buscar posição, área…" style={{ ...s.inp, flex: 1, minWidth: 150 }} />
+        {nomes.length > 1 && <button onClick={() => { const abrir = !nomes.every(estaAberto); const m = {}; nomes.forEach(n => m[n] = abrir); setAbertas(m); }} style={s.btnMini}>{nomes.every(estaAberto) ? 'Recolher tudo' : 'Expandir tudo'}</button>}
+        <span style={{ fontSize: 12.5, color: '#666' }}>{filtrados.length} posição(ões) · <b>{totV}</b> vagas · potencial <b style={{ color: '#1E874B' }}>{brl(pot)}</b></span>
+        {gestao && <button onClick={() => setNovo(true)} style={s.btn}>➕ Nova posição</button>}
+      </div>
+      {nomes.map(local => (
+        <GrupoLojaPosicoes key={local} local={local} arr={grupos[local]} API={API} gestao={gestao} carregar={carregar} onEdit={setEditP} aberto={estaAberto(local)} toggle={() => toggle(local)} />
+      ))}
+      {itens.length === 0 && <div style={s.card}>Nenhuma posição cadastrada. Clique em <b>➕ Nova posição</b>.</div>}
+      {itens.length > 0 && filtrados.length === 0 && <div style={s.card}>Nada encontrado para o filtro.</div>}
+    </div>
+  );
+}
+
+const CANAIS_META = [
+  { k: 'fisico', label: 'Loja física', icon: '🏬', cor: '#1E874B', dica: 'Ponto na loja (gôndola, ilha, frente de caixa, vitrine…)' },
+  { k: 'ecommerce', label: 'E-commerce', icon: '🛒', cor: '#2E5C9E', dica: 'Banner/posição no site e no delivery' },
+  { k: 'crm', label: 'CRM', icon: '📨', cor: '#8E44AD', dica: 'Tabloide, SMS, push, WhatsApp — base de clientes' },
+  { k: 'endomarketing', label: 'Endomarketing', icon: '📣', cor: '#B7791F', dica: 'Comunicação interna (mural, comunidade, treinamento)' },
+];
+const canalMeta = k => CANAIS_META.find(c => c.k === k) || CANAIS_META[0];
+const COBRANCAS_META = [
+  { k: 'mensal', label: 'Mensal', abbr: '/mês' },
+  { k: 'insercao', label: 'Por inserção', abbr: '/inserção' },
+  { k: 'diario', label: 'Diário', abbr: '/dia' },
+  { k: 'unidade', label: 'Por unidade', abbr: '/un' },
+  { k: 'hora', label: 'Por hora', abbr: '/h' },
+];
+const cobrancaAbbr = k => (COBRANCAS_META.find(c => c.k === k) || {}).abbr || '';
+
+function lerImagem(file, cb) {
+  if (!file) return;
+  if (file.size > 3 * 1024 * 1024) { alert('Foto muito grande (máx 3MB).'); return; }
+  const r = new FileReader(); r.onload = () => cb(r.result); r.readAsDataURL(file);
+}
+
+function AreaFormModal({ API, area, onClose, onSaved }) {
+  const edit = !!area;
+  const [f, setF] = useState(area || { descricao: '', canal: 'fisico', tamanho: '', detalhe: '', cobranca: '' });
+  const [fotos, setFotos] = useState([]);        // fotos já salvas (modo edição)
+  const [pend, setPend] = useState([]);           // base64 pendentes (modo criação)
+  const [salvando, setSalvando] = useState(false);
+  const inputRef = useRef();
+  const carregarFotos = useCallback(() => { if (edit) API.get(`/trademkt/areas/${area.id}/fotos`).then(r => setFotos(r.data.fotos || [])).catch(() => {}); }, [API, edit, area]);
+  useEffect(() => { carregarFotos(); }, [carregarFotos]);
+  const addFoto = file => lerImagem(file, b64 => {
+    if (edit) API.post(`/trademkt/areas/${area.id}/fotos`, { foto: b64 }).then(carregarFotos).catch(e => alert(e.response?.data?.erro || 'Erro.'));
+    else setPend(p => [...p, b64]);
+  });
+  const rmFoto = id => API.delete(`/trademkt/areas/fotos/${id}`).then(carregarFotos);
+  const salvar = async () => {
+    if (!f.descricao.trim()) return alert('Dê um nome à área.');
+    setSalvando(true);
+    try {
+      if (edit) { await API.put(`/trademkt/areas/${area.id}`, f); }
+      else {
+        const r = await API.post('/trademkt/areas', f);
+        for (const b64 of pend) { try { await API.post(`/trademkt/areas/${r.data.id}/fotos`, { foto: b64 }); } catch { /* segue */ } }
+      }
+      onSaved(); onClose();
+    } catch (e) { alert(e.response?.data?.erro || 'Erro ao salvar.'); } finally { setSalvando(false); }
+  };
+  const thumbs = edit ? fotos.map(x => ({ id: x.id, src: x.foto })) : pend.map((src, i) => ({ id: i, src }));
+  return (
+    <div style={s.overlay} onClick={onClose}>
+      <div style={{ ...s.modal, maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{edit ? '✎ Editar área' : '➕ Nova área'}</div>
+          <button onClick={onClose} style={s.mv}>✕</button>
+        </div>
+        <div style={{ display: 'grid', gap: 10 }}>
+          <label style={s.lbl}>Nome da área
+            <input value={f.descricao} onChange={e => setF(x => ({ ...x, descricao: e.target.value }))} placeholder="ex.: Tabloide, Ponta de gôndola, Instagram…" style={s.inp} autoFocus />
+          </label>
+          <div style={s.lbl}>Onde fica vinculada (canal)
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
+              {CANAIS_META.map(c => <button key={c.k} type="button" onClick={() => setF(x => ({ ...x, canal: c.k }))}
+                style={{ ...s.chip, ...(f.canal === c.k ? { background: c.cor, color: '#fff', borderColor: c.cor } : {}) }} title={c.dica}>{c.icon} {c.label}</button>)}
+            </div>
+            <span style={{ fontSize: 10.5, color: '#aaa', marginTop: 3 }}>{canalMeta(f.canal).dica}</span>
+          </div>
+          <label style={s.lbl}>Tamanho / formato
+            <input value={f.tamanho || ''} onChange={e => setF(x => ({ ...x, tamanho: e.target.value }))} placeholder='ex.: "1/4 de página" no tabloide, "1,20m" na gôndola, "feed 1080×1080"' style={s.inp} />
+          </label>
+          <div style={s.lbl}>Como é comercializado (cobrança)
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
+              {COBRANCAS_META.map(c => <button key={c.k} type="button" onClick={() => setF(x => ({ ...x, cobranca: x.cobranca === c.k ? '' : c.k }))}
+                style={{ ...s.chip, ...(f.cobranca === c.k ? s.chipOn : {}) }}>{c.label}</button>)}
+            </div>
+          </div>
+          <label style={s.lbl}>Descrição
+            <textarea value={f.detalhe || ''} onChange={e => setF(x => ({ ...x, detalhe: e.target.value }))} rows={3} placeholder="O que é, como funciona, o que o fornecedor recebe…" style={{ ...s.inp, resize: 'vertical' }} />
+          </label>
+          <div style={s.lbl}>Fotos {thumbs.length > 0 && <span style={{ color: '#aaa' }}>({thumbs.length})</span>}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4, alignItems: 'center' }}>
+              {thumbs.map(t => <div key={t.id} style={{ position: 'relative' }}>
+                <img src={t.src} alt="foto" style={{ width: 62, height: 62, objectFit: 'cover', borderRadius: 8, border: '1px solid #ddd' }} />
+                <button onClick={() => edit ? rmFoto(t.id) : setPend(p => p.filter((_, i) => i !== t.id))} style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: 10, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontSize: 11, lineHeight: '18px', padding: 0 }}>✕</button>
+              </div>)}
+              <button onClick={() => inputRef.current?.click()} style={{ width: 62, height: 62, borderRadius: 8, border: '1.5px dashed #ccc', background: '#fafafa', cursor: 'pointer', fontSize: 20, color: '#999' }}>+</button>
+              <input ref={inputRef} type="file" accept="image/*" onChange={e => { addFoto(e.target.files?.[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+            <button onClick={onClose} style={s.btnMini}>Cancelar</button>
+            <button onClick={salvar} disabled={salvando} style={s.btn}>{salvando ? 'Salvando…' : (edit ? 'Salvar' : 'Criar área')}</button>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-function EspacoLoja({ API, gestao }) {
-  const [itens, setItens] = useState([]); const [lojaSel, setLojaSel] = useState('');
-  const carregar = useCallback(() => API.get('/trademkt/espaco-loja').then(r => setItens(r.data.itens || [])).catch(() => {}), [API]);
-  useEffect(() => { carregar(); }, [carregar]);
-  const lojas = [...new Set(itens.map(i => i.loja_nome))];
-  const filtrados = lojaSel ? itens.filter(i => i.loja_nome === lojaSel) : itens;
-  const grupos = {}; filtrados.forEach(i => { (grupos[i.loja_nome] = grupos[i.loja_nome] || []).push(i); });
-  const total = filtrados.reduce((a, i) => a + (i.quantidade || 0), 0);
-  const potencial = filtrados.reduce((a, i) => a + (i.quantidade || 0) * (i.preco_unit || 0), 0);
-  const del = id => API.delete(`/trademkt/espaco-loja/${id}`).then(carregar);
+function EspacoLinha({ API, e, gestao, onChange }) {
+  const [edit, setEdit] = useState(false);
+  const [f, setF] = useState(e);
+  useEffect(() => { setF(e); }, [e]);
+  const salvar = () => API.put(`/trademkt/espacos/${e.id}`, { descricao: f.descricao, tamanho: f.tamanho, valor_ref: Number(f.valor_ref) || 0, cobranca: f.cobranca || '' })
+    .then(() => { setEdit(false); onChange(); }).catch(err => alert(err.response?.data?.erro || 'Erro.'));
+  if (edit) return (
+    <div style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '5px 0', borderTop: '1px solid #f2f2f2', flexWrap: 'wrap' }}>
+      <input value={f.descricao || ''} onChange={ev => setF(x => ({ ...x, descricao: ev.target.value }))} placeholder="espaço" style={{ ...s.inp, padding: '4px 6px', fontSize: 12, flex: 1, minWidth: 100 }} />
+      <input value={f.tamanho || ''} onChange={ev => setF(x => ({ ...x, tamanho: ev.target.value }))} placeholder="tamanho" style={{ ...s.inp, padding: '4px 6px', fontSize: 12, width: 90 }} />
+      <input type="number" value={f.valor_ref ?? ''} onChange={ev => setF(x => ({ ...x, valor_ref: ev.target.value }))} placeholder="R$" style={{ ...s.inp, padding: '4px 6px', fontSize: 12, width: 72 }} />
+      <select value={f.cobranca || ''} onChange={ev => setF(x => ({ ...x, cobranca: ev.target.value }))} style={{ ...s.inp, padding: '4px 6px', fontSize: 12, width: 92 }}><option value="">cobrança…</option>{COBRANCAS_META.map(c => <option key={c.k} value={c.k}>{c.label}</option>)}</select>
+      <button onClick={salvar} style={{ ...s.mv, color: '#1E874B', borderColor: '#A6D9BE' }}>✓</button>
+      <button onClick={() => { setF(e); setEdit(false); }} style={s.mv}>✕</button>
+    </div>
+  );
   return (
-    <div>
-      <div style={{ ...s.card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <select value={lojaSel} onChange={e => setLojaSel(e.target.value)} style={s.inp}><option value="">Todas as lojas</option>{lojas.map(l => <option key={l} value={l}>{l}</option>)}</select>
-        <span style={{ fontSize: 12.5, color: '#666' }}>{filtrados.length} espaço(s) · <b>{total}</b> vagas · potencial <b style={{ color: '#1E874B' }}>{brl(potencial)}</b></span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '5px 0', borderTop: '1px solid #f2f2f2' }}>
+      <span>{e.descricao}{e.tamanho ? <span style={s.tag}>{e.tamanho}</span> : null} <b style={{ color: '#1E874B' }}>{brl(e.valor_ref)}</b>{e.cobranca ? <small style={{ color: '#999' }}> {cobrancaAbbr(e.cobranca)}</small> : null}</span>
+      {gestao && <span style={{ display: 'flex', gap: 4 }}>
+        <button onClick={() => setEdit(true)} style={s.mv} title="editar">✎</button>
+        <button onClick={() => API.delete(`/trademkt/espacos/${e.id}`).then(onChange)} style={s.mv} title="remover">✕</button>
+      </span>}
+    </div>
+  );
+}
+
+function AreaCard({ API, a, espacos, gestao, onChange, onEdit }) {
+  const [aberto, setAberto] = useState(false);
+  const [fotos, setFotos] = useState([]);
+  const [novo, setNovo] = useState({ descricao: '', tamanho: '', valor_ref: '', cobranca: a.cobranca || '' });
+  const m = canalMeta(a.canal);
+  useEffect(() => { if (aberto && a.nfotos) API.get(`/trademkt/areas/${a.id}/fotos`).then(r => setFotos(r.data.fotos || [])).catch(() => {}); }, [aberto, API, a.id, a.nfotos]);
+  const addEsp = () => { if (!novo.descricao.trim()) return; API.post('/trademkt/espacos', { ...novo, area_id: a.id, valor_ref: Number(novo.valor_ref) || 0 }).then(() => { setNovo({ descricao: '', tamanho: '', valor_ref: '', cobranca: a.cobranca || '' }); onChange(); }); };
+  return (
+    <div style={{ ...s.card, marginBottom: 8, borderLeft: `3px solid ${m.cor}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span onClick={() => setAberto(o => !o)} style={{ cursor: 'pointer', fontSize: 12, color: '#999', width: 12 }}>{aberto ? '▾' : '▸'}</span>
+        <span onClick={() => setAberto(o => !o)} style={{ cursor: 'pointer', fontSize: 13.5, fontWeight: 700 }}>{a.descricao}</span>
+        {a.tamanho && <span style={s.tag}>{a.tamanho}</span>}
+        {a.cobranca && <span style={{ ...s.tag, background: '#EAF5EF', color: '#1E874B' }}>{cobrancaAbbr(a.cobranca)}</span>}
+        <span style={{ fontSize: 10.5, color: '#999' }}>· {espacos.length} espaço(s){a.nfotos ? ` · 📷${a.nfotos}` : ''}</span>
+        {gestao && <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+          <button onClick={() => onEdit(a)} style={s.mv} title="editar área">✎</button>
+          <button onClick={() => { if (window.confirm(`Remover a área "${a.descricao}"? (os espaços dela ficam sem área)`)) API.delete(`/trademkt/areas/${a.id}`).then(onChange); }} style={s.mv} title="remover área">✕</button>
+        </span>}
       </div>
-      {Object.entries(grupos).map(([loja, arr]) => (
-        <TabelaEspacoLoja key={loja} loja={loja} arr={arr} API={API} gestao={gestao} carregar={carregar} del={del} />
-      ))}
-      {itens.length === 0 && <div style={s.card}>Nenhum espaço por loja cadastrado.</div>}
+      {aberto && <div style={{ marginTop: 8, paddingLeft: 20 }}>
+        {a.detalhe && <div style={{ fontSize: 12, color: '#555', marginBottom: 6 }}>{a.detalhe}</div>}
+        {fotos.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          {fotos.map(ft => <img key={ft.id} src={ft.foto} alt="" style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 7, border: '1px solid #ddd' }} />)}
+        </div>}
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#888', marginBottom: 2 }}>Espaços vendáveis</div>
+        {espacos.map(e => <EspacoLinha key={e.id} API={API} e={e} gestao={gestao} onChange={onChange} />)}
+        {espacos.length === 0 && <div style={{ fontSize: 12, color: '#bbb', padding: '4px 0' }}>Nenhum espaço nesta área ainda.</div>}
+        {gestao && <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
+          <input value={novo.descricao} onChange={e => setNovo(x => ({ ...x, descricao: e.target.value }))} placeholder="+ novo espaço" style={{ ...s.inp, padding: '5px 7px', fontSize: 12, flex: 1, minWidth: 110 }} />
+          <input value={novo.tamanho} onChange={e => setNovo(x => ({ ...x, tamanho: e.target.value }))} placeholder="tamanho" style={{ ...s.inp, padding: '5px 7px', fontSize: 12, width: 90 }} />
+          <input type="number" value={novo.valor_ref} onChange={e => setNovo(x => ({ ...x, valor_ref: e.target.value }))} placeholder="R$" style={{ ...s.inp, padding: '5px 7px', fontSize: 12, width: 72 }} />
+          <button onClick={addEsp} style={s.btnMini}>+ Add</button>
+        </div>}
+      </div>}
     </div>
   );
 }
 
 function Espacos({ API, gestao }) {
   const [d, setD] = useState({ areas: [], espacos: [], temas: [] });
-  const [area, setArea] = useState(''); const [esp, setEsp] = useState({ descricao: '', area_id: '', valor_ref: '', observacoes: '' });
+  const [modal, setModal] = useState(null);   // null | {} (nova) | area (editar)
+  const [canalSel, setCanalSel] = useState('');
+  const [busca, setBusca] = useState('');
   const carregar = useCallback(() => API.get('/trademkt/cadastros').then(r => setD(r.data)).catch(() => {}), [API]);
   useEffect(() => { carregar(); }, [carregar]);
-  const addArea = () => { if (!area) return; API.post('/trademkt/cadastros/areas', { descricao: area }).then(() => { setArea(''); carregar(); }); };
-  const addEsp = () => { if (!esp.descricao) return; API.post('/trademkt/espacos', esp).then(() => { setEsp({ descricao: '', area_id: '', valor_ref: '', observacoes: '' }); carregar(); }); };
   const seed = () => API.post('/trademkt/seed-padrao').then(carregar);
   const vazio = d.areas.length === 0 && d.espacos.length === 0;
+  const espPorArea = id => d.espacos.filter(e => e.area_id === id);
+  const q = busca.trim().toLowerCase();
+  const areasFiltradas = d.areas.filter(a => (!canalSel || (a.canal || 'fisico') === canalSel)
+    && (!q || `${a.descricao} ${a.tamanho || ''} ${a.detalhe || ''}`.toLowerCase().includes(q)));
+  const semArea = d.espacos.filter(e => !e.area_id || !d.areas.some(a => a.id === e.area_id));
+  const porCanal = {}; areasFiltradas.forEach(a => { const c = a.canal || 'fisico'; (porCanal[c] = porCanal[c] || []).push(a); });
   return (
     <>
-    {gestao && vazio && <div style={{ ...s.card, background: '#F6FAFF', borderColor: '#CFE0F5', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-      <span style={{ fontSize: 12.5, color: '#2E5C9E' }}>Comece rápido: crie um <b>catálogo padrão de farmácia</b> (ponta de gôndola, ilha, frente de caixa, perfumaria…) com valores de referência.</span>
-      <button onClick={seed} style={s.btn}>✨ Criar catálogo padrão</button>
-    </div>}
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 14 }}>
-      <div style={s.card}>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>🗂️ Áreas</div>
-        {gestao && <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}><input value={area} onChange={e => setArea(e.target.value)} placeholder="ex.: Entrada, Ponta de gôndola" style={{ ...s.inp, flex: 1 }} /><button onClick={addArea} style={s.btnMini}>+ Add</button></div>}
-        {d.areas.map(a => <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '5px 0', borderTop: '1px solid #f2f2f2' }}><span>{a.descricao}</span>{gestao && <button onClick={() => API.delete(`/trademkt/cadastros/areas/${a.id}`).then(carregar)} style={s.mv}>✕</button>}</div>)}
-        {d.areas.length === 0 && <div style={s.vazio}>Nenhuma área.</div>}
+      {modal && <AreaFormModal API={API} area={modal.id ? modal : null} onClose={() => setModal(null)} onSaved={carregar} />}
+      {gestao && vazio && <div style={{ ...s.card, background: '#F6FAFF', borderColor: '#CFE0F5', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <span style={{ fontSize: 12.5, color: '#2E5C9E' }}>Comece rápido: crie um <b>catálogo padrão de farmácia</b> (ponta de gôndola, ilha, frente de caixa, perfumaria…) com valores de referência.</span>
+        <button onClick={seed} style={s.btn}>✨ Criar catálogo padrão</button>
+      </div>}
+      <div style={{ ...s.card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button type="button" onClick={() => setCanalSel('')} style={{ ...s.chip, ...(canalSel === '' ? s.chipOn : {}) }}>Todos</button>
+        {CANAIS_META.map(c => <button key={c.k} type="button" onClick={() => setCanalSel(canalSel === c.k ? '' : c.k)} style={{ ...s.chip, ...(canalSel === c.k ? { background: c.cor, color: '#fff', borderColor: c.cor } : {}) }}>{c.icon} {c.label}</button>)}
+        <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔎 buscar área…" style={{ ...s.inp, flex: 1, minWidth: 140 }} />
+        {gestao && <button onClick={() => setModal({})} style={s.btn}>➕ Nova área</button>}
       </div>
-      <div style={s.card}>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>🏬 Espaços</div>
-        {gestao && <div style={{ display: 'grid', gap: 6, marginBottom: 8 }}>
-          <input value={esp.descricao} onChange={e => setEsp(x => ({ ...x, descricao: e.target.value }))} placeholder="ex.: Ilha promocional 1" style={s.inp} />
-          <div style={{ display: 'flex', gap: 6 }}>
-            <select value={esp.area_id} onChange={e => setEsp(x => ({ ...x, area_id: e.target.value }))} style={{ ...s.inp, flex: 1 }}><option value="">Área…</option>{d.areas.map(a => <option key={a.id} value={a.id}>{a.descricao}</option>)}</select>
-            <input type="number" value={esp.valor_ref} onChange={e => setEsp(x => ({ ...x, valor_ref: e.target.value }))} placeholder="R$ ref" style={{ ...s.inp, width: 90 }} />
-            <button onClick={addEsp} style={s.btnMini}>+ Add</button>
-          </div>
-        </div>}
-        {d.espacos.map(e => <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '5px 0', borderTop: '1px solid #f2f2f2' }}><span>{(d.areas.find(a => a.id === e.area_id) || {}).descricao ? (d.areas.find(a => a.id === e.area_id).descricao + ' · ') : ''}{e.descricao} <b style={{ color: '#1E874B' }}>{brl(e.valor_ref)}</b></span>{gestao && <button onClick={() => API.delete(`/trademkt/espacos/${e.id}`).then(carregar)} style={s.mv}>✕</button>}</div>)}
-        {d.espacos.length === 0 && <div style={s.vazio}>Nenhum espaço.</div>}
-      </div>
-    </div>
+      {CANAIS_META.filter(c => porCanal[c.k]?.length).map(c => (
+        <div key={c.k} style={{ marginBottom: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: c.cor, margin: '10px 2px 6px' }}>{c.icon} {c.label} <span style={{ color: '#bbb', fontWeight: 400 }}>· {porCanal[c.k].length}</span></div>
+          {porCanal[c.k].map(a => <AreaCard key={a.id} API={API} a={a} espacos={espPorArea(a.id)} gestao={gestao} onChange={carregar} onEdit={setModal} />)}
+        </div>
+      ))}
+      {areasFiltradas.length === 0 && !vazio && <div style={s.card}>Nenhuma área para o filtro.</div>}
+      {semArea.length > 0 && (
+        <div style={{ ...s.card, marginTop: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#888', marginBottom: 4 }}>📦 Espaços sem área</div>
+          {semArea.map(e => <EspacoLinha key={e.id} API={API} e={e} gestao={gestao} onChange={carregar} />)}
+        </div>
+      )}
     </>
-  );
-}
-
-function Temas({ API, gestao }) {
-  const [temas, setTemas] = useState([]); const [t, setT] = useState('');
-  const carregar = useCallback(() => API.get('/trademkt/cadastros').then(r => setTemas(r.data.temas || [])).catch(() => {}), [API]);
-  useEffect(() => { carregar(); }, [carregar]);
-  const add = () => { if (!t) return; API.post('/trademkt/cadastros/temas', { descricao: t }).then(() => { setT(''); carregar(); }); };
-  return (
-    <div style={{ ...s.card, maxWidth: 480 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>🎨 Temas de campanha</div>
-      {gestao && <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}><input value={t} onChange={e => setT(e.target.value)} placeholder="ex.: Volta às aulas, Natal…" style={{ ...s.inp, flex: 1 }} /><button onClick={add} style={s.btnMini}>+ Add</button></div>}
-      {temas.map(x => <div key={x.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '5px 0', borderTop: '1px solid #f2f2f2' }}><span>{x.descricao}</span>{gestao && <button onClick={() => API.delete(`/trademkt/cadastros/temas/${x.id}`).then(carregar)} style={s.mv}>✕</button>}</div>)}
-      {temas.length === 0 && <div style={s.vazio}>Nenhum tema.</div>}
-    </div>
   );
 }
 

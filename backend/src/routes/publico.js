@@ -105,9 +105,19 @@ function periodosSobrepoem(ai, af, bi, bf) {
 }
 // quantas vagas de um espaço estão LIVRES no período (desconta reservas ativas que sobrepõem)
 function vagasLivres(espacoId, ini, fim, excludeVendaId) {
-  const e = db.prepare('SELECT quantidade FROM tmkt_espaco_loja WHERE empresa_id=? AND id=?').get(EMP, espacoId);
+  const e = db.prepare('SELECT quantidade, limite_dia, limite_mes FROM tmkt_espaco_loja WHERE empresa_id=? AND id=?').get(EMP, espacoId);
   if (!e) return 0;
-  const total = Number(e.quantidade) || 1;
+  let total = Number(e.quantidade) || 1;
+  // CAPACIDADE REAL por dia/mês (anti-oversell): se a posição tem teto (ex.: redes — X stories/dia, X/mês),
+  // a capacidade na janela pedida é limitada por esse teto, pra não vender mais do que dá pra entregar.
+  if ((e.limite_dia != null || e.limite_mes != null) && ini && fim) {
+    const dias = Math.max(1, Math.round((new Date(fim) - new Date(ini)) / 864e5) + 1);
+    const meses = Math.max(1, Math.round(dias / 30) || 1);
+    const capDia = (e.limite_dia != null && Number(e.limite_dia) > 0) ? Number(e.limite_dia) * dias : Infinity;
+    const capMes = (e.limite_mes != null && Number(e.limite_mes) > 0) ? Number(e.limite_mes) * meses : Infinity;
+    const capTeto = Math.min(capDia, capMes);
+    if (isFinite(capTeto)) total = Math.min(total, capTeto);
+  }
   const ph = OCUPA_STATUS.map(() => '?').join(',');
   const rows = db.prepare(`SELECT ve.quantidade q, v.id vid, v.vigencia_ini vi, v.vigencia_fim vf
     FROM tmkt_venda_espacos ve JOIN tmkt_vendas v ON v.id=ve.venda_id
@@ -197,7 +207,7 @@ router.get('/trade/escopo', exigeAcesso, async (req, res) => {
 // ── PLANOS COMERCIAIS (ações de maior relevância do ano) ──
 const PLANO_PUB = `status IN ('publicado','vigente')`; // "publicado" no portal = status publicado/vigente na gestão
 router.get('/trade/planos', exigeAcesso, (req, res) => {
-  const rows = db.prepare(`SELECT id, nome, tema, chamada, periodo, cota_tipo, cota_qtd, investimento, destaque,
+  const rows = db.prepare(`SELECT id, nome, tema, chamada, periodo, cota_tipo, cota_qtd, investimento, destaque, capa_pos,
     (capa_foto IS NOT NULL AND capa_foto<>'') AS tem_capa
     FROM tmkt_plano WHERE empresa_id=? AND ${PLANO_PUB} ORDER BY destaque DESC, ordem, nome`).all(EMP);
   res.json({ ok: true, planos: rows.map(p => ({ ...p, destaque: !!p.destaque, tem_capa: !!p.tem_capa })) });
@@ -267,10 +277,11 @@ router.get('/trade/calendario', exigeAcesso, (req, res) => {
     FROM tmkt_calendario WHERE empresa_id=? AND status='ativo' AND COALESCE(no_trade,0)=1`).all(EMP)
     .map(e => ({ ...e, patrocinavel: !!e.patrocinavel, tem_comprov: !!e.tem_comprov, tem_slogan: !!e.tem_slogan }));
   // posições vinculadas (o que é comercializável em cada ação)
-  const linkStmt = db.prepare(`SELECT ce.espaco_id, el.espaco, el.loja_nome, el.segmento, ce.quantidade
+  const linkStmt = db.prepare(`SELECT ce.espaco_id, el.espaco, el.area, el.loja_nome, el.segmento, ce.quantidade,
+      el.preco_unit, el.tamanho, el.descricao, el.unidade, el.modo_venda, COALESCE(el.disponivel,1) disponivel, (el.foto IS NOT NULL) AS tem_foto
     FROM tmkt_calendario_espacos ce JOIN tmkt_espaco_loja el ON el.id=ce.espaco_id
     WHERE ce.empresa_id=? AND ce.evento_id=?`);
-  ev.forEach(e => { try { e.vinculadas = linkStmt.all(EMP, e.id); } catch (_) { e.vinculadas = []; } });
+  ev.forEach(e => { try { e.vinculadas = linkStmt.all(EMP, e.id).map(v => ({ ...v, tem_foto: !!v.tem_foto, disponivel: !!v.disponivel })); } catch (_) { e.vinculadas = []; } });
   res.json({ ok: true, mes: mesStr, dias: expandirCalendario(ev, ano, mes) });
 });
 router.get('/trade/calendario/:id/slogan', (req, res) => {

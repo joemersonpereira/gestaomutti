@@ -105,10 +105,61 @@ function proximoCodigo(emp) {
 router.get('/cadastros', (req, res) => {
   const emp = req.usuario.empresa_id;
   res.json({
-    areas: db.prepare('SELECT * FROM tmkt_areas WHERE empresa_id=? ORDER BY descricao').all(emp),
+    areas: db.prepare(`SELECT a.id, a.empresa_id, a.descricao, a.canal, a.tamanho, a.detalhe, a.cobranca, a.ordem, a.criado_em,
+        (SELECT COUNT(*) FROM tmkt_area_fotos f WHERE f.area_id=a.id) nfotos
+      FROM tmkt_areas a WHERE a.empresa_id=? ORDER BY a.ordem, a.descricao`).all(emp),
     espacos: db.prepare('SELECT * FROM tmkt_espacos WHERE empresa_id=? ORDER BY descricao').all(emp),
     temas: db.prepare('SELECT * FROM tmkt_temas WHERE empresa_id=? ORDER BY descricao').all(emp),
   });
+});
+// ── Áreas detalhadas (canal/tamanho/descrição + fotos) ─────────────────────
+const CANAIS = ['fisico', 'ecommerce', 'crm', 'endomarketing'];
+const COBRANCAS = ['mensal', 'insercao', 'diario', 'unidade', 'hora'];
+const normCobranca = v => (COBRANCAS.includes(v) ? v : null);
+router.post('/areas', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body; if (!b.descricao) return res.status(400).json({ erro: 'Informe o nome da área.' });
+  const id = uuid();
+  db.prepare(`INSERT INTO tmkt_areas (id,empresa_id,descricao,canal,tamanho,detalhe,cobranca,ordem,criado_em)
+    VALUES (?,?,?,?,?,?,?,?,datetime('now'))`)
+    .run(id, req.usuario.empresa_id, b.descricao, CANAIS.includes(b.canal) ? b.canal : 'fisico', b.tamanho || null, b.detalhe || null, normCobranca(b.cobranca), Number(b.ordem) || 0);
+  res.json({ ok: true, id });
+});
+router.put('/areas/:id', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body, emp = req.usuario.empresa_id;
+  const atual = db.prepare('SELECT id FROM tmkt_areas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!atual) return res.status(404).json({ erro: 'Área não encontrada.' });
+  const campos = { descricao: v => v, canal: v => CANAIS.includes(v) ? v : null, tamanho: v => v, detalhe: v => v, cobranca: normCobranca, ordem: v => Number(v) || 0 };
+  const sets = [], vals = [];
+  for (const [k, norm] of Object.entries(campos)) if (k in b) { sets.push(`${k}=?`); vals.push(norm(b[k])); }
+  if (!sets.length) return res.json({ ok: true });
+  db.prepare(`UPDATE tmkt_areas SET ${sets.join(', ')} WHERE id=? AND empresa_id=?`).run(...vals, req.params.id, emp);
+  res.json({ ok: true });
+});
+router.delete('/areas/:id', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  db.prepare('DELETE FROM tmkt_area_fotos WHERE area_id=? AND empresa_id=?').run(req.params.id, emp);
+  db.prepare('DELETE FROM tmkt_areas WHERE id=? AND empresa_id=?').run(req.params.id, emp);
+  res.json({ ok: true });
+});
+// Fotos da área (várias) — base64, leitura/gravação próprias
+router.get('/areas/:id/fotos', (req, res) => {
+  const rows = db.prepare('SELECT id, foto, legenda, ordem FROM tmkt_area_fotos WHERE area_id=? AND empresa_id=? ORDER BY ordem, criado_em')
+    .all(req.params.id, req.usuario.empresa_id);
+  res.json({ fotos: rows });
+});
+router.post('/areas/:id/fotos', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body, emp = req.usuario.empresa_id;
+  if (!b.foto || !/^data:image\/(png|jpeg|jpg|webp);base64,/.test(b.foto)) return res.status(400).json({ erro: 'Envie uma imagem.' });
+  if (!db.prepare('SELECT 1 FROM tmkt_areas WHERE id=? AND empresa_id=?').get(req.params.id, emp)) return res.status(404).json({ erro: 'Área não encontrada.' });
+  const n = db.prepare('SELECT COUNT(*) c FROM tmkt_area_fotos WHERE area_id=?').get(req.params.id).c;
+  const id = uuid();
+  db.prepare(`INSERT INTO tmkt_area_fotos (id,empresa_id,area_id,foto,legenda,ordem,criado_em) VALUES (?,?,?,?,?,?,datetime('now'))`)
+    .run(id, emp, req.params.id, b.foto, b.legenda || null, n);
+  res.json({ ok: true, id });
+});
+router.delete('/areas/fotos/:fid', exigePerfil(...GESTAO), (req, res) => {
+  db.prepare('DELETE FROM tmkt_area_fotos WHERE id=? AND empresa_id=?').run(req.params.fid, req.usuario.empresa_id);
+  res.json({ ok: true });
 });
 const tabelaOk = t => ({ areas: 'tmkt_areas', temas: 'tmkt_temas' }[t]);
 router.post('/cadastros/:tipo', exigePerfil(...GESTAO), (req, res) => {
@@ -128,9 +179,19 @@ router.delete('/cadastros/:tipo/:id', exigePerfil(...GESTAO), (req, res) => {
 router.post('/espacos', exigePerfil(...GESTAO), (req, res) => {
   const b = req.body; if (!b.descricao) return res.status(400).json({ erro: 'Informe a descrição.' });
   const id = uuid();
-  db.prepare(`INSERT INTO tmkt_espacos (id,empresa_id,area_id,descricao,observacoes,valor_ref,criado_em) VALUES (?,?,?,?,?,?,datetime('now'))`)
-    .run(id, req.usuario.empresa_id, b.area_id || null, b.descricao, b.observacoes || null, Number(b.valor_ref) || 0);
+  db.prepare(`INSERT INTO tmkt_espacos (id,empresa_id,area_id,descricao,observacoes,valor_ref,tamanho,cobranca,criado_em) VALUES (?,?,?,?,?,?,?,?,datetime('now'))`)
+    .run(id, req.usuario.empresa_id, b.area_id || null, b.descricao, b.observacoes || null, Number(b.valor_ref) || 0, b.tamanho || null, normCobranca(b.cobranca));
   res.json({ ok: true, id });
+});
+router.put('/espacos/:id', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body, emp = req.usuario.empresa_id;
+  if (!db.prepare('SELECT 1 FROM tmkt_espacos WHERE id=? AND empresa_id=?').get(req.params.id, emp)) return res.status(404).json({ erro: 'Espaço não encontrado.' });
+  const campos = { descricao: v => v, area_id: v => v || null, valor_ref: v => Number(v) || 0, tamanho: v => v || null, cobranca: normCobranca, observacoes: v => v || null };
+  const sets = [], vals = [];
+  for (const [k, norm] of Object.entries(campos)) if (k in b) { sets.push(`${k}=?`); vals.push(norm(b[k])); }
+  if (!sets.length) return res.json({ ok: true });
+  db.prepare(`UPDATE tmkt_espacos SET ${sets.join(', ')} WHERE id=? AND empresa_id=?`).run(...vals, req.params.id, emp);
+  res.json({ ok: true });
 });
 router.delete('/espacos/:id', exigePerfil(...GESTAO), (req, res) => {
   db.prepare('DELETE FROM tmkt_espacos WHERE id=? AND empresa_id=?').run(req.params.id, req.usuario.empresa_id);
@@ -186,7 +247,7 @@ router.get('/dashboard', (req, res) => {
 // Vagas ocupadas por espaço-loja = venda_espacos de vendas ativas (não cancelada/encerrada).
 const OCUPA_STATUS = "('pedido','rascunho','negociacao','confirmado','briefing','aguardando','vigente','vendido','concluido')";
 router.get('/espaco-loja', (req, res) => {
-  const rows = db.prepare(`SELECT el.id, el.empresa_id, el.loja_id, el.loja_nome, el.area, el.espaco, el.quantidade, el.preco_unit, el.criado_em,
+  const rows = db.prepare(`SELECT el.id, el.empresa_id, el.loja_id, el.loja_nome, el.area, el.espaco, el.tamanho, el.descricao, el.cobranca, el.quantidade, el.preco_unit, el.criado_em,
       (el.foto IS NOT NULL) tem_foto, (
       SELECT COUNT(*) FROM tmkt_venda_espacos ve JOIN tmkt_vendas v ON v.id=ve.venda_id
       WHERE ve.espaco_id=el.id AND v.status IN ${OCUPA_STATUS}
@@ -213,9 +274,13 @@ router.post('/espaco-loja', exigePerfil(...GESTAO), (req, res) => {
   res.json({ ok: true, id });
 });
 router.put('/espaco-loja/:id', exigePerfil(...GESTAO), (req, res) => {
-  const b = req.body;
-  db.prepare('UPDATE tmkt_espaco_loja SET quantidade=?, preco_unit=? WHERE id=? AND empresa_id=?')
-    .run(Number(b.quantidade) || 0, Number(b.preco_unit) || 0, req.params.id, req.usuario.empresa_id);
+  const b = req.body, emp = req.usuario.empresa_id;
+  if (!db.prepare('SELECT 1 FROM tmkt_espaco_loja WHERE id=? AND empresa_id=?').get(req.params.id, emp)) return res.status(404).json({ erro: 'Não encontrado.' });
+  const campos = { area: v => v || null, espaco: v => v || null, tamanho: v => v || null, descricao: v => v || null, cobranca: v => (['mensal', 'insercao', 'diario', 'unidade', 'hora'].includes(v) ? v : null), quantidade: v => Number(v) || 0, preco_unit: v => Number(v) || 0 };
+  const sets = [], vals = [];
+  for (const [k, norm] of Object.entries(campos)) if (k in b) { sets.push(`${k}=?`); vals.push(norm(b[k])); }
+  if (!sets.length) return res.json({ ok: true });
+  db.prepare(`UPDATE tmkt_espaco_loja SET ${sets.join(', ')} WHERE id=? AND empresa_id=?`).run(...vals, req.params.id, emp);
   res.json({ ok: true });
 });
 router.delete('/espaco-loja/:id', exigePerfil(...GESTAO), (req, res) => {
@@ -744,6 +809,7 @@ router.patch('/portal/espaco/:id', exigePerfil(...GESTAO), (req, res) => {
   if (b.modo_venda != null) { sets.push('modo_venda=?'); vals.push(b.modo_venda === 'insercao' ? 'insercao' : 'periodo'); }
   if (b.limite_dia != null) { sets.push('limite_dia=?'); vals.push(b.limite_dia === '' ? null : Math.max(0, Number(b.limite_dia) || 0)); }
   if (b.limite_mes != null) { sets.push('limite_mes=?'); vals.push(b.limite_mes === '' ? null : Math.max(0, Number(b.limite_mes) || 0)); }
+  if (b.area != null) { sets.push('area=?'); vals.push(String(b.area).trim() || null); }
   if (b.espaco != null) { const nome = String(b.espaco).trim(); if (nome) { sets.push('espaco=?'); vals.push(nome); } }
   if (b.tamanho != null) { sets.push('tamanho=?'); vals.push(String(b.tamanho).trim() || null); }
   if (b.descricao != null) { sets.push('descricao=?'); vals.push(String(b.descricao).trim() || null); }
@@ -863,7 +929,7 @@ router.get('/portal/posicoes', (req, res) => {
 const PLANO_CAMPOS = ['nome', 'tema', 'ano', 'chamada', 'contexto', 'mercado', 'periodo', 'pracas', 'frequencia', 'formato',
   'cota_tipo', 'cota_qtd', 'cota_prazo', 'investimento', 'investimento_obs', 'observacoes', 'destaque', 'status', 'ordem',
   'veic_ini', 'veic_fim', 'por_que', 'o_que_mostrar', 'publico', 'produtos_foco', 'sellout_potencial',
-  'oportunidades', 'conteudo_redes', 'midias_on', 'midias_off', 'midias_online'];
+  'oportunidades', 'conteudo_redes', 'midias_on', 'midias_off', 'midias_online', 'capa_pos'];
 const PLANO_JSON = ['provas_json', 'formatos_json', 'lojas_json', 'faq_json']; // aceitam array no body ou string json
 function planoBody(b) {
   const sets = [], vals = [];
@@ -879,7 +945,7 @@ const parseJ = s => { try { return s ? JSON.parse(s) : []; } catch { return []; 
 
 router.get('/portal/planos', (req, res) => {
   const emp = req.usuario.empresa_id;
-  const planos = db.prepare(`SELECT id, nome, tema, ano, periodo, chamada, investimento, destaque, status, ordem,
+  const planos = db.prepare(`SELECT id, nome, tema, ano, periodo, chamada, investimento, destaque, status, ordem, capa_pos,
       (capa_foto IS NOT NULL AND capa_foto<>'') AS tem_capa FROM tmkt_plano WHERE empresa_id=? ORDER BY ordem, criado_em DESC`).all(emp);
   const nLink = db.prepare('SELECT plano_id, COUNT(*) n, COALESCE(SUM(quantidade),0) q FROM tmkt_plano_espacos WHERE empresa_id=? GROUP BY plano_id').all(emp);
   const map = {}; nLink.forEach(x => { map[x.plano_id] = x; });

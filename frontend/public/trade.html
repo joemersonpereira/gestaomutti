@@ -406,6 +406,15 @@
   .pcard{position:relative;border-radius:20px;overflow:hidden;cursor:pointer;min-height:236px;display:flex;flex-direction:column;justify-content:flex-end;color:#fff;background:#0b6e59 center/cover no-repeat;box-shadow:0 8px 22px rgba(21,24,29,.12);transition:transform .14s,box-shadow .14s}
   .pcard:hover{transform:translateY(-4px);box-shadow:0 16px 34px rgba(21,24,29,.2)}
   .pcard .pcov{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.04) 28%,rgba(0,0,0,.74) 100%)}
+  /* com capa: imagem limpa, só um véu no rodapé pra legibilidade da cota/botão */
+  .pcard.comcapa{min-height:300px}
+  .pcard.comcapa .pcov{background:linear-gradient(180deg,rgba(0,0,0,0) 60%,rgba(0,0,0,.72) 100%)}
+  .pcard.comcapa .pbody{padding:14px}
+  /* seletor de posições vinculadas a uma ação do calendário */
+  .vgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+  .vcard{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .vcard.ind{opacity:.55}
+  .vcard .ecz{border-radius:0}
   .pcard .ptag{position:absolute;top:13px;left:13px;z-index:2;background:rgba(255,255,255,.92);color:var(--ink);font-size:11px;font-weight:800;padding:5px 11px;border-radius:999px}
   .pcard .pbody{position:relative;z-index:1;padding:18px}
   .pcard .ptema{font-size:11px;font-weight:700;letter-spacing:.5px;opacity:.9;text-transform:uppercase}
@@ -575,14 +584,13 @@ function openSlot(id){
   };
 }
 function planoCard(p){
-  var bg=p.tem_capa?'background-image:url('+API+'/plano/'+p.id+'/capa);background-size:cover;background-position:center':('background:'+planoGrad(p.tema));
-  return '<div class="pcard" data-plano="'+p.id+'" style="'+bg+'">'+
+  var bg=p.tem_capa?'background-image:url('+API+'/plano/'+p.id+'/capa);background-size:cover;background-position:'+(p.capa_pos||'50% 50%'):('background:'+planoGrad(p.tema));
+  // Com capa: a arte já traz o título — o card fica limpo, só cota + botão. Sem capa: mostra o nome pra não ficar anônimo.
+  var titulo=p.tem_capa?'':('<div class="ptema">'+h(p.periodo||'2027')+'</div><div class="pnome">'+h(p.nome)+'</div>');
+  return '<div class="pcard'+(p.tem_capa?' comcapa':'')+'" data-plano="'+p.id+'" style="'+bg+'">'+
     '<div class="pcov"></div>'+
     (p.destaque?'<span class="ptag">⭐ Destaque</span>':'')+
-    '<div class="pbody">'+
-      '<div class="ptema">'+h(p.periodo||'2027')+'</div>'+
-      '<div class="pnome">'+h(p.nome)+'</div>'+
-      (p.chamada?'<div class="pchama">'+h(p.chamada)+'</div>':'')+
+    '<div class="pbody">'+titulo+
       '<div class="pfoot"><div class="ppreco"><span>Cota a partir de</span><b>'+brl(p.investimento)+'</b></div>'+
         '<button class="pver">Ver plano →</button></div>'+
     '</div></div>';
@@ -694,7 +702,7 @@ function openMes(mnum){
       (c.d?'<div style="font-size:13px;color:#64748b;margin-top:2px">'+h(c.d)+'</div>':'')+
       (pl?'<div style="margin:10px 0 0"><button class="btn" id="mverpl">Ver o Plano Comercial do mês →</button></div>':'')+
       (slogHtml?'<div style="display:flex;flex-wrap:wrap;margin:12px 0 4px">'+slogHtml+'</div>':'')+
-      '<div style="font-size:11.5px;color:#94a3b8;margin:10px 0 6px">Clique numa ação para <b>patrocinar</b>: se ela tiver posições vinculadas, já monta o pedido; senão abre o WhatsApp. Passe o mouse para ver o que é vinculado.</div>'+
+      '<div style="font-size:11.5px;color:#94a3b8;margin:10px 0 6px">Clique numa ação para ver <b>as posições vinculadas a ela</b> e escolher onde anunciar. Passe o mouse para prévia do que é vinculado.</div>'+
       grid+'</div>';
     document.body.appendChild(m);
     el('mcan').onclick=function(){m.remove();};m.onclick=function(ev){if(ev.target===m)m.remove();};
@@ -704,16 +712,51 @@ function openMes(mnum){
     [].forEach.call(m.querySelectorAll('.evchip'),function(ch){ch.onclick=function(){var k=ch.getAttribute('data-k');var e=evByKey[k];var dia=+k.split('_')[1];patrocinarDia(e,dia,mnum,ano,m);};});
   });
 }
-// patrocinar o dia: se a ação tem posições vinculadas, monta o pedido do dia (trava); senão WhatsApp
+// patrocinar o dia: mostra SÓ as posições VINCULADAS àquela ação p/ o fornecedor escolher; senão WhatsApp
 function patrocinarDia(e,dia,mesNum,ano,mesModal){
   if(!e)return;
   var vinc=(e.vinculadas||[]).filter(function(x){return x.espaco_id;});
   var dd=ano+'-'+('0'+mesNum).slice(-2)+'-'+('0'+dia).slice(-2);
-  if(!vinc.length){ window.open('https://wa.me/557598978941?text='+encodeURIComponent('Quero patrocinar "'+e.nome+'" no dia '+dia+'/'+mesNum+'/'+ano+'.'),'_blank'); return; }
-  vinc.forEach(function(x){ var q=Number(x.quantidade)||1; if(!encReservas[x.espaco_id])encReservas[x.espaco_id]=[]; for(var i=0;i<q;i++)encReservas[x.espaco_id].push({arte:null,mime:null,criarArte:false}); carrinho[x.espaco_id]=encReservas[x.espaco_id].length; });
-  _planoCompra={id:undefined,nome:e.nome,cota:'Patrocínio do dia '+dia+'/'+mesNum,veic_ini:dd,veic_fim:dd};
-  if(mesModal)mesModal.remove();
-  abrirPedido();
+  var wa='https://wa.me/557598978941?text='+encodeURIComponent('Quero patrocinar "'+e.nome+'" no dia '+dia+'/'+mesNum+'/'+ano+'.');
+  if(!vinc.length){ window.open(wa,'_blank'); return; }
+  var unLbl={mes:'/mês',dia:'/dia',semana:'/sem',edicao:'/edição',periodo:'período'};
+  var cards=vinc.map(function(v){
+    var ind=v.disponivel===false;
+    var ico='<div class="ecz" style="height:92px;background:'+phBg(v)+';display:flex;align-items:center;justify-content:center">'+phIcon(v)+'</div>';
+    var pic=v.tem_foto?('<div class="ecz" style="height:92px;background:center/cover no-repeat url('+API+'/espaco/'+v.espaco_id+'/foto)"></div>'):ico;
+    return '<div class="vcard'+(ind?' ind':'')+'" data-eid="'+v.espaco_id+'">'+pic+
+      '<div style="padding:10px 12px">'+
+        '<div style="font-weight:800;font-size:13.5px;color:#243">'+h(v.espaco)+'</div>'+
+        '<div style="font-size:11.5px;color:#64748b;margin-top:1px">'+h([v.area,(v.loja_nome&&v.loja_nome!=='ESCRITÓRIO')?v.loja_nome:''].filter(Boolean).join(' · ')||'Padrão da rede')+(v.tamanho?' · '+h(v.tamanho):'')+'</div>'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px">'+
+          '<div style="font-weight:800;color:var(--accent)">'+brl(v.preco_unit)+'<span style="font-weight:600;font-size:11px;color:#94a3b8"> '+(unLbl[v.unidade]||'')+'</span></div>'+
+          (ind?'<span style="font-size:11px;color:#b91c1c;font-weight:700">indisponível</span>'
+            :'<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#334;cursor:pointer"><input type="checkbox" class="vsel" data-eid="'+v.espaco_id+'" checked> anunciar <input type="number" class="vqt" data-eid="'+v.espaco_id+'" value="1" min="1" max="'+(Number(v.quantidade)||99)+'" style="width:48px;padding:4px 6px;border:1px solid #e2e8f0;border-radius:7px"></label>')+
+        '</div>'+
+      '</div></div>';
+  }).join('');
+  var m=document.createElement('div');m.className='modal';
+  m.innerHTML='<div class="sheet" style="max-width:720px">'+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">'+
+      '<div><h2 style="margin:0">'+h(e.nome)+'</h2><div style="font-size:12.5px;color:#64748b;margin-top:2px">Ação de '+dia+'/'+mesNum+'/'+ano+(e.descricao?' · '+h(e.descricao):'')+'</div></div>'+
+      '<button class="pclose" id="vcan">✕</button></div>'+
+    '<div style="font-size:12px;color:#334;background:#f0f7ff;border:1px solid #cfe3fb;border-radius:10px;padding:9px 12px;margin:12px 0">🎯 Nesta ação a sua marca anuncia <b>nas posições vinculadas a ela</b>. Escolha onde quer aparecer e a quantidade.</div>'+
+    '<div class="vgrid">'+cards+'</div>'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px">'+
+      '<a href="'+wa+'" target="_blank" rel="noopener" style="font-size:12.5px;color:#64748b">Prefiro falar no WhatsApp</a>'+
+      '<button class="btn" id="vok">Anunciar nos selecionados →</button></div>'+
+    '</div>';
+  document.body.appendChild(m);
+  el('vcan').onclick=function(){m.remove();};m.onclick=function(ev){if(ev.target===m)m.remove();};
+  el('vok').onclick=function(){
+    var escolhidos=[];
+    [].forEach.call(m.querySelectorAll('.vsel'),function(cb){ if(cb.checked){ var eid=cb.getAttribute('data-eid'); var qi=m.querySelector('.vqt[data-eid="'+eid+'"]'); escolhidos.push({espaco_id:eid,q:Math.max(1,Number(qi&&qi.value)||1)}); } });
+    if(!escolhidos.length){ alert('Selecione pelo menos uma posição pra anunciar.'); return; }
+    escolhidos.forEach(function(x){ if(!encReservas[x.espaco_id])encReservas[x.espaco_id]=[]; for(var i=0;i<x.q;i++)encReservas[x.espaco_id].push({arte:null,mime:null,criarArte:false}); carrinho[x.espaco_id]=encReservas[x.espaco_id].length; });
+    _planoCompra={id:undefined,nome:e.nome,cota:'Patrocínio do dia '+dia+'/'+mesNum,veic_ini:dd,veic_fim:dd};
+    m.remove(); if(mesModal)mesModal.remove();
+    abrirPedido();
+  };
 }
 // imagem simulativa do card (enquanto não há foto real): gradiente temático + ícone do tipo de espaço
 var PH_GRAD={allline:'linear-gradient(140deg,#12a583,#0b6e59 70%,#09513f)',digital:'linear-gradient(140deg,#15a07f,#0d8a6f)',off:'linear-gradient(140deg,#0b6e59,#063d31)',acoes:'linear-gradient(140deg,#fbb13c,#f6902a 55%,#e3382f)'};
@@ -1117,6 +1160,7 @@ function render(){
     ((socialPos.length||EDIT)?('<div class="sec" id="redes"><span class="eyebrow">Digital</span><div class="barline"></div>'+
       '<h2>Instagram, TikTok e WhatsApp — a sua marca no digital da Mutti'+bandTag+'</h2>'+
       '<p class="intro">'+BAND.map(function(b){var m=BANDINFO[b];var on=fBandeira===b;return '<b'+(on?' style="color:'+m.cor+'"':'')+'>'+h(m.ig)+'</b>';}).join(' · ')+' — 26 mil seguidores somados e 160 mil visualizações por semana, mais o alcance dos <b>influenciadores</b> da região, com engajamento acima do padrão do varejo farmacêutico. O conteúdo é construído pelo <b>comportamento de consumo</b> e na <b>linguagem do público</b> de cada perfil. Escolha o formato, envie a sua arte e reserve.</p>'+
+      '<div style="background:#f0f7ff;border:1px solid #cfe3fb;border-radius:12px;padding:12px 14px;margin:0 0 16px;font-size:13px;color:#243;line-height:1.5">🎤 <b>A sua marca conversa com o público certo.</b> Conteúdo desenvolvido para cada tipo de público e levado por <b>influenciadores que conhecem a Mutti e a sua marca</b> — a mensagem chega pela voz de quem o cliente já segue e confia, não como propaganda solta.</div>'+
       // bloco: construção de conteúdo por comportamento + linguagem do público (balões de conversa)
       '<div style="margin:0 0 18px"><div style="font-size:13px;font-weight:800;color:#334;margin-bottom:8px">✍️ Como construímos o conteúdo — por perfil e na linguagem de cada público</div>'+
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px">'+
