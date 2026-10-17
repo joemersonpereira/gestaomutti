@@ -84,7 +84,7 @@ function htmlDe(cfg, o, alvo, occ) {
       <div style="text-align:center;font-size:12px;color:#94a3b8;margin-top:6px">conteúdo real que viraliza no @farmaciamutti_</div>
       <div style="font-size:19px;font-weight:800;margin:10px 0 0;text-align:center">${o.nome}</div>${o.descricao ? `<div style="color:#475569;font-size:13px;text-align:center">${o.descricao}</div>` : ''}${precoEsp}`;
   } else if (o.tipo === 'espaco') {
-    bloco = `<div style="background:linear-gradient(135deg,#1E874B,#0d6b3a);color:#fff;border-radius:14px;padding:24px 22px;text-align:center">
+    bloco = `<div style="background:linear-gradient(135deg,#43C18A,#1F9E67);color:#fff;border-radius:14px;padding:24px 22px;text-align:center">
         <div style="font-size:12px;opacity:.9;text-transform:uppercase;letter-spacing:.5px">${o.descricao || 'Espaço disponível'}</div>
         <div style="font-size:26px;font-weight:800;margin-top:4px">${o.nome}</div>
       </div>${precoEsp}`;
@@ -95,9 +95,9 @@ function htmlDe(cfg, o, alvo, occ) {
   const cta = o.tipo === 'espaco' ? 'Quero esse espaço →' : 'Quero participar →';
   return `<div style="background:#eef2f0;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;margin:0">
   <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 6px 24px rgba(16,24,40,.08)">
-    <div style="background:linear-gradient(135deg,#1E874B,#0d6b3a);padding:26px 28px;color:#ffffff">
+    <div style="background:linear-gradient(135deg,#43C18A,#1F9E67);padding:26px 28px;color:#ffffff">
       <div style="font-size:12.5px;letter-spacing:.6px;opacity:.9;text-transform:uppercase">Grupo Mutti · Trade Marketing</div>
-      <div style="font-size:23px;font-weight:800;margin-top:6px;line-height:1.25">O que a Mutti posta vira conversa.<br>E a ${alvo.marca} pode estar no meio dela.</div>
+      <div style="font-size:23px;font-weight:800;margin-top:6px;line-height:1.25;text-shadow:0 1px 2px rgba(0,0,0,.16)">O que a Mutti posta vira conversa.<br>E a ${alvo.marca} pode estar no meio dela.</div>
     </div>
     <div style="padding:26px 28px;color:#20303a">
       <p style="margin:0 0 16px;font-size:15px;line-height:1.6">Olá${alvo.responsavel ? ', ' + alvo.responsavel : ''}! Os nossos conteúdos <b>viralizam e viram meme</b> — o cliente assiste, comenta e compartilha. Aqui a sua marca não contrata visibilidade: <b>entra na conversa</b>, no ponto certo da jornada de cuidado — na loja, no delivery e no digital.</p>
