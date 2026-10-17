@@ -241,6 +241,7 @@
   .encpos.eded .edmeta{font-size:11px;color:#64748b;margin-top:3px;display:flex;justify-content:space-between;align-items:center}
   .encpos.eded .edlab{font-weight:800;font-size:13px}
   .encpos.eded .edtag{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px}
+  .encpos.eded .edmeta2b{font-size:11px;color:#64748b;margin:2px 0 8px}
   .encpos{margin-top:12px}
   .eptitle{font-size:12.5px;font-weight:800;color:var(--ink);display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:7px}
   .eptitle .epprice{font-size:11.5px;font-weight:800;color:var(--accent);background:var(--accent2);padding:3px 9px;border-radius:999px;white-space:nowrap}
@@ -337,6 +338,13 @@
   .radiocard .ecz.radiozone{min-height:46px;border-radius:10px}
   .redescard .rn{font-weight:800;font-size:15px;color:var(--ink)}
   .redescard .rd{font-size:12.5px;color:var(--ink2);margin-top:3px;line-height:1.4}
+  .redescard.eded{cursor:pointer;border:2px dashed #94a3b8;background:#f8fafc;padding:12px 14px;transition:.15s}
+  .redescard.eded:hover{border-color:#2563eb;background:#eff6ff;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+  .redescard.eded.has{border-style:solid;border-color:#cbd5e1}
+  .redescard.eded.new{display:flex;flex-direction:column;gap:2px;align-items:center;justify-content:center;text-align:center;color:#2563eb;min-height:64px}
+  .redescard.eded .edmeta2{font-size:11.5px;color:#64748b;margin-top:4px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .redescard.eded .edlab{font-weight:800;font-size:13px}
+  .redescard.eded .edtag{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px}
   /* CRM: filipeta + pdv+ */
   .crmwrap{display:grid;grid-template-columns:360px 1fr;gap:20px;margin-top:22px;align-items:start}
   .crmcol{display:grid;gap:14px;align-content:start}
@@ -1046,7 +1054,14 @@ function render(){
           var its=encartes.filter(function(e){return e.area===pg;});
           if(!its.length && !EDIT)return '';
           if(EDIT){
-            var blk=its.map(function(e){return '<div class="encpos eded has" data-ed="encarte|'+h(pg)+'|'+e.id+'"><div class="eptitle"><span>'+h((e.espaco||'').replace(e.area+' — ',''))+'</span><span class="epprice">'+brl(e.preco_unit)+'</span></div><div class="edmeta">'+(e.quantidade>1?e.quantidade+' vagas':'1 vaga')+(e.tamanho?' · '+h(e.tamanho):'')+' <span class="edtag">✎ editar</span></div></div>';}).join('');
+            var blk=its.map(function(e){
+              var isB=/Faixa de Marca|Patrocínio|Herói/i.test(e.espaco);
+              var cs=''; for(var i=0;i<(e.quantidade||1);i++) cs+='<div class="cell empty'+(isB?' brand':'')+'"><span class="cellp">'+(isB?'marca':'produto')+' '+(i+1)+'</span></div>';
+              return '<div class="encpos eded has" data-ed="encarte|'+h(pg)+'|'+e.id+'">'+
+                '<div class="eptitle"><span>'+h((e.espaco||'').replace(e.area+' — ',''))+' <span class="edtag">✎ editar</span></span><span class="epprice">'+brl(e.preco_unit)+'</span></div>'+
+                '<div class="edmeta2b">'+(e.quantidade||1)+' vaga(s)'+(e.tamanho?' · '+h(e.tamanho):'')+'</div>'+
+                '<div class="cells'+(isB?' cbrand':'')+'">'+cs+'</div></div>';
+            }).join('');
             blk+='<div class="encpos eded new" data-ed="encarte|'+h(pg)+'|"><span class="edlab">➕ criar posição</span><span class="edtag">nesta página</span></div>';
             return '<div class="tpage"><div class="tplabel">'+h(pg)+'</div>'+blk+'</div>';
           }
@@ -1088,7 +1103,7 @@ function render(){
       '</div>'+
     '</div>'):'')+
     // ===== REDES SOCIAIS =====
-    (socialPos.length?('<div class="sec" id="redes"><span class="eyebrow">Digital</span><div class="barline"></div>'+
+    ((socialPos.length||EDIT)?('<div class="sec" id="redes"><span class="eyebrow">Digital</span><div class="barline"></div>'+
       '<h2>Instagram, TikTok e WhatsApp — a sua marca no digital da Mutti'+bandTag+'</h2>'+
       '<p class="intro">'+BAND.map(function(b){var m=BANDINFO[b];var on=fBandeira===b;return '<b'+(on?' style="color:'+m.cor+'"':'')+'>'+h(m.ig)+'</b>';}).join(' · ')+' — 26 mil seguidores somados e 160 mil visualizações por semana, mais o alcance dos <b>influenciadores</b> da região, com engajamento acima do padrão do varejo farmacêutico. O conteúdo é construído pelo <b>comportamento de consumo</b> e na <b>linguagem do público</b> de cada perfil. Escolha o formato, envie a sua arte e reserve.</p>'+
       // bloco: construção de conteúdo por comportamento + linguagem do público (balões de conversa)
@@ -1107,7 +1122,13 @@ function render(){
       '<div class="redesgrid">'+
         ['Instagram','TikTok','WhatsApp'].map(function(plat){
           var its=socialPos.filter(function(e){return e.area===plat;});
-          if(!its.length)return '';
+          if(!its.length && !EDIT)return '';
+          if(EDIT){
+            var ico=plat==='Instagram'?'📸':(plat==='TikTok'?'🎵':'💬');
+            var blk=its.map(function(e){return '<div class="redescard eded has" data-ed="social|'+h(plat)+'|'+e.id+'"><div class="rn">'+h(e.espaco)+'</div><div class="edmeta2">'+brl(e.preco_unit)+' · '+(e.quantidade||1)+(e.unidade==='dia'?'/dia':'/mês')+(e.tamanho?' · '+h(e.tamanho):'')+' <span class="edtag">✎ editar</span></div></div>';}).join('');
+            blk+='<div class="redescard eded new" data-ed="social|'+h(plat)+'|"><span class="edlab">➕ criar posição</span><span class="edtag">em '+h(plat)+'</span></div>';
+            return '<div class="redesplat"><div class="redesph">'+ico+' '+h(plat)+'</div><div class="redescards">'+blk+'</div></div>';
+          }
           if(plat==='WhatsApp'){
             return '<div class="redesplat"><div class="redesph">💬 WhatsApp · Grupo VIP e atendimento</div>'+
               '<p style="font-size:12.5px;color:#64748b;margin:0 0 12px">A sua marca entra na conversa: dica no <b>Grupo VIP</b> e <b>banner de oferta</b> enviado quando o cliente pede pra comprar no Zap. Clique no banner pra reservar.</p>'+

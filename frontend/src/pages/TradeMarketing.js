@@ -108,7 +108,7 @@ const ED_LABEL = {
   ecommerce: { Topo: 'Faixa do topo', Home: 'Banner da Home', Categoria: 'Banner de categoria', Vitrine: 'Card do carrossel', Busca: 'Banner da busca', Depto: 'Ícone de departamento' },
 };
 const ED_TAM = { Topo: 'ex.: 1200×120 px', Home: 'ex.: 1080×720 px', Categoria: 'ex.: 1080×300 px', Vitrine: 'ex.: 600×600 px', Busca: 'ex.: 970×250 px', Depto: 'ex.: ícone 200×200 px' };
-const ED_SURFACES = [['ecommerce', '🛒 E-commerce'], ['encarte', '📰 Tabloide']];
+const ED_SURFACES = [['ecommerce', '🛒 E-commerce'], ['encarte', '📰 Tabloide'], ['social', '📱 Redes']];
 function EditorVisual({ API }) {
   const [token, setToken] = useState(null);
   const [surface, setSurface] = useState('ecommerce');
@@ -120,9 +120,9 @@ function EditorVisual({ API }) {
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
   }, []);
-  const anchor = { ecommerce: 'ecommerce', encarte: 'encarte', redes: 'redes' }[surface];
+  const anchor = { ecommerce: 'ecommerce', encarte: 'encarte', social: 'redes' }[surface];
   const src = token ? `/trade.html?acesso=${encodeURIComponent(token)}&edit=1#${anchor}` : null;
-  const nome = surface === 'encarte' ? 'tabloide' : 'vitrine do e-commerce';
+  const nome = surface === 'encarte' ? 'tabloide' : surface === 'social' ? 'grade de redes' : 'vitrine do e-commerce';
   return (
     <div>
       <div style={{ ...s.card, background: '#EFF6FF', border: '1px solid #DBEAFE', fontSize: 12.5, color: '#1e3a5f' }}>
@@ -142,9 +142,11 @@ function EditorEspacoModal({ API, ed, onClose, onSaved }) {
   const [f, setF] = useState(null);
   const [salv, setSalv] = useState(false);
   const ehEncarte = ed.segmento === 'encarte';
-  const lbl = ehEncarte ? ('Tabloide · ' + ed.area) : ((ED_LABEL[ed.segmento] || {})[ed.area] || ed.area);
-  const nomeDefault = ehEncarte ? '' : lbl; // no tabloide o usuário nomeia a posição (Faixa de Marca, Produto em Oferta…)
-  const tamPH = ehEncarte ? 'ex.: 1/4 de página · 1 página' : (ED_TAM[ed.area] || 'ex.: 1080×720 px');
+  const ehSocial = ed.segmento === 'social';
+  const nomeLivre = ehEncarte || ehSocial; // o usuário nomeia a posição/formato
+  const lbl = ehEncarte ? ('Tabloide · ' + ed.area) : ehSocial ? ('Redes · ' + ed.area) : ((ED_LABEL[ed.segmento] || {})[ed.area] || ed.area);
+  const nomeDefault = nomeLivre ? '' : lbl;
+  const tamPH = ehEncarte ? 'ex.: 1/4 de página · 1 página' : ehSocial ? 'ex.: 1080×1350 (4:5) ou 1080×1920 (9:16)' : (ED_TAM[ed.area] || 'ex.: 1080×720 px');
   useEffect(() => {
     let live = true;
     if (ed.espacoId) {
@@ -168,8 +170,8 @@ function EditorEspacoModal({ API, ed, onClose, onSaved }) {
     <div style={s.overlay} onClick={onClose}>
       <div style={{ ...s.modal, maxWidth: 460 }} onClick={e => e.stopPropagation()}>
         <div style={{ fontSize: 15, fontWeight: 800 }}>{ed.espacoId ? '✎ Editar espaço' : '➕ Criar espaço'} · {lbl}</div>
-        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>{ehEncarte ? 'Tabloide · página' : 'E-commerce · área'} <b>{ed.area}</b></div>
-        <label style={s.lbl}>Nome do espaço{ehEncarte ? <span style={{ fontWeight: 400, color: '#94a3b8' }}> (ex.: Faixa de Marca, Produto em Oferta)</span> : ''}<input value={f.espaco} onChange={e => set('espaco', e.target.value)} placeholder={ehEncarte ? 'ex.: Faixa de Marca' : ''} style={s.inp} /></label>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>{ehEncarte ? 'Tabloide · página' : ehSocial ? 'Redes · plataforma' : 'E-commerce · área'} <b>{ed.area}</b></div>
+        <label style={s.lbl}>Nome do espaço{ehEncarte ? <span style={{ fontWeight: 400, color: '#94a3b8' }}> (ex.: Faixa de Marca, Produto em Oferta)</span> : ehSocial ? <span style={{ fontWeight: 400, color: '#94a3b8' }}> (ex.: Feed, Reels, Stories, Grupo VIP)</span> : ''}<input value={f.espaco} onChange={e => set('espaco', e.target.value)} placeholder={ehEncarte ? 'ex.: Faixa de Marca' : ehSocial ? 'ex.: Reels' : ''} style={s.inp} /></label>
         <label style={s.lbl}>Tamanho / especificação da arte <span style={{ fontWeight: 400, color: '#94a3b8' }}>(o que o fornecedor entrega)</span><input value={f.tamanho} onChange={e => set('tamanho', e.target.value)} placeholder={tamPH} style={s.inp} /></label>
         <div style={{ display: 'flex', gap: 10 }}>
           <label style={{ ...s.lbl, flex: 1 }}>Preço (R$/mês)<input type="number" value={f.preco_unit} onChange={e => set('preco_unit', e.target.value)} placeholder="0,00" style={s.inp} /></label>
