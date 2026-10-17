@@ -320,12 +320,30 @@ function tratativasMapa(empresaId) {
   return new Map(db.prepare('SELECT ref, status, obs, atualizado_em FROM conc_tratativa WHERE empresa_id=?')
     .all(empresaId).map(r => [r.ref, r]));
 }
-function marcarTratativa(empresaId, { ref, tipo, status, obs, valor, lojaId, operador, usuarioId }) {
-  db.prepare(`INSERT INTO conc_tratativa (empresa_id, ref, tipo, status, valor, loja_id, operador, obs, usuario_id, criado_em, atualizado_em)
-    VALUES (?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
-    ON CONFLICT(empresa_id, ref) DO UPDATE SET status=excluded.status, obs=excluded.obs,
-      usuario_id=excluded.usuario_id, atualizado_em=datetime('now')`)
-    .run(empresaId, ref, tipo || '', status || 'aberta', round(valor), lojaId || '', operador || '', obs || '', String(usuarioId || ''));
+function marcarTratativa(empresaId, { ref, tipo, status, obs, valor, lojaId, operador, usuarioId, refPar }) {
+  db.prepare(`INSERT INTO conc_tratativa (empresa_id, ref, tipo, status, valor, loja_id, operador, obs, usuario_id, ref_par, criado_em, atualizado_em)
+    VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
+    ON CONFLICT(empresa_id, ref) DO UPDATE SET status=excluded.status, obs=excluded.obs, loja_id=excluded.loja_id,
+      ref_par=excluded.ref_par, usuario_id=excluded.usuario_id, atualizado_em=datetime('now')`)
+    .run(empresaId, ref, tipo || '', status || 'aberta', round(valor), lojaId || '', operador || '', obs || '', String(usuarioId || ''), refPar || null);
+  return { ok: true };
+}
+
+// Remaneja uma transação "Operadora pagou, ERP não tem" (SO_OPERADORA) para a loja onde a venda
+// realmente foi lançada: marca as DUAS pontas como 'remanejada' (some da Loja origem E da Loja
+// destino, que estava como "ERP tem, operadora não pagou"). refPar = a SO_ERP escolhida (opcional).
+function remanejarLoja(empresaId, { ref, tipo, valor, lojaId, lojaNome, refPar, refParValor, obs, usuarioId }) {
+  if (!ref) throw new Error('Transação de origem não informada.');
+  if (!lojaId && !refPar) throw new Error('Escolha a loja de destino ou a venda correspondente.');
+  const destino = lojaNome ? ` p/ ${lojaNome}` : '';
+  marcarTratativa(empresaId, { ref, tipo: tipo || 'SO_OPERADORA', status: 'remanejada', valor,
+    lojaId: lojaId || '', usuarioId, refPar: refPar || null,
+    obs: `Remanejada${destino}${refPar ? ' (casada com a venda da outra loja)' : ''}.${obs ? ' ' + obs : ''}` });
+  if (refPar) {
+    marcarTratativa(empresaId, { ref: refPar, tipo: 'SO_ERP', status: 'remanejada', valor: refParValor != null ? refParValor : valor,
+      lojaId: '', usuarioId, refPar: ref,
+      obs: `Conciliada com a transação da outra loja (maquininha em loja diferente).${obs ? ' ' + obs : ''}` });
+  }
   return { ok: true };
 }
 
@@ -1072,5 +1090,5 @@ async function recebimentosFuturosItens(empresaId, { lojaId, dias, ini, fim } = 
 module.exports = {
   depara, salvarDepara, deparaOperadora, salvarDeparaOperadora, modalidadesErp,
   edi, importar, confrontarArquivo, confrontarPeriodo, painel, pendentesPorOperadora, semOperadoraIdentificada, correcoes, lotes, apagarLote,
-  marcarTratativa, taxasCobradas, biTaxaCombinada, recebimentosFuturos, recebimentosFuturosItens, custoMaquinas, GRUPOS, ROTULO_GRUPO, TIPOS, lojasTexto, salvarLojaTexto,
+  marcarTratativa, remanejarLoja, taxasCobradas, biTaxaCombinada, recebimentosFuturos, recebimentosFuturosItens, custoMaquinas, GRUPOS, ROTULO_GRUPO, TIPOS, lojasTexto, salvarLojaTexto,
 };

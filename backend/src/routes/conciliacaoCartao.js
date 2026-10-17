@@ -78,6 +78,8 @@ router.post('/lojas-texto', wrap(req => cc.salvarLojaTexto(req.usuario.empresa_i
 
 // tratativa da divergência (o que a Tesouraria fez com ela)
 router.post('/tratativa', wrap(req => cc.marcarTratativa(req.usuario.empresa_id, { ...req.body, usuarioId: req.usuario.id })));
+// remaneja a transação para a loja certa (maquininha numa loja, venda lançada em outra)
+router.post('/remanejar', wrap(req => cc.remanejarLoja(req.usuario.empresa_id, { ...req.body, usuarioId: req.usuario.id })));
 
 // ajustes: de-para modalidade→grupo e operadora→modalidades
 router.get('/ajustes', wrap(async req => {

@@ -21,6 +21,28 @@ const mesAtual = () => { const h = new Date(); return { ini: `${h.getFullYear()}
 const GRUPOS_PAGAMENTO = ['DEBITO', 'CREDITO', 'PARCELADO', 'VOUCHER', 'PIX', 'CREDIARIO', 'PREPAGO', 'OUTRO'];
 const ROTULO_GRUPO_PAGAMENTO = { DEBITO: 'Débito', CREDITO: 'Crédito à vista', PARCELADO: 'Crédito parcelado', VOUCHER: 'Voucher/benefício', PIX: 'Pix', CREDIARIO: 'Crediário', PREPAGO: 'Pré-pago', OUTRO: 'Outro' };
 
+// Blindagem: se qualquer tela do módulo estourar ao montar, mostra o erro em vez de deixar a
+// página inteira branca (e informa a mensagem exata pra corrigir). Reinicia ao trocar de aba/loja.
+class Blindagem extends React.Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { try { console.error('[ConciliacaoCartoes] render error:', err, info); } catch { /* ignora */ } }
+  render() {
+    if (this.state.err) {
+      const msg = String((this.state.err && this.state.err.message) || this.state.err);
+      return (
+        <div style={{ background: '#FBEAEA', border: '1px solid #F0C7C7', color: '#8A2E2E', borderRadius: 10, padding: '14px 16px', fontSize: 13 }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>⚠️ Algo quebrou ao montar esta tela (mas a página não some mais).</div>
+          <div style={{ marginBottom: 8 }}>Tire um print desta mensagem e me mande — ela diz exatamente o que falhou. Troque a loja/aba ou clique abaixo para tentar de novo.</div>
+          <div style={{ fontFamily: 'monospace', fontSize: 12, background: '#fff', border: '1px solid #f0c7c7', borderRadius: 8, padding: '8px 10px', whiteSpace: 'pre-wrap', overflowX: 'auto' }}>{msg}</div>
+          <button onClick={() => this.setState({ err: null })} style={{ marginTop: 10, fontSize: 12.5, padding: '7px 12px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', cursor: 'pointer' }}>tentar de novo</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function ConciliacaoCartoes() {
   const { API } = useAuth();
   const [aba, setAba] = useState('painel');
@@ -64,18 +86,20 @@ export default function ConciliacaoCartoes() {
           ['repasses', '💰 Repasses'], ['correcoes', '🔧 Correções no ERP'], ['ajustes', '⚙️ Ajustes']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
       </div>
-      {aba === 'painel' && <Painel API={API} f={filtros} irPara={t => { setTipoIni(t); setAba('diverg'); }} />}
-      {aba === 'importar' && <Importar API={API} lojas={lojas} />}
-      {aba === 'diverg' && <Divergencias API={API} f={filtros} tipoIni={tipoIni} />}
-      {aba === 'pendentes' && <AguardandoRelatorio API={API} f={filtros} />}
-      {aba === 'sem-operadora' && <SemOperadora API={API} f={filtros} />}
-      {aba === 'recebimentos' && <RecebimentosFuturos API={API} f={filtros} />}
-      {aba === 'taxas' && <TaxasMaquina API={API} f={filtros} />}
-      {aba === 'combinado' && <TaxasCombinadas API={API} f={filtros} lojas={lojas} />}
-      {aba === 'maquinas' && <AluguelMaquinas API={API} f={filtros} />}
-      {aba === 'repasses' && <Repasses API={API} f={filtros} lojas={lojas} />}
-      {aba === 'correcoes' && <Correcoes API={API} f={filtros} />}
-      {aba === 'ajustes' && <Ajustes API={API} />}
+      <Blindagem key={aba + '|' + loja + '|' + fonte + '|' + grupo + '|' + per.ini + '|' + per.fim}>
+        {aba === 'painel' && <Painel API={API} f={filtros} irPara={t => { setTipoIni(t); setAba('diverg'); }} />}
+        {aba === 'importar' && <Importar API={API} lojas={lojas} />}
+        {aba === 'diverg' && <Divergencias API={API} f={filtros} tipoIni={tipoIni} />}
+        {aba === 'pendentes' && <AguardandoRelatorio API={API} f={filtros} />}
+        {aba === 'sem-operadora' && <SemOperadora API={API} f={filtros} />}
+        {aba === 'recebimentos' && <RecebimentosFuturos API={API} f={filtros} />}
+        {aba === 'taxas' && <TaxasMaquina API={API} f={filtros} />}
+        {aba === 'combinado' && <TaxasCombinadas API={API} f={filtros} lojas={lojas} />}
+        {aba === 'maquinas' && <AluguelMaquinas API={API} f={filtros} />}
+        {aba === 'repasses' && <Repasses API={API} f={filtros} lojas={lojas} />}
+        {aba === 'correcoes' && <Correcoes API={API} f={filtros} />}
+        {aba === 'ajustes' && <Ajustes API={API} />}
+      </Blindagem>
     </div>
   );
 }
@@ -687,12 +711,13 @@ function Divergencias({ API, f, tipoIni }) {
         <button onClick={limparFiltros} style={s.chip}>limpar filtros</button>
         <button onClick={exportar} disabled={!lista.length} style={{ ...s.chip, ...s.chipOn, marginLeft: 'auto' }}>⬇️ Excel detalhado</button>
       </div>
-      <ListaDivergencias itens={lista} API={API} onMudar={recarregar} />
+      <ListaDivergencias itens={lista} todas={todas} API={API} onMudar={recarregar} />
     </>
   );
 }
 
-function ListaDivergencias({ itens, API, onMudar }) {
+function ListaDivergencias({ itens, todas = [], API, onMudar }) {
+  const [remanejar, setRemanejar] = useState(null); // a transação SO_OPERADORA sendo remanejada
   const COLS = [
     { k: 'tipo', label: 'O que houve', tipo: 'txt', get: x => x.rotulo },
     { k: 'loja', label: 'Loja', tipo: 'txt', get: x => x.loja },
@@ -739,8 +764,11 @@ function ListaDivergencias({ itens, API, onMudar }) {
               <td style={{ ...s.td, textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{brl(x.valor)}</td>
               <td style={s.td}>{x.status === 'aberta' ? <span style={{ color: '#C0392B' }}>em aberto</span>
                 : x.status === 'corrigida' ? <span style={{ color: '#1E874B' }}>corrigida</span>
+                : x.status === 'remanejada' ? <span style={{ color: '#2E5C9E' }}>↔ remanejada</span>
                 : x.status === 'ignorada' ? <span style={{ color: '#999' }}>ignorada</span> : <span style={{ color: '#C87A1E' }}>procede</span>}</td>
               {API && <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
+                {x.tipo === 'SO_OPERADORA' && (x.status === 'aberta' || x.status === 'procede') &&
+                  <button onClick={() => setRemanejar(x)} style={{ ...s.btnMini, borderColor: '#2E5C9E', color: '#2E5C9E' }} title="A maquininha é de uma loja mas a venda foi lançada em outra — remanejar/casar">↔ outra loja</button>}
                 <button onClick={() => tratar(x, 'corrigida')} style={s.btnMini} title="Já corrigi no ERP">✅ corrigi</button>
                 <button onClick={() => tratar(x, 'ignorada')} style={s.btnMini} title="Não é erro">🚫 ignorar</button>
                 {x.status !== 'aberta' && <button onClick={() => tratar(x, 'aberta')} style={s.btnMini}>reabrir</button>}
@@ -748,6 +776,71 @@ function ListaDivergencias({ itens, API, onMudar }) {
             </tr>))}
         </tbody>
       </table>
+      {remanejar && <RemanejarModal x={remanejar} todas={todas} API={API}
+        onClose={() => setRemanejar(null)} onOk={() => { setRemanejar(null); onMudar && onMudar(); }} />}
+    </div>
+  );
+}
+
+// Modal: a maquininha ficou numa loja mas a venda foi lançada em outra. O usuário escolhe a venda
+// correspondente (SO_ERP de outra loja, mesmo valor) ou só a loja de destino. As duas pontas são
+// marcadas como "remanejada" (some da loja de origem e da loja de destino).
+function RemanejarModal({ x, todas, API, onClose, onOk }) {
+  const [sel, setSel] = useState(null);     // SO_ERP escolhida (casar venda)
+  const [lojaManual, setLojaManual] = useState(''); // ou só a loja (uni) sem casar venda
+  const [salvando, setSalvando] = useState(false);
+  // candidatas: "ERP tem, operadora não pagou" de OUTRA loja, ainda em aberto, mesmo valor
+  const cents = v => Math.round((Number(v) || 0) * 100);
+  const candidatas = (todas || []).filter(d => d.tipo === 'SO_ERP'
+    && String(d.uni) !== String(x.uni)
+    && (d.status === 'aberta' || d.status === 'procede')
+    && cents(d.valor) === cents(x.valor));
+  // lojas de destino possíveis (pelas divergências carregadas) p/ o caso "sem casar venda"
+  const lojasDestino = [...new Map((todas || []).filter(d => String(d.uni) !== String(x.uni) && d.uni != null)
+    .map(d => [String(d.uni), { uni: d.uni, nome: d.loja }])).values()].sort((a, b) => String(a.nome).localeCompare(String(b.nome)));
+  const confirmar = async () => {
+    if (!sel && !lojaManual) return;
+    setSalvando(true);
+    try {
+      const body = sel
+        ? { ref: x.ref, tipo: x.tipo, valor: x.valor, lojaId: sel.uni, lojaNome: sel.loja, refPar: sel.ref, refParValor: sel.valor }
+        : { ref: x.ref, tipo: x.tipo, valor: x.valor, lojaId: lojaManual, lojaNome: (lojasDestino.find(l => String(l.uni) === String(lojaManual)) || {}).nome };
+      await API.post('/conciliacao-cartao/remanejar', body);
+      onOk();
+    } catch (e) { alert(e.response?.data?.erro || 'Erro ao remanejar.'); setSalvando(false); }
+  };
+  return (
+    <div style={s.overlay} onClick={onClose}>
+      <div style={{ ...s.modal, maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 2 }}>↔ Remanejar para outra loja</div>
+        <div style={{ fontSize: 12.5, color: '#64748b', marginBottom: 12 }}>A maquininha está na <b>{x.loja}</b>, mas a venda pode ter sido lançada em outra loja. Escolha a venda correspondente (ou só a loja) para conciliar as duas pontas.</div>
+        <div style={{ ...s.card, margin: 0, marginBottom: 12, background: '#F7FAFF', border: '1px solid #E3ECF7' }}>
+          <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 700 }}>TRANSAÇÃO (operadora pagou)</div>
+          <div style={{ fontSize: 13 }}><b>{brl(x.valor)}</b> · {x.loja} · {dBR(x.data)} {(x.hora || '').slice(0, 5)} · NSU {x.nsu || x.autorizacao || '—'} · {x.tipoOperadora || x.operadora}</div>
+        </div>
+        <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Venda correspondente em outra loja <span style={{ color: '#94a3b8', fontWeight: 400 }}>(mesmo valor, "ERP tem, operadora não pagou")</span></div>
+        {candidatas.length === 0
+          ? <div style={{ fontSize: 12.5, color: '#8A6D3B', background: '#FFF8E6', border: '1px solid #F0E0B0', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>Nenhuma venda de outra loja com esse valor em aberto. Você pode só <b>mudar a loja</b> abaixo (a outra ponta você trata quando aparecer).</div>
+          : <div style={{ display: 'grid', gap: 6, marginBottom: 10, maxHeight: 220, overflowY: 'auto' }}>
+            {candidatas.map(c => {
+              const on = sel && sel.ref === c.ref;
+              return <div key={c.ref} onClick={() => { setSel(on ? null : c); setLojaManual(''); }}
+                style={{ border: '1px solid ' + (on ? '#2E5C9E' : '#e5e7eb'), background: on ? '#EAF1FB' : '#fff', borderRadius: 8, padding: '8px 10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ fontSize: 12.5 }}><b>{c.loja}</b> · {dBR(c.data)} · {c.modalidadeErp || '—'}{c.operador ? ' · ' + c.operador : ''} · NSU {c.nsu || c.autorizacao || '—'}</div>
+                <div style={{ fontWeight: 700, color: '#2E5C9E', whiteSpace: 'nowrap' }}>{brl(c.valor)}{on ? ' ✓' : ''}</div>
+              </div>;
+            })}
+          </div>}
+        <div style={{ fontSize: 12.5, color: '#64748b', margin: '4px 0 6px' }}>— ou só mudar a loja (sem casar uma venda agora) —</div>
+        <select value={lojaManual} onChange={e => { setLojaManual(e.target.value); setSel(null); }} style={{ ...s.inp, width: '100%', marginBottom: 14 }}>
+          <option value="">Escolher a loja de destino…</option>
+          {lojasDestino.map(l => <option key={l.uni} value={l.uni}>{l.nome}</option>)}
+        </select>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={s.btnMini}>cancelar</button>
+          <button onClick={confirmar} disabled={salvando || (!sel && !lojaManual)} style={{ ...s.btn, opacity: (salvando || (!sel && !lojaManual)) ? 0.5 : 1 }}>{salvando ? 'salvando…' : 'Remanejar e conciliar'}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1792,4 +1885,7 @@ const s = {
   aviso: { fontSize: 12, color: '#7A5A18', background: '#FDF6E7', border: '1px solid #F0E0BC', borderRadius: 8, padding: '8px 10px', marginBottom: 8 },
   erroBox: { background: '#FBEAEA', border: '1px solid #F0C7C7', color: '#8A2E2E', borderRadius: 10, padding: '10px 12px', fontSize: 12.5, marginBottom: 10 },
   btnMini: { fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', marginRight: 4, color: '#555' },
+  btn: { fontSize: 13, padding: '8px 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 },
+  modal: { background: '#fff', borderRadius: 14, padding: 18, width: '100%', maxHeight: '90vh', overflowY: 'auto' },
 };
