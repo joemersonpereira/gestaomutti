@@ -1098,6 +1098,21 @@ router.get('/sped/entradas-faltantes', async (req, res) => {
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
+// baixa o XML de uma nota (pela chave) direto do Espião — sob demanda, só quando o usuário pede
+router.get('/espiao/xml/:chave', async (req, res) => {
+  try {
+    if (!espiao.habilitado()) return res.status(400).json({ erro: 'Integração Espião não configurada (.env).' });
+    const r = await espiao.xmlPorChave(req.params.chave);
+    if (!r.ok) return res.status(502).json({ erro: r.erro });
+    const d = r.dados || {};
+    const xml = (typeof d === 'string') ? d : (d.xml || d.mensagem || d.xmlNfe || (d.dados && d.dados.xml) || '');
+    if (!xml || String(xml).indexOf('<') < 0) return res.status(404).json({ erro: 'XML não disponível para essa nota.' });
+    res.set('Content-Type', 'application/xml; charset=utf-8');
+    res.set('Content-Disposition', 'attachment; filename="' + soDigitos(req.params.chave) + '.xml"');
+    res.send(String(xml));
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+
 // ── BI: lead time entre a EMISSÃO do XML e a ENTRADA efetiva no estoque (Alpha) ──────────────────
 router.get('/espiao/lead-estoque', async (req, res) => {
   try {

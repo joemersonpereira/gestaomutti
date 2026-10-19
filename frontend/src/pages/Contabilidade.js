@@ -1820,6 +1820,21 @@ function NfFaltantes({ API, lojas, espiaoStatus }) {
   const [carregando, setCarregando] = useState(false);
   const [res, setRes] = useState(null);
   const [erro, setErro] = useState('');
+  const [baixando, setBaixando] = useState(null); // chave do XML em download (só quando o usuário clica)
+
+  // baixa o XML só se o usuário quiser (botão por linha) — não é usado no confronto, é sob demanda
+  const baixarXml = async (chave, numero) => {
+    setBaixando(chave);
+    try {
+      const r = await API.get('/contabilidade/espiao/xml/' + chave, { responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/xml' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = (numero ? 'NF' + numero + '-' : '') + chave + '.xml';
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } catch (e) {
+      alert((e.response && e.response.data && e.response.data.erro) || 'Não foi possível baixar o XML dessa nota.');
+    } finally { setBaixando(null); }
+  };
 
   const conferir = async () => {
     setCarregando(true); setErro(''); setRes(null);
@@ -1834,7 +1849,7 @@ function NfFaltantes({ API, lojas, espiaoStatus }) {
 
   return (
     <>
-      <p style={s.sub}>Cruza o que a <b>SEFAZ tem</b> (via Espião) com o que foi <b>lançado no Alpha</b> — aponta as <b>notas que faltam dar entrada</b>, ordenadas da <b>mais antiga</b> (mais urgente). Não precisa do SPED: direto, por loja e competência.</p>
+      <p style={s.sub}>Cruza o que a <b>SEFAZ tem</b> (via Espião) com o que foi <b>lançado no Alpha</b> — aponta as <b>notas que faltam dar entrada</b>, ordenadas da <b>mais antiga</b> (mais urgente). Não precisa do SPED: direto, por loja e competência. O confronto não baixa nada; o <b>📥 XML</b> em cada linha é opcional, só se você quiser o arquivo.</p>
       {espiaoStatus && !espiaoStatus.ok && (
         <div style={{ fontSize: 12.5, marginBottom: 12, color: '#a16207', background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 8, padding: 10 }}>
           🟡 A integração do Espião ainda não está autorizada ({espiaoStatus.erro || 'token'}). Libere o módulo API / faça o step-up do token do usuário na conta Espião pra este cruzamento funcionar.
@@ -1855,13 +1870,14 @@ function NfFaltantes({ API, lojas, espiaoStatus }) {
             {L.sefaz} nota(s) na SEFAZ · {L.noAlpha} no Alpha · <b style={{ color: L.faltantes.length ? '#b91c1c' : '#15803d' }}>{L.faltantes.length} faltando lançar</b>.
           </div>
           {!!L.faltantes.length && <ScrollX><table style={s.tbl}>
-            <thead><tr>{['Dias', 'NF', 'Emitente', 'Emissão', 'Valor', 'Chave'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+            <thead><tr>{['Dias', 'NF', 'Emitente', 'Emissão', 'Valor', 'Chave', 'XML'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
             <tbody>{L.faltantes.map((n, j) => (
               <tr key={j} style={(n.dias >= 7) ? { background: n.dias >= 15 ? '#fef2f2' : '#fffbeb' } : null}>
                 <td style={{ ...s.tdNum, fontWeight: 800, color: corDias(n.dias || 0) }}>{n.dias != null ? n.dias + 'd' : '—'}</td>
                 <td style={s.td}>{n.numero}</td><td style={s.td}>{n.emitente}<div style={{ fontSize: 11, color: '#94a3b8' }}>{n.cnpjEmitente}</div></td>
                 <td style={s.td}>{n.data}</td><td style={s.tdNum}>{brl(n.valor)}</td>
-                <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 10.5 }}>{n.chave}</td></tr>
+                <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 10.5 }}>{n.chave}</td>
+                <td style={s.td}>{n.possuiXml ? <button style={{ ...s.btn, padding: '2px 8px', fontSize: 11 }} disabled={baixando === n.chave} onClick={() => baixarXml(n.chave, n.numero)} title="Baixar o XML dessa nota (opcional)">{baixando === n.chave ? '…' : '📥 XML'}</button> : '—'}</td></tr>
             ))}</tbody></table></ScrollX>}
           {!L.faltantes.length && <div style={{ fontSize: 13, color: '#15803d' }}>🎉 Tudo que a SEFAZ tem já está lançado no Alpha.</div>}
         </div>
