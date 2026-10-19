@@ -1075,12 +1075,69 @@ router.get('/sped/entradas-faltantes', async (req, res) => {
         [Number(l.erp_unidadenegocio_id), ini, fim]);
       const noAlpha = new Set(rows.map(r => r.chave));
       const canc = s => /cancel/i.test(String(s || ''));
-      const faltantes = (sef.notas || []).filter(n => !canc(n.situacao) && !noAlpha.has(soDigitos(n.chaveAcesso)));
-      saida.push({ loja: l.nome, loja_id: l.id, cnpj, sefaz: (sef.notas || []).length, noAlpha: noAlpha.size,
-        faltantes: faltantes.map(n => ({ chave: soDigitos(n.chaveAcesso), numero: n.numeroNfe, emitente: n.nomeEmitente, cnpjEmitente: n.cnpjCpfEmitente, data: n.dataEmissao, valor: n.valorTotal, situacao: n.situacao, possuiXml: n.possuiXml })) });
+      const vistas = new Set();
+      const faltantes = (sef.notas || []).filter(n => {
+        if (canc(n.situacao)) return false;
+        const ch = soDigitos(n.chaveAcesso);
+        if (!ch || noAlpha.has(ch) || vistas.has(ch)) return false; // não lançada no Alpha e ainda não listada
+        vistas.add(ch); return true;
+      });
+      const hoje = Date.now();
+      const diasMin = Math.max(0, Number(req.query.diasMin) || 0); // filtro de urgência (só com mais de X dias)
+      let lista = faltantes.map(n => {
+        const emi = n.dataEmissao ? new Date(String(n.dataEmissao).slice(0, 10)) : null;
+        const dias = emi ? Math.floor((hoje - emi.getTime()) / 86400000) : null;
+        return { chave: soDigitos(n.chaveAcesso), numero: n.numeroNfe, emitente: n.nomeEmitente, cnpjEmitente: n.cnpjCpfEmitente, data: n.dataEmissao, valor: n.valorTotal, situacao: n.situacao, possuiXml: n.possuiXml, dias };
+      }).sort((a, b) => (b.dias || 0) - (a.dias || 0)); // mais antiga (mais urgente) primeiro
+      if (diasMin) lista = lista.filter(n => (n.dias || 0) >= diasMin);
+      saida.push({ loja: l.nome, loja_id: l.id, cnpj, sefaz: (sef.notas || []).length, noAlpha: noAlpha.size, faltantes: lista, urgentes: lista.filter(n => (n.dias || 0) >= 7).length });
     }
     const totalFaltantes = saida.reduce((a, s) => a + s.faltantes.length, 0);
-    res.json({ ok: true, competencia, totalFaltantes, lojas: saida });
+    const totalUrgentes = saida.reduce((a, s) => a + (s.urgentes || 0), 0);
+    res.json({ ok: true, competencia, totalFaltantes, totalUrgentes, lojas: saida });
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+
+// ── BI: lead time entre a EMISSÃO do XML e a ENTRADA efetiva no estoque (Alpha) ──────────────────
+router.get('/espiao/lead-estoque', async (req, res) => {
+  try {
+    const { competencia } = req.query;
+    if (!competencia || !/^\d{4}-\d{2}$/.test(competencia)) return res.status(400).json({ erro: 'Informe a competência (AAAA-MM).' });
+    const loja = req.query.loja;
+    const lojas = lojasEmpresa(req.usuario.empresa_id).filter(l => (!loja || l.id === loja) && l.erp_unidadenegocio_id != null);
+    if (!lojas.length) return res.status(400).json({ erro: 'Escolha uma loja válida.' });
+    const [ano, mes] = competencia.split('-').map(Number);
+    const ini = `${competencia}-01`, fim = `${competencia}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`;
+    const saida = [];
+    for (const l of lojas) {
+      const uni = Number(l.erp_unidadenegocio_id);
+      const st = await erpQuery(`WITH e AS (
+        SELECT EXTRACT(EPOCH FROM (datahoraentrada - datahoraemissao))/86400.0 AS dias
+        FROM notafiscal WHERE unidadenegocioid=$1 AND fornecedorid IS NOT NULL
+          AND datahoraentrada >= $2::date AND datahoraentrada < ($3::date + interval '1 day')
+          AND datahoraemissao IS NOT NULL AND datahoraentrada >= datahoraemissao)
+        SELECT COUNT(*) n, ROUND(AVG(dias)::numeric,2) media,
+          ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY dias))::numeric,2) mediana,
+          COUNT(*) FILTER (WHERE dias<1) ate1, COUNT(*) FILTER (WHERE dias>=1 AND dias<3) d13,
+          COUNT(*) FILTER (WHERE dias>=3 AND dias<7) d37, COUNT(*) FILTER (WHERE dias>=7 AND dias<15) d715,
+          COUNT(*) FILTER (WHERE dias>=15) m15, ROUND(MAX(dias)::numeric,1) pior
+        FROM e`, [uni, ini, fim]);
+      const piores = await erpQuery(`SELECT nf.numero, COALESCE(p.razaosocial,p.nome) fornecedor,
+          to_char(nf.datahoraemissao,'DD/MM/YYYY') emissao, to_char(nf.datahoraentrada,'DD/MM/YYYY') entrada,
+          ROUND((EXTRACT(EPOCH FROM (nf.datahoraentrada - nf.datahoraemissao))/86400.0)::numeric,1) dias
+        FROM notafiscal nf LEFT JOIN fornecedor f ON f.id=nf.fornecedorid LEFT JOIN pessoa p ON p.id=f.pessoaid
+        WHERE nf.unidadenegocioid=$1 AND nf.fornecedorid IS NOT NULL
+          AND nf.datahoraentrada >= $2::date AND nf.datahoraentrada < ($3::date + interval '1 day')
+          AND nf.datahoraemissao IS NOT NULL AND nf.datahoraentrada >= nf.datahoraemissao
+        ORDER BY (nf.datahoraentrada - nf.datahoraemissao) DESC LIMIT 10`, [uni, ini, fim]);
+      const s = st[0] || {};
+      saida.push({
+        loja: l.nome, loja_id: l.id, n: Number(s.n) || 0, media: Number(s.media) || 0, mediana: Number(s.mediana) || 0,
+        buckets: { ate1: Number(s.ate1) || 0, d13: Number(s.d13) || 0, d37: Number(s.d37) || 0, d715: Number(s.d715) || 0, m15: Number(s.m15) || 0 },
+        pior: Number(s.pior) || 0, piores
+      });
+    }
+    res.json({ ok: true, competencia, lojas: saida });
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
@@ -1128,6 +1185,39 @@ router.post('/sped/:id/cruzar-espiao', exigePerfil(...PERFIS_ESCRITA), async (re
     res.json({ ok: true, competencia: row.competencia, cnpj,
       resumo: { espiao: notas.length, noSped: chavesSped.size, faltantes: faltantes.length, inseridosBanco: inseridos },
       faltantes: faltantes.slice(0, 500).map(n => ({ chave: soDigitos(n.chaveAcesso), numero: n.numeroNfe, emitente: n.nomeEmitente, cnpjEmitente: n.cnpjCpfEmitente, data: n.dataEmissao, valor: n.valorTotal, situacao: n.situacao, manifestacao: n.manifestacao, possuiXml: n.possuiXml })) });
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+
+// resumo do BI de tempo de entrada (grupo todo) — p/ painel/dashboard. Só ERP, rápido.
+router.get('/espiao/lead-resumo', async (req, res) => {
+  try {
+    const competencia = /^\d{4}-\d{2}$/.test(req.query.competencia || '') ? req.query.competencia : new Date().toISOString().slice(0, 7);
+    const lojas = lojasEmpresa(req.usuario.empresa_id).filter(l => l.erp_unidadenegocio_id != null);
+    if (!lojas.length) return res.json({ ok: true, competencia, total: 0, lojas: [] });
+    const [ano, mes] = competencia.split('-').map(Number);
+    const ini = `${competencia}-01`, fim = `${competencia}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`;
+    const unis = lojas.map(l => Number(l.erp_unidadenegocio_id));
+    const ph = unis.map((_, i) => '$' + (i + 3)).join(',');
+    const g = await erpQuery(`WITH e AS (
+      SELECT EXTRACT(EPOCH FROM (datahoraentrada - datahoraemissao))/86400.0 dias
+      FROM notafiscal WHERE unidadenegocioid IN (${ph}) AND fornecedorid IS NOT NULL
+        AND datahoraentrada >= $1::date AND datahoraentrada < ($2::date + interval '1 day')
+        AND datahoraemissao IS NOT NULL AND datahoraentrada >= datahoraemissao)
+      SELECT COUNT(*) n, ROUND(AVG(dias)::numeric,2) media, ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY dias))::numeric,2) mediana,
+        COUNT(*) FILTER (WHERE dias<3) ate3, COUNT(*) FILTER (WHERE dias>=7) lentas7 FROM e`, [ini, fim, ...unis]);
+    const porUni = await erpQuery(`SELECT unidadenegocioid uni, COUNT(*) n,
+        ROUND(AVG(EXTRACT(EPOCH FROM (datahoraentrada - datahoraemissao))/86400.0)::numeric,2) media
+      FROM notafiscal WHERE unidadenegocioid IN (${ph}) AND fornecedorid IS NOT NULL
+        AND datahoraentrada >= $1::date AND datahoraentrada < ($2::date + interval '1 day')
+        AND datahoraemissao IS NOT NULL AND datahoraentrada >= datahoraemissao
+      GROUP BY unidadenegocioid`, [ini, fim, ...unis]);
+    const map = {}; porUni.forEach(r => { map[r.uni] = { n: Number(r.n) || 0, media: Number(r.media) || 0 }; });
+    const s = g[0] || {};
+    res.json({
+      ok: true, competencia, total: Number(s.n) || 0, media: Number(s.media) || 0, mediana: Number(s.mediana) || 0,
+      ate3: Number(s.ate3) || 0, lentas7: Number(s.lentas7) || 0,
+      lojas: lojas.map(l => ({ loja: l.nome, ...(map[Number(l.erp_unidadenegocio_id)] || { n: 0, media: 0 }) })).sort((a, b) => b.media - a.media)
+    });
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
