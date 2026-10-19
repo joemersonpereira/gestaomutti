@@ -1075,7 +1075,13 @@ router.get('/sped/entradas-faltantes', async (req, res) => {
         [Number(l.erp_unidadenegocio_id), ini, fim]);
       const noAlpha = new Set(rows.map(r => r.chave));
       const canc = s => /cancel/i.test(String(s || ''));
-      const faltantes = (sef.notas || []).filter(n => !canc(n.situacao) && !noAlpha.has(soDigitos(n.chaveAcesso)));
+      const vistas = new Set();
+      const faltantes = (sef.notas || []).filter(n => {
+        if (canc(n.situacao)) return false;
+        const ch = soDigitos(n.chaveAcesso);
+        if (!ch || noAlpha.has(ch) || vistas.has(ch)) return false; // não lançada no Alpha e ainda não listada
+        vistas.add(ch); return true;
+      });
       saida.push({ loja: l.nome, loja_id: l.id, cnpj, sefaz: (sef.notas || []).length, noAlpha: noAlpha.size,
         faltantes: faltantes.map(n => ({ chave: soDigitos(n.chaveAcesso), numero: n.numeroNfe, emitente: n.nomeEmitente, cnpjEmitente: n.cnpjCpfEmitente, data: n.dataEmissao, valor: n.valorTotal, situacao: n.situacao, possuiXml: n.possuiXml })) });
     }
