@@ -132,11 +132,10 @@ export default function Contabilidade() {
           <button style={s.tab(secao === 'extrato')} onClick={() => setSecao('extrato')}>📄 Extrato de contas</button>
           <button style={s.tab(secao === 'pendencias')} onClick={() => setSecao('pendencias')}>📂 NF / Pendências</button>
           <button style={s.tab(secao === 'despesas')} onClick={() => setSecao('despesas')}>💰 Orçamento</button>
-          <button style={s.tab(secao === 'sped')} onClick={() => setSecao('sped')}>📑 SPED</button>
         </div>
       </div>
 
-      {secao === 'painel' ? <PainelBI API={API} /> : secao === 'perda' ? <PerdaApuracao API={API} /> : secao === 'emprestimos' ? <Emprestimos API={API} /> : secao === 'cofre' ? <CofreCaixa API={API} /> : secao === 'extrato' ? <ExtratoContas API={API} /> : secao === 'pendencias' ? <PendenciasNf API={API} /> : secao === 'despesas' ? <CartaoDespesas API={API} /> : secao === 'sped' ? <SpedRepo API={API} /> : <>
+      {secao === 'painel' ? <PainelBI API={API} /> : secao === 'perda' ? <PerdaApuracao API={API} /> : secao === 'emprestimos' ? <Emprestimos API={API} /> : secao === 'cofre' ? <CofreCaixa API={API} /> : secao === 'extrato' ? <ExtratoContas API={API} /> : secao === 'pendencias' ? <PendenciasNf API={API} /> : secao === 'despesas' ? <CartaoDespesas API={API} /> : <>
       <p style={s.sub}>Crédito de devolução com fornecedor e os abatimentos no contas a pagar (com a NF vinculada, para baixar e registrar contabilmente). Leitura do ERP A7.</p>
 
       <div style={s.filtros}>
@@ -1437,7 +1436,7 @@ const ROT_TIPO_SPED = { fiscal: 'SPED Fiscal (ICMS/IPI)', contribuicoes: 'SPED C
 const ROT_ETAPA = { envio: 'Envio (dia 01)', retorno: 'Retorno da contab.', corrigido: 'Corrigido (dia 10)', final: 'Final / entregue' };
 const kb = n => !n ? '—' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
 
-function SpedRepo({ API }) {
+export function SpedRepo({ API }) {
   const [arquivos, setArquivos] = useState([]);
   const [lojas, setLojas] = useState([]);
   const [fCompetencia, setFCompetencia] = useState('');
@@ -1543,7 +1542,7 @@ function SpedRepo({ API }) {
       <div style={s.tabs}>
         <button style={s.tab(false)} onClick={() => setSub('arquivos')}>📁 Arquivos</button>
         <button style={s.tab(true)} onClick={() => setSub('correcao')}>🛠️ Retorno & Banco de correção</button>
-        <button style={s.tab(false)} onClick={() => setSub('faltantes')}>🔎 NF não lançada</button>
+        <button style={s.tab(false)} onClick={() => setSub('faltantes')}>🔎 Conciliação NF × XML</button>
         <button style={s.tab(false)} onClick={() => setSub('leadtime')}>⏱️ Tempo de entrada</button>
       </div>
       <BancoCorrecao API={API} lojas={lojas} competencias={competencias} />
@@ -1554,7 +1553,7 @@ function SpedRepo({ API }) {
       <div style={s.tabs}>
         <button style={s.tab(false)} onClick={() => setSub('arquivos')}>📁 Arquivos</button>
         <button style={s.tab(false)} onClick={() => setSub('correcao')}>🛠️ Retorno & Banco de correção</button>
-        <button style={s.tab(true)} onClick={() => setSub('faltantes')}>🔎 NF não lançada</button>
+        <button style={s.tab(true)} onClick={() => setSub('faltantes')}>🔎 Conciliação NF × XML</button>
         <button style={s.tab(false)} onClick={() => setSub('leadtime')}>⏱️ Tempo de entrada</button>
       </div>
       <NfFaltantes API={API} lojas={lojas} espiaoStatus={espiaoStatus} />
@@ -1565,7 +1564,7 @@ function SpedRepo({ API }) {
       <div style={s.tabs}>
         <button style={s.tab(false)} onClick={() => setSub('arquivos')}>📁 Arquivos</button>
         <button style={s.tab(false)} onClick={() => setSub('correcao')}>🛠️ Retorno & Banco de correção</button>
-        <button style={s.tab(false)} onClick={() => setSub('faltantes')}>🔎 NF não lançada</button>
+        <button style={s.tab(false)} onClick={() => setSub('faltantes')}>🔎 Conciliação NF × XML</button>
         <button style={s.tab(true)} onClick={() => setSub('leadtime')}>⏱️ Tempo de entrada</button>
       </div>
       <LeadTime API={API} lojas={lojas} />
@@ -1576,7 +1575,7 @@ function SpedRepo({ API }) {
       <div style={s.tabs}>
         <button style={s.tab(true)} onClick={() => setSub('arquivos')}>📁 Arquivos</button>
         <button style={s.tab(false)} onClick={() => setSub('correcao')}>🛠️ Retorno & Banco de correção</button>
-        <button style={s.tab(false)} onClick={() => setSub('faltantes')}>🔎 NF não lançada</button>
+        <button style={s.tab(false)} onClick={() => setSub('faltantes')}>🔎 Conciliação NF × XML</button>
         <button style={s.tab(false)} onClick={() => setSub('leadtime')}>⏱️ Tempo de entrada</button>
       </div>
       <LeadResumoCard API={API} onDetalhe={() => setSub('leadtime')} />

@@ -66,6 +66,7 @@ import ServicosFarmaceuticos from './pages/ServicosFarmaceuticos';
 import EstagiosFaturas from './pages/EstagiosFaturas';
 import EstagioRH from './pages/EstagioRH';
 import Contabilidade from './pages/Contabilidade';
+import Fiscal from './pages/Fiscal';
 import BancoTalentos from './pages/BancoTalentos';
 import Fornecedores from './pages/Fornecedores';
 import AuditoriaContabil from './pages/AuditoriaContabil';
@@ -134,6 +135,7 @@ const MODULOS = [
   { id: 'relatorios', label: '📑 Relatórios', C: Relatorios, perfis: [...GESTAO, 'RH', 'Marketing', 'Financeiro', 'Controladoria'] },
   { id: 'controladoria', label: '🔍 Controladoria', C: Controladoria, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
   { id: 'contabilidade', label: '🧮 Contabilidade', C: Contabilidade, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'] },
+  { id: 'fiscal', label: '📋 Fiscal', C: Fiscal, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'] },
   { id: 'fornecedores', label: '🏭 Fornecedores', C: Fornecedores, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Financeiro'] },
   { id: 'auditoria-contabil', label: '🔎 Auditoria', C: AuditoriaContabil, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'] },
   { id: 'tesouraria', label: '🏦 Tesouraria', C: TesourariaCaixa, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Supervisor', 'Gerente', 'Subgerente'] },
@@ -202,6 +204,7 @@ const NAV = [
     { nome: 'Administrativo', itens: ['financeiro', 'contas-receber', 'conciliacao-cartao', 'tesouraria', 'estagio-rh', 'banco-talentos', 'estagios'], subs: [
       { nome: 'Controladoria', itens: ['controladoria'] },
       { nome: 'Contabilidade', itens: ['contabilidade', 'fornecedores', 'auditoria-contabil'] },
+      { nome: 'Fiscal', itens: ['fiscal'] },
     ] },
     { nome: 'Logística', itens: ['conferentes', 'devolucoes', 'almoxarifado'] },
   ] },
