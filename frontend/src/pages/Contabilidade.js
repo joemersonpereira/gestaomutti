@@ -1544,6 +1544,7 @@ function SpedRepo({ API }) {
         <button style={s.tab(false)} onClick={() => setSub('arquivos')}>📁 Arquivos</button>
         <button style={s.tab(true)} onClick={() => setSub('correcao')}>🛠️ Retorno & Banco de correção</button>
         <button style={s.tab(false)} onClick={() => setSub('faltantes')}>🔎 NF não lançada</button>
+        <button style={s.tab(false)} onClick={() => setSub('leadtime')}>⏱️ Tempo de entrada</button>
       </div>
       <BancoCorrecao API={API} lojas={lojas} competencias={competencias} />
     </>
@@ -1554,8 +1555,20 @@ function SpedRepo({ API }) {
         <button style={s.tab(false)} onClick={() => setSub('arquivos')}>📁 Arquivos</button>
         <button style={s.tab(false)} onClick={() => setSub('correcao')}>🛠️ Retorno & Banco de correção</button>
         <button style={s.tab(true)} onClick={() => setSub('faltantes')}>🔎 NF não lançada</button>
+        <button style={s.tab(false)} onClick={() => setSub('leadtime')}>⏱️ Tempo de entrada</button>
       </div>
       <NfFaltantes API={API} lojas={lojas} espiaoStatus={espiaoStatus} />
+    </>
+  );
+  if (sub === 'leadtime') return (
+    <>
+      <div style={s.tabs}>
+        <button style={s.tab(false)} onClick={() => setSub('arquivos')}>📁 Arquivos</button>
+        <button style={s.tab(false)} onClick={() => setSub('correcao')}>🛠️ Retorno & Banco de correção</button>
+        <button style={s.tab(false)} onClick={() => setSub('faltantes')}>🔎 NF não lançada</button>
+        <button style={s.tab(true)} onClick={() => setSub('leadtime')}>⏱️ Tempo de entrada</button>
+      </div>
+      <LeadTime API={API} lojas={lojas} />
     </>
   );
   return (
@@ -1564,6 +1577,7 @@ function SpedRepo({ API }) {
         <button style={s.tab(true)} onClick={() => setSub('arquivos')}>📁 Arquivos</button>
         <button style={s.tab(false)} onClick={() => setSub('correcao')}>🛠️ Retorno & Banco de correção</button>
         <button style={s.tab(false)} onClick={() => setSub('faltantes')}>🔎 NF não lançada</button>
+        <button style={s.tab(false)} onClick={() => setSub('leadtime')}>⏱️ Tempo de entrada</button>
       </div>
       <p style={s.sub}>O arquivo SPED é gerado no Alpha (<b>Fiscal → Exportação Arquivo → SPED Fiscal / Contribuições</b>) e fica disponível aqui pro <b>usuário da contabilidade baixar direto</b> — sem precisar enviar por fora. Competência, tipo e loja são <b>detectados do próprio arquivo</b>; quando a contabilidade já devolveu erros antes, o sistema <b>já aponta sozinho</b> os que reconhece no arquivo novo. Para subir automático quando o Alpha gera, use o vigia de pasta (<code>scripts/sped-watch.js</code>).</p>
 
@@ -1800,24 +1814,37 @@ function BancoCorrecao({ API, lojas, competencias }) {
 function NfFaltantes({ API, lojas, espiaoStatus }) {
   const mesAtual = new Date().toISOString().slice(0, 7);
   const [competencia, setCompetencia] = useState(mesAtual);
-  const [loja, setLoja] = useState((lojas[0] && lojas[0].id) || '');
+  const [loja, setLoja] = useState('');            // '' = todas as lojas
+  const [diasMin, setDiasMin] = useState('');      // urgência: só com mais de X dias
   const [carregando, setCarregando] = useState(false);
   const [res, setRes] = useState(null);
   const [erro, setErro] = useState('');
+  const [baixando, setBaixando] = useState('');
 
   const conferir = async () => {
-    if (!loja) { setErro('Escolha a loja.'); return; }
     setCarregando(true); setErro(''); setRes(null);
     try {
-      const r = await API.get('/contabilidade/sped/entradas-faltantes', { params: { competencia, loja } });
+      const params = { competencia }; if (loja) params.loja = loja; if (diasMin) params.diasMin = diasMin;
+      const r = await API.get('/contabilidade/sped/entradas-faltantes', { params });
       setRes(r.data);
     } catch (e) { setErro(e.response && e.response.data && e.response.data.erro || 'erro ao conferir.'); }
     finally { setCarregando(false); }
   };
+  const baixarXml = async (chave, numero) => {
+    setBaixando(chave);
+    try {
+      const r = await API.get('/contabilidade/espiao/xml/' + chave, { responseType: 'blob' });
+      const url = URL.createObjectURL(r.data); const a = document.createElement('a');
+      a.href = url; a.download = (numero ? 'NF-' + numero + '-' : '') + chave + '.xml'; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) { alert('Não foi possível baixar o XML dessa nota.'); }
+    finally { setBaixando(''); }
+  };
+  const corDias = d => (d >= 15 ? '#b91c1c' : d >= 7 ? '#b45309' : '#64748b');
 
   return (
     <>
-      <p style={s.sub}>Cruza o que a <b>SEFAZ tem</b> (via Espião) com o que foi <b>lançado no Alpha</b> — aponta as <b>notas que faltam dar entrada</b>. <b>Não precisa do SPED</b>: é conferido direto, por loja e competência, a qualquer momento.</p>
+      <p style={s.sub}>Cruza o que a <b>SEFAZ tem</b> (via Espião) com o que foi <b>lançado no Alpha</b> — aponta as <b>notas que faltam dar entrada</b>, ordenadas da <b>mais antiga</b> (mais urgente). Não precisa do SPED: direto, por loja e competência.</p>
       {espiaoStatus && !espiaoStatus.ok && (
         <div style={{ fontSize: 12.5, marginBottom: 12, color: '#a16207', background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 8, padding: 10 }}>
           🟡 A integração do Espião ainda não está autorizada ({espiaoStatus.erro || 'token'}). Libere o módulo API / faça o step-up do token do usuário na conta Espião pra este cruzamento funcionar.
@@ -1825,24 +1852,83 @@ function NfFaltantes({ API, lojas, espiaoStatus }) {
       )}
       <div style={s.filtros}>
         <div style={s.lab}>Competência<input type="month" style={s.inp} value={competencia} onChange={e => setCompetencia(e.target.value)} /></div>
-        <div style={s.lab}>Loja<select style={s.inp} value={loja} onChange={e => setLoja(e.target.value)}><option value="">—</option>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></div>
+        <div style={s.lab}>Loja<select style={s.inp} value={loja} onChange={e => setLoja(e.target.value)}><option value="">🏬 Todas as lojas</option>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></div>
+        <div style={s.lab}>Só com mais de<select style={s.inp} value={diasMin} onChange={e => setDiasMin(e.target.value)}><option value="">(todas)</option><option value="3">3 dias</option><option value="7">7 dias</option><option value="15">15 dias</option><option value="30">30 dias</option></select></div>
         <button style={{ ...s.btn, background: '#0d6b5e', color: '#fff', borderColor: '#0d6b5e' }} onClick={conferir} disabled={carregando}>{carregando ? 'conferindo…' : '🔎 conferir SEFAZ × Alpha'}</button>
       </div>
       {erro && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13 }}>⚠️ {erro}</div>}
+      {res && (res.totalUrgentes > 0) && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: '9px 12px', marginBottom: 12, fontSize: 13, fontWeight: 700 }}>🚨 {res.totalUrgentes} nota(s) com <b>7 dias ou mais</b> sem dar entrada — priorize!</div>}
       {res && (res.lojas || []).map((L, i) => (
         <div key={i} style={{ ...s.card, marginBottom: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{L.loja}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{L.loja} {L.urgentes ? <span style={{ fontSize: 11, color: '#b91c1c' }}>· 🚨 {L.urgentes} urgente(s)</span> : null}</div>
           <div style={{ fontSize: 12.5, color: '#475569', marginBottom: 10 }}>
             {L.sefaz} nota(s) na SEFAZ · {L.noAlpha} no Alpha · <b style={{ color: L.faltantes.length ? '#b91c1c' : '#15803d' }}>{L.faltantes.length} faltando lançar</b>.
           </div>
           {!!L.faltantes.length && <ScrollX><table style={s.tbl}>
-            <thead><tr>{['NF', 'Emitente', 'Emissão', 'Valor', 'Chave', 'XML'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+            <thead><tr>{['Dias', 'NF', 'Emitente', 'Emissão', 'Valor', 'Chave', 'XML'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
             <tbody>{L.faltantes.map((n, j) => (
-              <tr key={j}><td style={s.td}>{n.numero}</td><td style={s.td}>{n.emitente}<div style={{ fontSize: 11, color: '#94a3b8' }}>{n.cnpjEmitente}</div></td>
+              <tr key={j} style={(n.dias >= 7) ? { background: n.dias >= 15 ? '#fef2f2' : '#fffbeb' } : null}>
+                <td style={{ ...s.tdNum, fontWeight: 800, color: corDias(n.dias || 0) }}>{n.dias != null ? n.dias + 'd' : '—'}</td>
+                <td style={s.td}>{n.numero}</td><td style={s.td}>{n.emitente}<div style={{ fontSize: 11, color: '#94a3b8' }}>{n.cnpjEmitente}</div></td>
                 <td style={s.td}>{n.data}</td><td style={s.tdNum}>{brl(n.valor)}</td>
-                <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 10.5 }}>{n.chave}</td><td style={s.td}>{n.possuiXml ? '📄' : '—'}</td></tr>
+                <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 10.5 }}>{n.chave}</td>
+                <td style={s.td}>{n.possuiXml ? <button style={{ ...s.btn, padding: '2px 8px', fontSize: 11 }} disabled={baixando === n.chave} onClick={() => baixarXml(n.chave, n.numero)}>{baixando === n.chave ? '…' : '📥 XML'}</button> : '—'}</td></tr>
             ))}</tbody></table></ScrollX>}
           {!L.faltantes.length && <div style={{ fontSize: 13, color: '#15803d' }}>🎉 Tudo que a SEFAZ tem já está lançado no Alpha.</div>}
+        </div>
+      ))}
+    </>
+  );
+}
+
+// ── BI: tempo entre a emissão do XML e a entrada efetiva no estoque (Alpha) ──────────────────────
+function LeadTime({ API, lojas }) {
+  const mesAtual = new Date().toISOString().slice(0, 7);
+  const [competencia, setCompetencia] = useState(mesAtual);
+  const [loja, setLoja] = useState('');
+  const [carregando, setCarregando] = useState(false);
+  const [res, setRes] = useState(null); const [erro, setErro] = useState('');
+  const conferir = async () => {
+    setCarregando(true); setErro(''); setRes(null);
+    try {
+      const params = { competencia }; if (loja) params.loja = loja;
+      const r = await API.get('/contabilidade/espiao/lead-estoque', { params });
+      setRes(r.data);
+    } catch (e) { setErro(e.response && e.response.data && e.response.data.erro || 'erro.'); }
+    finally { setCarregando(false); }
+  };
+  const BUCKETS = [['ate1', 'até 1 dia', '#16a34a'], ['d13', '1 a 3 dias', '#65a30d'], ['d37', '3 a 7 dias', '#ca8a04'], ['d715', '7 a 15 dias', '#ea580c'], ['m15', 'mais de 15 dias', '#b91c1c']];
+  return (
+    <>
+      <p style={s.sub}>Quanto tempo leva entre a <b>emissão do XML</b> (fornecedor) e a <b>entrada efetiva no nosso estoque</b> (Alpha). Mede a agilidade do recebimento, por loja e competência.</p>
+      <div style={s.filtros}>
+        <div style={s.lab}>Competência<input type="month" style={s.inp} value={competencia} onChange={e => setCompetencia(e.target.value)} /></div>
+        <div style={s.lab}>Loja<select style={s.inp} value={loja} onChange={e => setLoja(e.target.value)}><option value="">🏬 Todas as lojas</option>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></div>
+        <button style={{ ...s.btn, background: '#0d6b5e', color: '#fff', borderColor: '#0d6b5e' }} onClick={conferir} disabled={carregando}>{carregando ? 'analisando…' : '⏱️ analisar tempo de entrada'}</button>
+      </div>
+      {erro && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13 }}>⚠️ {erro}</div>}
+      {res && (res.lojas || []).map((L, i) => (
+        <div key={i} style={{ ...s.card, marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{L.loja}</div>
+          {!L.n ? <div style={{ fontSize: 13, color: '#94a3b8' }}>Sem entradas com data no período.</div> : <>
+            <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', marginBottom: 12 }}>
+              <div><div style={{ fontSize: 11, color: '#94a3b8' }}>entradas</div><div style={{ fontSize: 22, fontWeight: 800 }}>{L.n}</div></div>
+              <div><div style={{ fontSize: 11, color: '#94a3b8' }}>tempo médio</div><div style={{ fontSize: 22, fontWeight: 800, color: '#0d6b5e' }}>{L.media} <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>dias</span></div></div>
+              <div><div style={{ fontSize: 11, color: '#94a3b8' }}>mediana</div><div style={{ fontSize: 22, fontWeight: 800 }}>{L.mediana} <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>dias</span></div></div>
+              <div><div style={{ fontSize: 11, color: '#94a3b8' }}>pior</div><div style={{ fontSize: 22, fontWeight: 800, color: '#b91c1c' }}>{L.pior} <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>dias</span></div></div>
+            </div>
+            <div style={{ marginBottom: 12 }}>{BUCKETS.map(([k, lbl, cor]) => { const v = L.buckets[k] || 0; const pct = L.n ? Math.round(v / L.n * 100) : 0; return (
+              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, fontSize: 12 }}>
+                <div style={{ width: 92, color: '#475569' }}>{lbl}</div>
+                <div style={{ flex: 1, background: '#eef2f7', borderRadius: 6, height: 16, overflow: 'hidden' }}><div style={{ width: Math.max(2, pct) + '%', height: '100%', background: cor }} /></div>
+                <div style={{ width: 70, textAlign: 'right', color: '#475569' }}><b>{v}</b> · {pct}%</div>
+              </div>); })}</div>
+            {!!(L.piores || []).length && <>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c', margin: '6px 0 4px' }}>🐢 As que mais demoraram</div>
+              <ScrollX><table style={s.tbl}><thead><tr>{['NF', 'Fornecedor', 'Emissão', 'Entrada', 'Dias'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+                <tbody>{L.piores.map((p, j) => <tr key={j}><td style={s.td}>{p.numero}</td><td style={s.td}>{p.fornecedor}</td><td style={s.td}>{p.emissao}</td><td style={s.td}>{p.entrada}</td><td style={{ ...s.tdNum, fontWeight: 800, color: p.dias >= 15 ? '#b91c1c' : '#b45309' }}>{p.dias}d</td></tr>)}</tbody></table></ScrollX>
+            </>}
+          </>}
         </div>
       ))}
     </>
