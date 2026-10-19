@@ -1579,6 +1579,7 @@ function SpedRepo({ API }) {
         <button style={s.tab(false)} onClick={() => setSub('faltantes')}>🔎 NF não lançada</button>
         <button style={s.tab(false)} onClick={() => setSub('leadtime')}>⏱️ Tempo de entrada</button>
       </div>
+      <LeadResumoCard API={API} onDetalhe={() => setSub('leadtime')} />
       <p style={s.sub}>O arquivo SPED é gerado no Alpha (<b>Fiscal → Exportação Arquivo → SPED Fiscal / Contribuições</b>) e fica disponível aqui pro <b>usuário da contabilidade baixar direto</b> — sem precisar enviar por fora. Competência, tipo e loja são <b>detectados do próprio arquivo</b>; quando a contabilidade já devolveu erros antes, o sistema <b>já aponta sozinho</b> os que reconhece no arquivo novo. Para subir automático quando o Alpha gera, use o vigia de pasta (<code>scripts/sped-watch.js</code>).</p>
 
       <div style={{ ...s.card, marginBottom: 16 }}>
@@ -1932,5 +1933,30 @@ function LeadTime({ API, lojas }) {
         </div>
       ))}
     </>
+  );
+}
+
+// card resumido do BI de tempo de entrada (grupo) p/ o painel da Contabilidade
+function LeadResumoCard({ API, onDetalhe }) {
+  const [d, setD] = useState(null);
+  useEffect(() => { API.get('/contabilidade/espiao/lead-resumo').then(r => setD(r.data)).catch(() => setD({ erro: true })); }, [API]);
+  if (!d || d.erro || !d.total) return null;
+  const pct3 = d.total ? Math.round(d.ate3 / d.total * 100) : 0;
+  const nomeMes = (() => { const [a, m] = d.competencia.split('-').map(Number); return new Date(a, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }); })();
+  return (
+    <div style={{ ...s.card, marginBottom: 16, background: '#f6fbfa', border: '1px solid #cdeae3' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 700 }}>⏱️ Tempo de entrada da mercadoria <span style={{ fontWeight: 400, color: '#64748b', textTransform: 'capitalize' }}>· {nomeMes}</span></div>
+        <button style={{ ...s.btn, padding: '4px 12px', fontSize: 12 }} onClick={onDetalhe}>ver detalhe →</button>
+      </div>
+      <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap' }}>
+        <div><div style={{ fontSize: 11, color: '#94a3b8' }}>tempo médio (XML → estoque)</div><div style={{ fontSize: 24, fontWeight: 800, color: '#0d6b5e' }}>{d.media} <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>dias</span></div></div>
+        <div><div style={{ fontSize: 11, color: '#94a3b8' }}>mediana</div><div style={{ fontSize: 24, fontWeight: 800 }}>{d.mediana} <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>dias</span></div></div>
+        <div><div style={{ fontSize: 11, color: '#94a3b8' }}>entraram em até 3 dias</div><div style={{ fontSize: 24, fontWeight: 800, color: '#16a34a' }}>{pct3}%</div></div>
+        <div><div style={{ fontSize: 11, color: '#94a3b8' }}>demoraram 7 dias+</div><div style={{ fontSize: 24, fontWeight: 800, color: d.lentas7 ? '#b45309' : '#16a34a' }}>{d.lentas7}</div></div>
+        <div><div style={{ fontSize: 11, color: '#94a3b8' }}>entradas no mês</div><div style={{ fontSize: 24, fontWeight: 800 }}>{d.total}</div></div>
+      </div>
+      {!!(d.lojas || []).filter(l => l.n).length && <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 8 }}>Por loja (média): {d.lojas.filter(l => l.n).map((l, i) => <span key={i}>{i ? ' · ' : ''}{l.loja} <b style={{ color: l.media >= 5 ? '#b45309' : '#0d6b5e' }}>{l.media}d</b></span>)}</div>}
+    </div>
   );
 }

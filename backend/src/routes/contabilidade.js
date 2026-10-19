@@ -1203,4 +1203,37 @@ router.post('/sped/:id/cruzar-espiao', exigePerfil(...PERFIS_ESCRITA), async (re
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
+// resumo do BI de tempo de entrada (grupo todo) — p/ painel/dashboard. Só ERP, rápido.
+router.get('/espiao/lead-resumo', async (req, res) => {
+  try {
+    const competencia = /^\d{4}-\d{2}$/.test(req.query.competencia || '') ? req.query.competencia : new Date().toISOString().slice(0, 7);
+    const lojas = lojasEmpresa(req.usuario.empresa_id).filter(l => l.erp_unidadenegocio_id != null);
+    if (!lojas.length) return res.json({ ok: true, competencia, total: 0, lojas: [] });
+    const [ano, mes] = competencia.split('-').map(Number);
+    const ini = `${competencia}-01`, fim = `${competencia}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`;
+    const unis = lojas.map(l => Number(l.erp_unidadenegocio_id));
+    const ph = unis.map((_, i) => '$' + (i + 3)).join(',');
+    const g = await erpQuery(`WITH e AS (
+      SELECT EXTRACT(EPOCH FROM (datahoraentrada - datahoraemissao))/86400.0 dias
+      FROM notafiscal WHERE unidadenegocioid IN (${ph}) AND fornecedorid IS NOT NULL
+        AND datahoraentrada >= $1::date AND datahoraentrada < ($2::date + interval '1 day')
+        AND datahoraemissao IS NOT NULL AND datahoraentrada >= datahoraemissao)
+      SELECT COUNT(*) n, ROUND(AVG(dias)::numeric,2) media, ROUND((percentile_cont(0.5) WITHIN GROUP (ORDER BY dias))::numeric,2) mediana,
+        COUNT(*) FILTER (WHERE dias<3) ate3, COUNT(*) FILTER (WHERE dias>=7) lentas7 FROM e`, [ini, fim, ...unis]);
+    const porUni = await erpQuery(`SELECT unidadenegocioid uni, COUNT(*) n,
+        ROUND(AVG(EXTRACT(EPOCH FROM (datahoraentrada - datahoraemissao))/86400.0)::numeric,2) media
+      FROM notafiscal WHERE unidadenegocioid IN (${ph}) AND fornecedorid IS NOT NULL
+        AND datahoraentrada >= $1::date AND datahoraentrada < ($2::date + interval '1 day')
+        AND datahoraemissao IS NOT NULL AND datahoraentrada >= datahoraemissao
+      GROUP BY unidadenegocioid`, [ini, fim, ...unis]);
+    const map = {}; porUni.forEach(r => { map[r.uni] = { n: Number(r.n) || 0, media: Number(r.media) || 0 }; });
+    const s = g[0] || {};
+    res.json({
+      ok: true, competencia, total: Number(s.n) || 0, media: Number(s.media) || 0, mediana: Number(s.mediana) || 0,
+      ate3: Number(s.ate3) || 0, lentas7: Number(s.lentas7) || 0,
+      lojas: lojas.map(l => ({ loja: l.nome, ...(map[Number(l.erp_unidadenegocio_id)] || { n: 0, media: 0 }) })).sort((a, b) => b.media - a.media)
+    });
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+
 module.exports = router;
