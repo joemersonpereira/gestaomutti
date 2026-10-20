@@ -65,6 +65,8 @@ export default function Fornecedores() {
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, color: '#1e293b' }}>🏭 Fornecedores</h1>
       </div>
       <p style={{ fontSize: 13, color: 'var(--fg-soft,#64748b)', margin: '0 0 16px' }}>Marque quem emite nota fiscal e quem não emite (sócio, compra internacional, imposto). Isso ajusta o BI da Contabilidade (não conta como 'sem nota'). Para <b>contas de consumo</b> (Luz, Água, Telefone…), a NF vem no boleto — marque o motivo e guarde o <b>📎 recibo</b> por mês.</p>
+      <CentralizadoresPanel API={API} onAbrirRecibos={setRecibosDe} />
+      <div style={{ fontSize: 14, fontWeight: 800, color: '#1e293b', margin: '8px 0 10px' }}>Fornecedores (por credor)</div>
       <div style={s.filtros}>
         <div style={s.lab}>Lojas<MultiLojaSelect value={loja} onChange={setLoja} compact /></div>
         <div style={s.lab}>Buscar<input style={{ ...s.inp, minWidth: 220 }} value={busca} onChange={e => setBusca(e.target.value)} placeholder="nome ou CNPJ" /></div>
@@ -110,6 +112,66 @@ export default function Fornecedores() {
       <datalist id="motivosDL">{MOTIVOS.map(m => <option key={m} value={m} />)}</datalist>
       <datalist id="consumoDL">{CONSUMOS.map(m => <option key={m} value={m} />)}</datalist>
       {recibosDe && <RecibosModal API={API} forn={recibosDe} onClose={() => setRecibosDe(null)} onCount={setNRecibos} />}
+    </div>
+  );
+}
+
+// Centralizadores: agrupam credores pela descrição/nome (ex.: FAMPESA LIMPEZA) somando os títulos.
+function CentralizadoresPanel({ API, onAbrirRecibos }) {
+  const [aberto, setAberto] = useState(false);
+  const [lista, setLista] = useState([]);
+  const [edit, setEdit] = useState(null); // {id?, nome, filtros, classif, motivo}
+  const [carreg, setCarreg] = useState(false);
+  const carregar = useCallback(() => {
+    setCarreg(true);
+    API.get('/contabilidade/centralizadores').then(r => setLista(r.data.centralizadores || [])).catch(() => setLista([])).finally(() => setCarreg(false));
+  }, [API]);
+  useEffect(() => { if (aberto) carregar(); }, [aberto, carregar]);
+  const classifDe = c => c.consumo ? 'consumo' : (c.emite_nf === 0 ? 'nao' : 'sim');
+  const salvar = async () => {
+    const e = edit; if (!String(e.nome || '').trim()) { window.alert('Dê um nome ao centralizador.'); return; }
+    const body = { nome: e.nome, filtros: e.filtros, emite_nf: e.classif === 'nao' ? 0 : 1, consumo: e.classif === 'consumo' ? 1 : 0, motivo: e.motivo || null };
+    if (e.id) await API.put(`/contabilidade/centralizadores/${e.id}`, body);
+    else await API.post('/contabilidade/centralizadores', body);
+    setEdit(null); carregar();
+  };
+  const excluir = async (id) => { if (!window.confirm('Excluir este centralizador?')) return; await API.delete(`/contabilidade/centralizadores/${id}`); carregar(); };
+  const rotClassif = c => c.consumo ? '💡 Confere pela pasta' : c.emite_nf === 0 ? '⚠️ Não emite' : '✓ Emite';
+  return (
+    <div style={{ border: '1px solid var(--line,#ddd8cf)', borderRadius: 10, background: '#f8fafc', padding: 12, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => setAberto(a => !a)}>
+        <div style={{ fontSize: 14, fontWeight: 800 }}>🧷 Centralizadores de credor {lista.length ? `(${lista.length})` : ''}</div>
+        <div style={{ fontSize: 12, color: '#64748b' }}>agrupa credores pelo nome (ex.: <b>FAMPESA LIMPEZA</b>) e soma os títulos — inclusive de lojas diferentes</div>
+        <div style={{ marginLeft: 'auto', color: '#94a3b8' }}>{aberto ? '▾' : '▸'}</div>
+      </div>
+      {aberto && <div style={{ marginTop: 10 }}>
+        <button style={{ ...s.btn, marginBottom: 10 }} onClick={() => setEdit({ nome: '', filtros: '', classif: 'consumo', motivo: '' })}>+ novo centralizador</button>
+        {carreg && <div style={{ fontSize: 12, color: '#94a3b8' }}>carregando…</div>}
+        {!carreg && !lista.length && !edit && <div style={{ fontSize: 12.5, color: '#94a3b8' }}>Nenhum centralizador. Crie um (ex.: nome "FAMPESA Serviços", filtros "FAMPESA LIMPEZA" / "FAMPESA ESCRITORIO").</div>}
+        <ScrollX><table style={s.tbl}>
+          <tbody>
+            {lista.map(c => (
+              <tr key={c.id}>
+                <td style={s.td}><b>{c.nome}</b><div style={{ fontSize: 11, color: '#94a3b8' }}>{String(c.filtros || '').split(/\r?\n/).filter(Boolean).join(' · ')}</div></td>
+                <td style={s.td}>{rotClassif(c)}{c.motivo ? <div style={{ fontSize: 11, color: '#94a3b8' }}>{c.motivo}</div> : null}</td>
+                <td style={s.tdNum}>{c.n_credores} credor(es)<div style={{ fontSize: 11, color: '#94a3b8' }}>{c.titulos} títulos</div></td>
+                <td style={s.tdNum}><b>{brl(c.valor)}</b></td>
+                <td style={s.td}><button style={{ ...s.btn, padding: '3px 8px', fontSize: 12, borderColor: (c.consumo && !c.n_recibos) ? '#f59e0b' : '#cbd5e1' }} onClick={() => onAbrirRecibos({ pessoa_id: 'C' + c.id, nome: c.nome, motivo: c.motivo })}>📎 {c.n_recibos || 'fatura'}</button></td>
+                <td style={s.td}><button style={{ ...s.btn, padding: '3px 8px', fontSize: 12 }} onClick={() => setEdit({ id: c.id, nome: c.nome, filtros: c.filtros || '', classif: classifDe(c), motivo: c.motivo || '' })}>editar</button>{' '}
+                  <button style={{ ...s.btn, padding: '3px 8px', fontSize: 12, color: '#b91c1c', borderColor: '#fecaca' }} onClick={() => excluir(c.id)}>excluir</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table></ScrollX>
+        {edit && <div style={{ ...s.filtros, marginTop: 10, alignItems: 'flex-start' }}>
+          <div style={s.lab}>Nome<input style={{ ...s.inp, minWidth: 180 }} value={edit.nome} onChange={e => setEdit({ ...edit, nome: e.target.value })} placeholder="ex.: FAMPESA Serviços" /></div>
+          <div style={s.lab}>Filtros de nome (um por linha)<textarea rows={3} style={{ ...s.inp, minWidth: 220, fontFamily: 'inherit' }} value={edit.filtros} onChange={e => setEdit({ ...edit, filtros: e.target.value })} placeholder={'FAMPESA LIMPEZA\nFAMPESA ESCRITORIO'} /></div>
+          <div style={s.lab}>Classificação<select style={s.inp} value={edit.classif} onChange={e => setEdit({ ...edit, classif: e.target.value })}><option value="sim">✓ Emite</option><option value="nao">⚠️ Não emite</option><option value="consumo">💡 Confere pela pasta</option></select></div>
+          <div style={s.lab}>Motivo/tipo<input list="consumoDL" style={{ ...s.inp, minWidth: 160 }} value={edit.motivo} onChange={e => setEdit({ ...edit, motivo: e.target.value })} placeholder="ex.: Terceirização de serviço" /></div>
+          <button style={{ ...s.btn, background: '#0d6b5e', color: '#fff', borderColor: '#0d6b5e' }} onClick={salvar}>salvar</button>
+          <button style={s.btn} onClick={() => setEdit(null)}>cancelar</button>
+        </div>}
+      </div>}
     </div>
   );
 }

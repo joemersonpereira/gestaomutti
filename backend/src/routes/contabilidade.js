@@ -29,6 +29,16 @@ const { cacheMiddleware: _cacheMw, invalidarMiddleware: _invMw } = require('../l
 router.use(_cacheMw('ctb', { skip: req => req.path.startsWith('/espiao/lead-') }));
 router.use(_invMw('ctb:'));
 
+// Centralizadores: agrupam credores pela descrição/nome (ex.: FAMPESA LIMPEZA) somando os títulos.
+function carregarCentralizadores(empresaId) {
+  return db.prepare('SELECT id, nome, filtros, emite_nf, consumo, motivo FROM contabil_centralizador WHERE empresa_id=?').all(empresaId)
+    .map(c => ({ ...c, filtrosArr: String(c.filtros || '').split(/\r?\n/).map(s => s.trim().toUpperCase()).filter(Boolean) }));
+}
+function matchCentralizador(cents, nome) {
+  const n = String(nome || '').toUpperCase();
+  return cents.find(c => c.filtrosArr.some(f => n.includes(f))) || null;
+}
+
 // Lojas para o seletor (id do app + nome + id do ERP).
 router.get('/lojas', (req, res) => res.json({ lojas: lojasEmpresa(req.usuario.empresa_id) }));
 
@@ -99,6 +109,7 @@ router.get('/bi', async (req, res) => {
     const periodo = { de: req.query.de, ate: req.query.ate };
     // flags por fornecedor: emite_nf / motivo
     const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf, motivo, consumo FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
+    const cents = carregarCentralizadores(emp); // agrupadores por nome (ex.: FAMPESA)
     const planoList = planosSemNf(emp); // planos sem NF por natureza (folha/impostos/sócio…)
     // agregado por loja (total + com NF do ERP)
     const agg = await contab.biNfContaPagar(unis, periodo);
@@ -118,9 +129,11 @@ router.get('/bi', async (req, res) => {
       let v = Number(g.valor) || 0;
       const descAnex = anex[g.loja_erp + '|' + g.pessoa_id]; if (descAnex) { const usa = Math.min(descAnex, v); v -= usa; L[loja].com_valor += usa; anex[g.loja_erp + '|' + g.pessoa_id] -= usa; }
       if (v <= 0) continue;
+      const cent = matchCentralizador(cents, g.fornecedor);
       const f = flags[String(g.pessoa_id)];
       const motPlano = motivoPlano(g.plano, planoList);
-      if (f && (f.emite_nf === 0 || f.consumo === 1)) { const mot = f.motivo || (f.consumo === 1 ? 'Conta de consumo' : 'Não emite'); L[loja].nao_emite_valor += v; porMotivo[mot] = (porMotivo[mot] || 0) + v; }
+      if (cent && (cent.emite_nf === 0 || cent.consumo === 1)) { const mot = cent.motivo || cent.nome; L[loja].nao_emite_valor += v; porMotivo[mot] = (porMotivo[mot] || 0) + v; }
+      else if (f && (f.emite_nf === 0 || f.consumo === 1)) { const mot = f.motivo || (f.consumo === 1 ? 'Conta de consumo' : 'Não emite'); L[loja].nao_emite_valor += v; porMotivo[mot] = (porMotivo[mot] || 0) + v; }
       else if (motPlano) { L[loja].nao_emite_valor += v; porMotivo[motPlano] = (porMotivo[motPlano] || 0) + v; }
       else { L[loja].sem_valor += v; }
     }
@@ -208,14 +221,71 @@ router.get('/fornecedores/:pessoaId/recheck', async (req, res) => {
     const emp = req.usuario.empresa_id;
     const unis = unisEmpresa(emp); // todas as lojas do grupo (a despesa pode estar em lojas diferentes)
     if (!unis.length) return res.json({ ok: true, meses: [], faltando: 0 });
-    const rows = await erpQuery(`SELECT to_char(cp.dataemissao,'YYYY-MM') AS comp, COUNT(*) AS n, COALESCE(SUM(cp.valordocumento),0) AS valor
-      FROM contapagar cp WHERE cp.unidadenegocioid = ANY($1::bigint[]) AND CAST(cp.pessoaid AS text) = $2 AND cp.dataemissao IS NOT NULL
-      GROUP BY 1 ORDER BY 1 DESC LIMIT 36`, [unis, String(req.params.pessoaId)]);
+    const pid = String(req.params.pessoaId);
+    let rows;
+    const mC = pid.match(/^C(\d+)$/); // centralizador → soma os credores que batem no filtro (por nome)
+    if (mC) {
+      const cent = carregarCentralizadores(emp).find(c => String(c.id) === mC[1]);
+      const filtros = cent ? cent.filtrosArr : [];
+      if (!filtros.length) return res.json({ ok: true, meses: [], faltando: 0 });
+      const likes = filtros.map((_, i) => `UPPER(COALESCE(pf.razaosocial,pf.nome)) LIKE $${i + 2}`).join(' OR ');
+      rows = await erpQuery(`SELECT to_char(cp.dataemissao,'YYYY-MM') AS comp, COUNT(*) AS n, COALESCE(SUM(cp.valordocumento),0) AS valor
+        FROM contapagar cp JOIN pessoa pf ON pf.id = cp.pessoaid
+        WHERE cp.unidadenegocioid = ANY($1::bigint[]) AND cp.dataemissao IS NOT NULL AND (${likes})
+        GROUP BY 1 ORDER BY 1 DESC LIMIT 36`, [unis, ...filtros.map(f => `%${f}%`)]);
+    } else {
+      rows = await erpQuery(`SELECT to_char(cp.dataemissao,'YYYY-MM') AS comp, COUNT(*) AS n, COALESCE(SUM(cp.valordocumento),0) AS valor
+        FROM contapagar cp WHERE cp.unidadenegocioid = ANY($1::bigint[]) AND CAST(cp.pessoaid AS text) = $2 AND cp.dataemissao IS NOT NULL
+        GROUP BY 1 ORDER BY 1 DESC LIMIT 36`, [unis, pid]);
+    }
     const comRecibo = new Set(db.prepare(`SELECT DISTINCT competencia FROM contabil_fornecedor_recibo WHERE empresa_id=? AND pessoa_id=?`)
       .all(emp, req.params.pessoaId).map(r => r.competencia));
     const meses = rows.map(r => ({ competencia: r.comp, n: Number(r.n) || 0, valor: Number(r.valor) || 0, tem_recibo: comRecibo.has(r.comp) }));
     res.json({ ok: true, meses, faltando: meses.filter(m => !m.tem_recibo).length });
   } catch (e) { res.status(503).json({ erro: 'ERP indisponível para a rechecagem.', detalhe: String(e.message || e) }); }
+});
+
+// ── Centralizadores de credor (agrupar por descrição/nome e somar os títulos) ────────────────────
+// Lista os centralizadores + quais credores (do ERP) batem no filtro + soma dos títulos + nº de recibos.
+router.get('/centralizadores', async (req, res) => {
+  try {
+    const emp = req.usuario.empresa_id;
+    const cents = carregarCentralizadores(emp);
+    const nRec = {}; db.prepare(`SELECT pessoa_id, COUNT(*) n FROM contabil_fornecedor_recibo WHERE empresa_id=? AND pessoa_id LIKE 'C%' GROUP BY pessoa_id`).all(emp).forEach(r => { nRec[String(r.pessoa_id)] = r.n; });
+    let lista = [];
+    try {
+      const unis = unisEmpresa(emp, req.query.loja);
+      if (unis.length) lista = await contab.fornecedoresContaPagar(unis, { de: req.query.de, ate: req.query.ate });
+    } catch (e) { /* ERP fora: devolve só o cadastro */ }
+    const out = cents.map(c => {
+      const batem = lista.filter(f => matchCentralizador([c], f.nome));
+      return {
+        id: c.id, nome: c.nome, filtros: c.filtros || '', emite_nf: c.emite_nf, consumo: c.consumo, motivo: c.motivo,
+        n_credores: batem.length, titulos: batem.reduce((a, f) => a + (Number(f.n) || 0), 0),
+        valor: Math.round(batem.reduce((a, f) => a + (Number(f.valor) || 0), 0) * 100) / 100,
+        credores: batem.map(f => ({ pessoa_id: f.pessoa_id, nome: f.nome, n: Number(f.n) || 0, valor: Number(f.valor) || 0 })).sort((a, b) => b.valor - a.valor),
+        n_recibos: nRec['C' + c.id] || 0,
+      };
+    });
+    res.json({ centralizadores: out });
+  } catch (e) { res.status(503).json({ erro: 'ERP indisponível.', detalhe: String(e.message || e) }); }
+});
+router.post('/centralizadores', exigePerfil(...PERFIS_ESCRITA), (req, res) => {
+  const b = req.body || {};
+  if (!String(b.nome || '').trim()) return res.status(400).json({ erro: 'Informe o nome do centralizador.' });
+  const info = db.prepare(`INSERT INTO contabil_centralizador (empresa_id,nome,filtros,emite_nf,consumo,motivo) VALUES (?,?,?,?,?,?)`)
+    .run(req.usuario.empresa_id, String(b.nome).trim(), b.filtros || '', b.emite_nf ? 1 : 0, b.consumo ? 1 : 0, b.motivo || null);
+  res.json({ ok: true, id: info.lastInsertRowid });
+});
+router.put('/centralizadores/:id', exigePerfil(...PERFIS_ESCRITA), (req, res) => {
+  const b = req.body || {};
+  db.prepare(`UPDATE contabil_centralizador SET nome=?, filtros=?, emite_nf=?, consumo=?, motivo=? WHERE id=? AND empresa_id=?`)
+    .run(String(b.nome || '').trim(), b.filtros || '', b.emite_nf ? 1 : 0, b.consumo ? 1 : 0, b.motivo || null, req.params.id, req.usuario.empresa_id);
+  res.json({ ok: true });
+});
+router.delete('/centralizadores/:id', exigePerfil(...PERFIS_ESCRITA), (req, res) => {
+  db.prepare(`DELETE FROM contabil_centralizador WHERE id=? AND empresa_id=?`).run(req.params.id, req.usuario.empresa_id);
+  res.json({ ok: true });
 });
 
 // ============================ EXTRATO DE CONTAS ============================
@@ -804,6 +874,7 @@ router.get('/bi/detalhe', async (req, res) => {
       itens = rows.map(g => ({ loja: mapa[Number(g.loja_erp)] || String(g.loja_erp), fornecedor: g.fornecedor, plano: g.plano, n: Number(g.n) || 0, valor: Math.round((Number(g.valor) || 0) * 100) / 100 }));
     } else {
       const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf, motivo, consumo FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
+      const cents = carregarCentralizadores(emp);
       const planoList = planosSemNf(emp);
       const anex = {};
       const locaisIds = db.prepare(`SELECT contapagar_id FROM contabil_nf_contapagar WHERE empresa_id=? AND validade_fiscal=1`).all(emp).map(r => r.contapagar_id);
@@ -814,7 +885,9 @@ router.get('/bi/detalhe', async (req, res) => {
         const k = g.loja_erp + '|' + g.pessoa_id; if (anex[k]) { const usa = Math.min(anex[k], v); v -= usa; anex[k] -= usa; }
         if (v <= 0) continue;
         const f = flags[String(g.pessoa_id)];
-        const mot = (f && (f.emite_nf === 0 || f.consumo === 1)) ? (f.motivo || (f.consumo === 1 ? 'Conta de consumo' : 'Não emite')) : motivoPlano(g.plano, planoList);
+        const cent = matchCentralizador(cents, g.fornecedor);
+        const mot = (cent && (cent.emite_nf === 0 || cent.consumo === 1)) ? (cent.motivo || cent.nome)
+          : (f && (f.emite_nf === 0 || f.consumo === 1)) ? (f.motivo || (f.consumo === 1 ? 'Conta de consumo' : 'Não emite')) : motivoPlano(g.plano, planoList);
         const alvo = bucket === 'perda' ? !mot : (mot === bucket);
         if (!alvo) continue;
         itens.push({ loja: mapa[Number(g.loja_erp)] || String(g.loja_erp), fornecedor: g.fornecedor, plano: g.plano, n: Number(g.n) || 0, valor: Math.round(v * 100) / 100 });
@@ -836,6 +909,7 @@ router.get('/perda', async (req, res) => {
     if (!unis.length) return res.json({ grupos: [], total: 0 });
     const mapa = mapaLojas(emp);
     const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf, consumo FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
+    const cents = carregarCentralizadores(emp);
     const planoList = planosSemNf(emp);
     const periodo = { de: req.query.de, ate: req.query.ate };
     const sem = await contab.semNfPorFornecedor(unis, periodo);
@@ -849,6 +923,8 @@ router.get('/perda', async (req, res) => {
       const k = g.loja_erp + '|' + g.pessoa_id; if (anex[k]) { const usa = Math.min(anex[k], v); v -= usa; anex[k] -= usa; }
       if (v <= 0) continue;
       const f = flags[String(g.pessoa_id)];
+      const cent = matchCentralizador(cents, g.fornecedor);
+      if (cent && (cent.emite_nf === 0 || cent.consumo === 1)) continue; // agrupado num centralizador não-emite/consumo
       if (f && (f.emite_nf === 0 || f.consumo === 1)) continue;  // já marcado não-emite / conta de consumo (fornecedor)
       if (motivoPlano(g.plano, planoList)) continue;   // já classificado (plano)
       grupos.push({ loja: mapa[Number(g.loja_erp)] || String(g.loja_erp), pessoa_id: g.pessoa_id, fornecedor: g.fornecedor, plano: g.plano, n: Number(g.n) || 0, valor: Math.round(v * 100) / 100 });
