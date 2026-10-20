@@ -2,6 +2,20 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import MultiLojaSelect from '../components/MultiLojaSelect';
 import ScrollX from '../components/ScrollX';
+import { useOrdenavel, ThOrd } from '../components/Ordenavel';
+
+// colunas ordenáveis da tabela de lançamentos manuais (clicar no cabeçalho ordena; Valor = maior↔menor)
+const COLS_MANUAIS = [
+  { k: 'datahora', label: 'Data', tipo: 'txt', get: l => l.datahora || '' },
+  { k: 'loja', label: 'Loja', tipo: 'txt', get: l => l.loja || '' },
+  { k: 'conta', label: 'Conta', tipo: 'txt', get: l => l.conta || '' },
+  { k: 'tipo', label: 'Tipo', tipo: 'txt', get: l => (l.credito ? 'Entrada' : 'Saída') },
+  { k: 'valor', label: 'Valor', tipo: 'num', right: true, get: l => Number(l.valor) || 0 },
+  { k: 'plano_contas', label: 'Plano de contas', tipo: 'txt', get: l => l.plano_contas || '' },
+  { k: 'numerodocumento', label: 'Documento', tipo: 'txt', get: l => l.numerodocumento || '' },
+  { k: 'descricao', label: 'Descrição', tipo: 'txt', get: l => l.descricao || '' },
+  { k: 'usuario', label: 'Usuário', tipo: 'txt', get: l => l.usuario || '' },
+];
 
 // Módulo Auditoria.
 // (A) Lançamentos manuais na conta corrente (Lançamento de Entrada/Saída) — o que foi digitado à mão
@@ -146,6 +160,7 @@ function Manuais({ API }) {
 
   const totE = rows.filter(r => r.credito).reduce((a, r) => a + Number(r.valor || 0), 0);
   const totS = rows.filter(r => !r.credito).reduce((a, r) => a + Number(r.valor || 0), 0);
+  const { linhas, ordem, clicar, seta } = useOrdenavel(rows, COLS_MANUAIS, { col: 'datahora', dir: 'desc' });
 
   return (
     <>
@@ -180,12 +195,9 @@ function Manuais({ API }) {
 
       <ScrollX>
         <table style={s.tbl}>
-          <thead><tr>
-            <th style={s.th}>Data</th><th style={s.th}>Loja</th><th style={s.th}>Conta</th><th style={s.th}>Tipo</th>
-            <th style={{ ...s.th, textAlign: 'right' }}>Valor</th><th style={s.th}>Plano de contas</th><th style={s.th}>Documento</th><th style={s.th}>Descrição</th><th style={s.th}>Usuário</th>
-          </tr></thead>
+          <thead><tr>{COLS_MANUAIS.map(c => <ThOrd key={c.k} c={c} ordem={ordem} clicar={clicar} seta={seta} base={s.th} />)}</tr></thead>
           <tbody>
-            {rows.map((l, i) => (
+            {linhas.map((l, i) => (
               <tr key={i}>
                 <td style={s.td}>{l.datahora}</td>
                 <td style={s.td}>{l.loja}</td>
