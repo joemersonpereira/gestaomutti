@@ -14,6 +14,10 @@ const GESTAO = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria', 
 // → aguardando (liberar veiculação) → vigente (em veiculação) → encerrado. 'pedido' = entrada do portal (cai em Negociação).
 const STATUS = ['rascunho', 'pedido', 'negociacao', 'confirmado', 'briefing', 'aguardando', 'vigente', 'encerrado', 'cancelado'];
 router.use(auth);
+// cache de ERP por rota (sell-out e lookups /erp/*). Aplicado só nessas rotas (o router tem portal
+// público + GETs com exigePerfil, então router-wide não é seguro aqui). Sell-out do dia atrasa até 1h.
+const { cacheMiddleware: _tradeCacheMw } = require('../lib/erpCache');
+const tradeCache = _tradeCacheMw('trade');
 
 // ── Grupos econômicos (agrupar fornecedores) ────────────────────────────────
 router.get('/grupos-economicos', (req, res) => {
@@ -474,7 +478,7 @@ router.get('/parcelas/:pid/comprovante', (req, res) => {
   res.set('Content-Type', r.comprovante_mime || 'application/octet-stream'); res.send(Buffer.from(String(r.comprovante_foto).replace(/^data:[^,]+,/, ''), 'base64'));
 });
 // busca de NF do fornecedor no Alpha (p/ a bonificação) — best effort
-router.get('/erp/notas', async (req, res) => {
+router.get('/erp/notas', tradeCache, async (req, res) => {
   if (!habilitado()) return res.json({ ok: true, notas: [] });
   const fid = Number(req.query.fornecedor_id) || 0;
   if (!fid) return res.json({ ok: true, notas: [] });
@@ -489,7 +493,7 @@ router.get('/erp/notas', async (req, res) => {
 });
 
 // ── Sell-out do ERP: vendas dos EANs monitorados no período do contrato × período anterior ──
-router.get('/vendas/:id/sellout', async (req, res) => {
+router.get('/vendas/:id/sellout', tradeCache, async (req, res) => {
   const v = db.prepare('SELECT * FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, req.usuario.empresa_id);
   if (!v) return res.status(404).json({ erro: 'Venda não encontrada.' });
   const eans = v.eans_monitorados ? JSON.parse(v.eans_monitorados) : [];
@@ -520,14 +524,14 @@ router.get('/vendas/:id/sellout', async (req, res) => {
 });
 
 // ── ERP: fornecedor + produto (para EAN monitorado) + lojas ──────────────
-router.get('/erp/fornecedores', async (req, res) => {
+router.get('/erp/fornecedores', tradeCache, async (req, res) => {
   if (!habilitado() || (req.query.q || '').length < 2) return res.json({ fornecedores: [] });
   try {
     const r = await erpQuery(`SELECT f.id, p.nome FROM fornecedor f JOIN pessoa p ON p.id=f.pessoaid WHERE f.status='A' AND p.nome ILIKE $1 ORDER BY p.nome LIMIT 20`, [`%${req.query.q}%`]);
     res.json({ fornecedores: r.map(x => ({ id: String(x.id), nome: x.nome })) });
   } catch (e) { res.status(502).json({ erro: e.message }); }
 });
-router.get('/erp/produtos', async (req, res) => {
+router.get('/erp/produtos', tradeCache, async (req, res) => {
   if (!habilitado() || (req.query.q || '').length < 2) return res.json({ produtos: [] });
   try {
     const r = await erpQuery(`SELECT DISTINCT ON (p.id) p.id, p.descricao nome, e.codigobarras ean FROM produto p JOIN embalagem e ON e.produtoid=p.id
@@ -536,7 +540,7 @@ router.get('/erp/produtos', async (req, res) => {
   } catch (e) { res.status(502).json({ erro: e.message }); }
 });
 // escopo do Alpha p/ a ação do calendário (produto/fornecedor/laboratório/classificação/caderno/pessoa/grupos)
-router.get('/erp/escopo', async (req, res) => {
+router.get('/erp/escopo', tradeCache, async (req, res) => {
   const tipo = req.query.tipo, q = (req.query.q || '').trim();
   if (!habilitado()) return res.json({ itens: [] });
   if (q.length < 2 && tipo !== 'caderno') return res.json({ itens: [] });
@@ -557,7 +561,7 @@ router.get('/erp/escopo', async (req, res) => {
 
 // ── CRM PROATIVO DE TRADE (fase 1) — classificação do Alpha → MARCAS → contato da marca ──────────
 // marcas (fabricantes) que têm produto naquela classificação + se já têm contato cadastrado no Mutti
-router.get('/erp/classificacao/:id/marcas', async (req, res) => {
+router.get('/erp/classificacao/:id/marcas', tradeCache, async (req, res) => {
   const emp = req.usuario.empresa_id;
   if (!habilitado()) return res.json({ marcas: [] });
   let rows = [];
