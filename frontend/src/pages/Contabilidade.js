@@ -9,6 +9,8 @@ import ScrollX from '../components/ScrollX';
 // ERP SOMENTE LEITURA.
 
 const brl = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+// hora do cache (gravado em UTC "YYYY-MM-DD HH:MM:SS") → hora local pt-BR
+const fmtCacheHora = at => { try { return new Date(String(at).replace(' ', 'T') + 'Z').toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return at; } };
 const hoje = new Date();
 const iniAno = `${hoje.getFullYear()}-01-01`;
 const iniMes = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-01`;
@@ -1893,10 +1895,10 @@ function LeadTime({ API, lojas }) {
   const [carregando, setCarregando] = useState(false);
   const [res, setRes] = useState(null); const [erro, setErro] = useState('');
   const [drill, setDrill] = useState(null); // {key, lojaId, label, loading, rows, erro}
-  const conferir = async () => {
+  const conferir = async (forcar) => {
     setCarregando(true); setErro(''); setRes(null); setDrill(null);
     try {
-      const params = { competencia }; if (loja) params.loja = loja;
+      const params = { competencia }; if (loja) params.loja = loja; if (forcar) params.forcar = '1';
       const r = await API.get('/contabilidade/espiao/lead-estoque', { params });
       setRes(r.data);
     } catch (e) { setErro(e.response && e.response.data && e.response.data.erro || 'erro.'); }
@@ -1923,6 +1925,10 @@ function LeadTime({ API, lojas }) {
         <button style={{ ...s.btn, background: '#0d6b5e', color: '#fff', borderColor: '#0d6b5e' }} onClick={conferir} disabled={carregando}>{carregando ? 'analisando…' : '⏱️ analisar tempo de entrada'}</button>
       </div>
       {erro && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13 }}>⚠️ {erro}</div>}
+      {res && res.cache && <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 11.5, color: '#64748b', margin: '-4px 0 10px' }}>
+        <span>{res.cache.deCache ? '📦 do cache' : '🔄 recém-calculado'} · atualizado {fmtCacheHora(res.cache.atualizado_em)}</span>
+        <button style={{ ...s.btn, padding: '2px 10px', fontSize: 11 }} onClick={() => conferir(true)} disabled={carregando}>🔄 atualizar agora</button>
+      </div>}
       {res && (res.lojas || []).map((L, i) => (
         <div key={i} style={{ ...s.card, marginBottom: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{L.loja}</div>
@@ -1971,7 +1977,12 @@ function LeadTime({ API, lojas }) {
 // card resumido do BI de tempo de entrada (grupo) p/ o painel da Contabilidade
 function LeadResumoCard({ API, onDetalhe }) {
   const [d, setD] = useState(null);
-  useEffect(() => { API.get('/contabilidade/espiao/lead-resumo').then(r => setD(r.data)).catch(() => setD({ erro: true })); }, [API]);
+  const [atualizando, setAtualizando] = useState(false);
+  const carregar = useCallback((forcar) => {
+    if (forcar) setAtualizando(true);
+    API.get('/contabilidade/espiao/lead-resumo' + (forcar ? '?forcar=1' : '')).then(r => setD(r.data)).catch(() => setD({ erro: true })).finally(() => setAtualizando(false));
+  }, [API]);
+  useEffect(() => { carregar(false); }, [carregar]);
   if (!d || d.erro || !d.total) return null;
   const pct3 = d.total ? Math.round(d.ate3 / d.total * 100) : 0;
   const nomeMes = (() => { const [a, m] = d.competencia.split('-').map(Number); return new Date(a, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }); })();
@@ -1979,7 +1990,11 @@ function LeadResumoCard({ API, onDetalhe }) {
     <div style={{ ...s.card, marginBottom: 16, background: '#f6fbfa', border: '1px solid #cdeae3' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 700 }}>⏱️ Tempo de entrada da mercadoria <span style={{ fontWeight: 400, color: '#64748b', textTransform: 'capitalize' }}>· {nomeMes}</span></div>
-        <button style={{ ...s.btn, padding: '4px 12px', fontSize: 12 }} onClick={onDetalhe}>ver detalhe →</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {d.cache && <span style={{ fontSize: 11, color: '#94a3b8' }}>atualizado {fmtCacheHora(d.cache.atualizado_em)}</span>}
+          <button style={{ ...s.btn, padding: '4px 10px', fontSize: 12 }} onClick={() => carregar(true)} disabled={atualizando} title="Recalcular agora (buscar no Alpha)">{atualizando ? '…' : '🔄'}</button>
+          <button style={{ ...s.btn, padding: '4px 12px', fontSize: 12 }} onClick={onDetalhe}>ver detalhe →</button>
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap' }}>
         <div><div style={{ fontSize: 11, color: '#94a3b8' }}>tempo médio (XML → estoque)</div><div style={{ fontSize: 24, fontWeight: 800, color: '#0d6b5e' }}>{d.media} <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>dias</span></div></div>

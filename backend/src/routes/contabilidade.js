@@ -1113,6 +1113,30 @@ router.get('/espiao/xml/:chave', async (req, res) => {
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
+// ── cache dos relatórios que leem o Alpha (migração 299) ─────────────────────────────────────────
+// Mês fechado guarda pra sempre; mês atual vale 1h (recalcula sozinho) ou no botão 🔄 (?forcar=1).
+const BI_CACHE_TTL_MIN = 60;
+const mesCorrente = () => new Date().toISOString().slice(0, 7);
+const agoraUtc = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
+function biCacheLer(empresaId, chave, competencia, forcar) {
+  if (forcar) return null;
+  const row = db.prepare('SELECT payload, atualizado_em FROM contabil_bi_cache WHERE empresa_id=? AND chave=?').get(empresaId, chave);
+  if (!row) return null;
+  // mês atual (ou futuro): só vale se foi atualizado nos últimos BI_CACHE_TTL_MIN minutos
+  if (competencia >= mesCorrente()) {
+    const idadeMin = (Date.now() - new Date(row.atualizado_em.replace(' ', 'T') + 'Z').getTime()) / 60000;
+    if (!(idadeMin <= BI_CACHE_TTL_MIN)) return null;
+  }
+  try { return { payload: JSON.parse(row.payload), atualizado_em: row.atualizado_em }; } catch { return null; }
+}
+function biCacheGravar(empresaId, chave, competencia, payload) {
+  const at = agoraUtc();
+  db.prepare(`INSERT INTO contabil_bi_cache (empresa_id, chave, competencia, payload, atualizado_em) VALUES (?,?,?,?,?)
+    ON CONFLICT(empresa_id, chave) DO UPDATE SET payload=excluded.payload, competencia=excluded.competencia, atualizado_em=excluded.atualizado_em`)
+    .run(empresaId, chave, competencia, JSON.stringify(payload), at);
+  return at;
+}
+
 // ── BI: lead time entre a EMISSÃO do XML e a ENTRADA efetiva no estoque (Alpha) ──────────────────
 router.get('/espiao/lead-estoque', async (req, res) => {
   try {
@@ -1121,6 +1145,9 @@ router.get('/espiao/lead-estoque', async (req, res) => {
     const loja = req.query.loja;
     const lojas = lojasEmpresa(req.usuario.empresa_id).filter(l => (!loja || l.id === loja) && l.erp_unidadenegocio_id != null);
     if (!lojas.length) return res.status(400).json({ erro: 'Escolha uma loja válida.' });
+    const chave = `lead-estoque|${competencia}|${loja || 'todas'}`;
+    const cache = biCacheLer(req.usuario.empresa_id, chave, competencia, req.query.forcar === '1');
+    if (cache) return res.json({ ...cache.payload, cache: { atualizado_em: cache.atualizado_em, deCache: true } });
     const [ano, mes] = competencia.split('-').map(Number);
     const ini = `${competencia}-01`, fim = `${competencia}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`;
     const saida = [];
@@ -1152,7 +1179,9 @@ router.get('/espiao/lead-estoque', async (req, res) => {
         pior: Number(s.pior) || 0, piores
       });
     }
-    res.json({ ok: true, competencia, lojas: saida });
+    const payload = { ok: true, competencia, lojas: saida };
+    const at = biCacheGravar(req.usuario.empresa_id, chave, competencia, payload);
+    res.json({ ...payload, cache: { atualizado_em: at, deCache: false } });
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
@@ -1236,6 +1265,9 @@ router.get('/espiao/lead-resumo', async (req, res) => {
     const competencia = /^\d{4}-\d{2}$/.test(req.query.competencia || '') ? req.query.competencia : new Date().toISOString().slice(0, 7);
     const lojas = lojasEmpresa(req.usuario.empresa_id).filter(l => l.erp_unidadenegocio_id != null);
     if (!lojas.length) return res.json({ ok: true, competencia, total: 0, lojas: [] });
+    const chave = `lead-resumo|${competencia}`;
+    const cache = biCacheLer(req.usuario.empresa_id, chave, competencia, req.query.forcar === '1');
+    if (cache) return res.json({ ...cache.payload, cache: { atualizado_em: cache.atualizado_em, deCache: true } });
     const [ano, mes] = competencia.split('-').map(Number);
     const ini = `${competencia}-01`, fim = `${competencia}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`;
     const unis = lojas.map(l => Number(l.erp_unidadenegocio_id));
@@ -1255,11 +1287,13 @@ router.get('/espiao/lead-resumo', async (req, res) => {
       GROUP BY unidadenegocioid`, [ini, fim, ...unis]);
     const map = {}; porUni.forEach(r => { map[r.uni] = { n: Number(r.n) || 0, media: Number(r.media) || 0 }; });
     const s = g[0] || {};
-    res.json({
+    const payload = {
       ok: true, competencia, total: Number(s.n) || 0, media: Number(s.media) || 0, mediana: Number(s.mediana) || 0,
       ate3: Number(s.ate3) || 0, lentas7: Number(s.lentas7) || 0,
       lojas: lojas.map(l => ({ loja: l.nome, ...(map[Number(l.erp_unidadenegocio_id)] || { n: 0, media: 0 }) })).sort((a, b) => b.media - a.media)
-    });
+    };
+    const at = biCacheGravar(req.usuario.empresa_id, chave, competencia, payload);
+    res.json({ ...payload, cache: { atualizado_em: at, deCache: false } });
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
