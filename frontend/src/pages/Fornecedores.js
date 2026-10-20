@@ -7,9 +7,9 @@ import ScrollX from '../components/ScrollX';
 // Quem não emite (sócio/retirada, compra internacional, imposto/DARF, pessoa física) sai da conta de
 // "sem nota (perda fiscal)" no BI da Contabilidade e aparece em faixa própria.
 const brl = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const MOTIVOS = ['Conta de consumo — Luz', 'Conta de consumo — Água', 'Conta de consumo — Telefone/Internet', 'Conta de consumo — Gás', 'Folha de pagamento', 'Sócio (retirada)', 'Imposto/DARF', 'Banco/Tarifas', 'Recarga', 'Fórmula', 'Aluguel', 'Compra internacional', 'Pessoa física', 'Empréstimo/financiamento', 'Outro'];
-// conta de consumo (Luz/Água/Telefone…): a NF vem no boleto → exige guardar o recibo/comprovante.
-const isConsumo = m => /conta de consumo/i.test(m || '');
+const MOTIVOS = ['Folha de pagamento', 'Sócio (retirada)', 'Imposto/DARF', 'Banco/Tarifas', 'Recarga', 'Fórmula', 'Aluguel', 'Compra internacional', 'Pessoa física', 'Empréstimo/financiamento', 'Outro'];
+// conta de consumo (Luz/Água/Telefone…): EMITE nota, mas o ERP não vincula — confere pela pasta (recibo).
+const CONSUMOS = ['Luz / Energia', 'Água / Esgoto', 'Telefone / Internet', 'Gás', 'TV / Streaming'];
 const s = {
   wrap: { padding: 20, maxWidth: 1180, margin: '0 auto' },
   filtros: { display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14, background: 'var(--surface,#fff)', border: '1px solid var(--line,#ddd8cf)', borderRadius: 10, padding: 12 },
@@ -40,8 +40,10 @@ export default function Fornecedores() {
   useEffect(() => { carregar(); }, [carregar]);
 
   const salvar = (f, campos) => {
-    const body = { nome: f.nome, cnpj: f.cnpj, emite_nf: campos.emite_nf ?? f.emite_nf, motivo: campos.motivo ?? f.motivo };
-    if (campos.emite_nf === 1) body.motivo = null;
+    const emite_nf = campos.emite_nf ?? f.emite_nf;
+    const consumo = campos.consumo ?? f.consumo ?? 0;
+    const body = { nome: f.nome, cnpj: f.cnpj, emite_nf, consumo, motivo: campos.motivo ?? f.motivo };
+    if (emite_nf === 1 && !consumo) body.motivo = null; // "emite" normal não tem motivo; consumo guarda qual utilitária
     API.put(`/contabilidade/fornecedores/${f.pessoa_id}`, body).then(() => {
       setRows(rs => rs.map(x => x.pessoa_id === f.pessoa_id ? { ...x, ...body } : x));
     }).catch(e => window.alert(e.response?.data?.erro || 'Erro ao salvar.'));
@@ -76,23 +78,23 @@ export default function Fornecedores() {
             {vis.map(f => {
               const pct = f.n > 0 ? Math.round(f.com_n / f.n * 100) : null;
               return (
-                <tr key={f.pessoa_id} style={{ background: f.emite_nf === 0 ? '#fff7ed' : undefined }}>
+                <tr key={f.pessoa_id} style={{ background: f.consumo ? '#eff6ff' : f.emite_nf === 0 ? '#fff7ed' : undefined }}>
                   <td style={s.td}>{f.nome || '—'}</td>
                   <td style={s.td}>{f.cnpj || '—'}</td>
                   <td style={s.tdNum}>{f.n}</td>
                   <td style={s.tdNum}>{brl(f.valor)}</td>
-                  <td style={s.tdNum}>{pct != null ? pct + '%' : '—'}</td>
+                  <td style={s.tdNum}>{f.consumo ? <span title="emite, mas confere pela pasta" style={{ color: '#2563eb' }}>via pasta</span> : (pct != null ? pct + '%' : '—')}</td>
                   <td style={s.td}>
-                    <select value={f.emite_nf === 0 ? 'nao' : 'sim'} onChange={e => salvar(f, { emite_nf: e.target.value === 'sim' ? 1 : 0 })} style={{ ...s.inp, padding: '4px 6px' }}>
-                      <option value="sim">✓ Emite</option><option value="nao">⚠️ Não emite</option>
+                    <select value={f.consumo ? 'consumo' : (f.emite_nf === 0 ? 'nao' : 'sim')} onChange={e => { const v = e.target.value; salvar(f, v === 'consumo' ? { emite_nf: 1, consumo: 1 } : v === 'nao' ? { emite_nf: 0, consumo: 0 } : { emite_nf: 1, consumo: 0 }); }} style={{ ...s.inp, padding: '4px 6px' }}>
+                      <option value="sim">✓ Emite</option><option value="nao">⚠️ Não emite</option><option value="consumo">💡 Conta de consumo</option>
                     </select>
                   </td>
-                  <td style={s.td}>{f.emite_nf === 0
-                    ? <input list="motivosDL" defaultValue={f.motivo || ''} placeholder="escolher ou digitar…" style={{ ...s.inp, padding: '4px 6px', minWidth: 190 }} onBlur={e => { if ((e.target.value || '') !== (f.motivo || '')) salvar(f, { motivo: e.target.value }); }} />
+                  <td style={s.td}>{(f.emite_nf === 0 || f.consumo)
+                    ? <input list={f.consumo ? 'consumoDL' : 'motivosDL'} defaultValue={f.motivo || ''} placeholder={f.consumo ? 'Luz / Água / Telefone…' : 'escolher ou digitar…'} style={{ ...s.inp, padding: '4px 6px', minWidth: 190 }} onBlur={e => { if ((e.target.value || '') !== (f.motivo || '')) salvar(f, { motivo: e.target.value }); }} />
                     : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
-                  <td style={s.td}>{f.emite_nf === 0
-                    ? <button style={{ ...s.btn, padding: '4px 8px', fontSize: 12, borderColor: (isConsumo(f.motivo) && !f.n_recibos) ? '#f59e0b' : '#cbd5e1', color: (isConsumo(f.motivo) && !f.n_recibos) ? '#b45309' : '#334155' }}
-                        onClick={() => setRecibosDe(f)} title="Recibos/boletos deste fornecedor">📎 {f.n_recibos ? f.n_recibos : (isConsumo(f.motivo) ? 'pendente' : 'anexar')}</button>
+                  <td style={s.td}>{(f.emite_nf === 0 || f.consumo)
+                    ? <button style={{ ...s.btn, padding: '4px 8px', fontSize: 12, borderColor: (f.consumo && !f.n_recibos) ? '#f59e0b' : '#cbd5e1', color: (f.consumo && !f.n_recibos) ? '#b45309' : '#334155' }}
+                        onClick={() => setRecibosDe(f)} title="Recibos/boletos + rechecagem na pasta">📎 {f.n_recibos ? f.n_recibos : (f.consumo ? 'pendente' : 'anexar')}</button>
                     : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
                 </tr>
               );
@@ -103,6 +105,7 @@ export default function Fornecedores() {
         </table>
       </ScrollX>
       <datalist id="motivosDL">{MOTIVOS.map(m => <option key={m} value={m} />)}</datalist>
+      <datalist id="consumoDL">{CONSUMOS.map(m => <option key={m} value={m} />)}</datalist>
       {recibosDe && <RecibosModal API={API} forn={recibosDe} onClose={() => setRecibosDe(null)} onCount={setNRecibos} />}
     </div>
   );
@@ -116,10 +119,17 @@ function RecibosModal({ API, forn, onClose, onCount }) {
   const [arquivo, setArquivo] = useState(null);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState('');
+  const [rech, setRech] = useState(null); const [rechLoad, setRechLoad] = useState(false);
   const carregar = useCallback(() => {
     API.get(`/contabilidade/fornecedores/${forn.pessoa_id}/recibos`).then(r => { setLista(r.data.recibos || []); onCount(forn.pessoa_id, (r.data.recibos || []).length); }).catch(() => setLista([]));
   }, [API, forn.pessoa_id, onCount]);
   useEffect(() => { carregar(); }, [carregar]);
+  const rechecar = async () => {
+    setRechLoad(true); setRech(null);
+    try { const r = await API.get(`/contabilidade/fornecedores/${forn.pessoa_id}/recheck`); setRech(r.data); }
+    catch (e) { setRech({ erro: e.response?.data?.erro || 'Falha na rechecagem.' }); }
+    finally { setRechLoad(false); }
+  };
   const enviar = async () => {
     if (!arquivo) { setErro('Escolha o arquivo do recibo (PDF ou foto).'); return; }
     setEnviando(true); setErro('');
@@ -153,6 +163,25 @@ function RecibosModal({ API, forn, onClose, onCount }) {
           <button style={{ ...s.btn, background: '#0d6b5e', color: '#fff', borderColor: '#0d6b5e' }} onClick={enviar} disabled={enviando}>{enviando ? 'enviando…' : '⬆️ anexar recibo'}</button>
         </div>
         {erro && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: 10, marginBottom: 10, fontSize: 13 }}>⚠️ {erro}</div>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+          <button style={{ ...s.btn, padding: '5px 12px', fontSize: 12 }} onClick={rechecar} disabled={rechLoad} title="Confere no ERP os meses com despesa deste fornecedor e aponta quais ainda não têm recibo na pasta">{rechLoad ? 'rechecando…' : '🔁 rechecar na pasta'}</button>
+          {rech && !rech.erro && <span style={{ fontSize: 12, color: rech.faltando ? '#b45309' : '#15803d', fontWeight: 600 }}>{rech.faltando ? `⚠️ ${rech.faltando} mês(es) com despesa sem recibo` : '✅ todos os meses com despesa têm recibo'}</span>}
+          {rech && rech.erro && <span style={{ fontSize: 12, color: '#b91c1c' }}>⚠️ {rech.erro}</span>}
+        </div>
+        {rech && !rech.erro && !!(rech.meses || []).length && (
+          <table style={{ ...s.tbl, marginBottom: 12 }}>
+            <thead><tr>{['Mês da despesa', 'Títulos', 'Valor', 'Recibo na pasta?'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+            <tbody>{rech.meses.map((m, i) => (
+              <tr key={i} style={m.tem_recibo ? undefined : { background: '#fffbeb' }}>
+                <td style={s.td}>{(() => { const [a, mm] = m.competencia.split('-'); return `${mm}/${a}`; })()}</td>
+                <td style={s.tdNum}>{m.n}</td>
+                <td style={s.tdNum}>{brl(m.valor)}</td>
+                <td style={s.td}>{m.tem_recibo ? <span style={{ color: '#15803d', fontWeight: 600 }}>✅ sim</span> : <span style={{ color: '#b45309', fontWeight: 600 }}>⚠️ falta</span>}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', margin: '4px 0 6px' }}>Recibos anexados</div>
         <table style={s.tbl}>
           <thead><tr>{['Competência', 'Arquivo', 'Enviado', ''].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
           <tbody>

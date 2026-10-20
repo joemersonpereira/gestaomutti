@@ -93,7 +93,7 @@ router.get('/bi', async (req, res) => {
     const mapa = mapaLojas(emp);
     const periodo = { de: req.query.de, ate: req.query.ate };
     // flags por fornecedor: emite_nf / motivo
-    const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf, motivo FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
+    const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf, motivo, consumo FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
     const planoList = planosSemNf(emp); // planos sem NF por natureza (folha/impostos/sócio…)
     // agregado por loja (total + com NF do ERP)
     const agg = await contab.biNfContaPagar(unis, periodo);
@@ -115,7 +115,7 @@ router.get('/bi', async (req, res) => {
       if (v <= 0) continue;
       const f = flags[String(g.pessoa_id)];
       const motPlano = motivoPlano(g.plano, planoList);
-      if (f && f.emite_nf === 0) { const mot = f.motivo || 'Não emite'; L[loja].nao_emite_valor += v; porMotivo[mot] = (porMotivo[mot] || 0) + v; }
+      if (f && (f.emite_nf === 0 || f.consumo === 1)) { const mot = f.motivo || (f.consumo === 1 ? 'Conta de consumo' : 'Não emite'); L[loja].nao_emite_valor += v; porMotivo[mot] = (porMotivo[mot] || 0) + v; }
       else if (motPlano) { L[loja].nao_emite_valor += v; porMotivo[motPlano] = (porMotivo[motPlano] || 0) + v; }
       else { L[loja].sem_valor += v; }
     }
@@ -153,16 +153,16 @@ router.get('/fornecedores', async (req, res) => {
     const unis = unisEmpresa(emp, req.query.loja);
     if (!unis.length) return res.json({ fornecedores: [] });
     const lista = await contab.fornecedoresContaPagar(unis, { de: req.query.de, ate: req.query.ate });
-    const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf, motivo FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
+    const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf, motivo, consumo FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
     const nRec = {}; db.prepare(`SELECT pessoa_id, COUNT(*) n FROM contabil_fornecedor_recibo WHERE empresa_id=? GROUP BY pessoa_id`).all(emp).forEach(r => { nRec[String(r.pessoa_id)] = r.n; });
-    res.json({ fornecedores: lista.map(f => ({ ...f, emite_nf: flags[String(f.pessoa_id)] ? flags[String(f.pessoa_id)].emite_nf : 1, motivo: flags[String(f.pessoa_id)] ? flags[String(f.pessoa_id)].motivo : null, n_recibos: nRec[String(f.pessoa_id)] || 0 })) });
+    res.json({ fornecedores: lista.map(f => { const fl = flags[String(f.pessoa_id)]; return { ...f, emite_nf: fl ? fl.emite_nf : 1, motivo: fl ? fl.motivo : null, consumo: fl ? (fl.consumo || 0) : 0, n_recibos: nRec[String(f.pessoa_id)] || 0 }; }) });
   } catch (e) { res.status(503).json({ erro: 'ERP indisponível.', detalhe: String(e.message || e) }); }
 });
 router.put('/fornecedores/:pessoaId', exigePerfil(...PERFIS_ESCRITA), (req, res) => {
   const b = req.body || {};
-  db.prepare(`INSERT INTO contabil_fornecedor (empresa_id,pessoa_id,nome,cnpj,emite_nf,motivo,atualizado_em) VALUES (?,?,?,?,?,?,datetime('now'))
-    ON CONFLICT(empresa_id,pessoa_id) DO UPDATE SET nome=excluded.nome, cnpj=excluded.cnpj, emite_nf=excluded.emite_nf, motivo=excluded.motivo, atualizado_em=datetime('now')`)
-    .run(req.usuario.empresa_id, req.params.pessoaId, b.nome || null, b.cnpj || null, b.emite_nf ? 1 : 0, b.motivo || null);
+  db.prepare(`INSERT INTO contabil_fornecedor (empresa_id,pessoa_id,nome,cnpj,emite_nf,motivo,consumo,atualizado_em) VALUES (?,?,?,?,?,?,?,datetime('now'))
+    ON CONFLICT(empresa_id,pessoa_id) DO UPDATE SET nome=excluded.nome, cnpj=excluded.cnpj, emite_nf=excluded.emite_nf, motivo=excluded.motivo, consumo=excluded.consumo, atualizado_em=datetime('now')`)
+    .run(req.usuario.empresa_id, req.params.pessoaId, b.nome || null, b.cnpj || null, b.emite_nf ? 1 : 0, b.motivo || null, b.consumo ? 1 : 0);
   res.json({ ok: true });
 });
 
@@ -196,6 +196,22 @@ router.delete('/fornecedores/recibo/:id', exigePerfil(...PERFIS_ESCRITA), (req, 
   db.prepare(`DELETE FROM contabil_fornecedor_recibo WHERE id=? AND empresa_id=?`).run(req.params.id, req.usuario.empresa_id);
   res.json({ ok: true });
 });
+// RECHECAGEM: confere, mês a mês, se a despesa desse fornecedor (contas a pagar do ERP) tem o recibo na pasta.
+// É pra conta de consumo (Luz/Água/Telefone) que emite mas o ERP não vincula a NF — a prova é o recibo anexado.
+router.get('/fornecedores/:pessoaId/recheck', async (req, res) => {
+  try {
+    const emp = req.usuario.empresa_id;
+    const unis = unisEmpresa(emp); // todas as lojas do grupo (a despesa pode estar em lojas diferentes)
+    if (!unis.length) return res.json({ ok: true, meses: [], faltando: 0 });
+    const rows = await erpQuery(`SELECT to_char(cp.dataemissao,'YYYY-MM') AS comp, COUNT(*) AS n, COALESCE(SUM(cp.valordocumento),0) AS valor
+      FROM contapagar cp WHERE cp.unidadenegocioid = ANY($1::bigint[]) AND CAST(cp.pessoaid AS text) = $2 AND cp.dataemissao IS NOT NULL
+      GROUP BY 1 ORDER BY 1 DESC LIMIT 36`, [unis, String(req.params.pessoaId)]);
+    const comRecibo = new Set(db.prepare(`SELECT DISTINCT competencia FROM contabil_fornecedor_recibo WHERE empresa_id=? AND pessoa_id=?`)
+      .all(emp, req.params.pessoaId).map(r => r.competencia));
+    const meses = rows.map(r => ({ competencia: r.comp, n: Number(r.n) || 0, valor: Number(r.valor) || 0, tem_recibo: comRecibo.has(r.comp) }));
+    res.json({ ok: true, meses, faltando: meses.filter(m => !m.tem_recibo).length });
+  } catch (e) { res.status(503).json({ erro: 'ERP indisponível para a rechecagem.', detalhe: String(e.message || e) }); }
+});
 
 // ============================ EXTRATO DE CONTAS ============================
 // GET /contabilidade/extrato/contas?loja= — contas (banco/cofre/orçamento) p/ o seletor
@@ -222,8 +238,8 @@ router.get('/extrato', async (req, res) => {
       .all(req.usuario.empresa_id).forEach(l => { locais[String(l.contapagar_id)] = l; });
     // "Não emite NF" (não conta como perda): por fornecedor marcado OU por plano de contas (folha/impostos/sócio…).
     const naoEmite = {};
-    db.prepare(`SELECT pessoa_id, motivo FROM contabil_fornecedor WHERE empresa_id=? AND emite_nf=0`)
-      .all(req.usuario.empresa_id).forEach(f => { naoEmite[String(f.pessoa_id)] = f.motivo || 'Não emite'; });
+    db.prepare(`SELECT pessoa_id, motivo, consumo FROM contabil_fornecedor WHERE empresa_id=? AND (emite_nf=0 OR consumo=1)`)
+      .all(req.usuario.empresa_id).forEach(f => { naoEmite[String(f.pessoa_id)] = f.motivo || (f.consumo ? 'Conta de consumo' : 'Não emite'); });
     const planoList = planosSemNf(req.usuario.empresa_id);
     const out = rows.map(r => {
       const loc = locais[String(r.id)];
@@ -782,7 +798,7 @@ router.get('/bi/detalhe', async (req, res) => {
       const rows = await contab.comNfPorFornecedor(unis, periodo);
       itens = rows.map(g => ({ loja: mapa[Number(g.loja_erp)] || String(g.loja_erp), fornecedor: g.fornecedor, plano: g.plano, n: Number(g.n) || 0, valor: Math.round((Number(g.valor) || 0) * 100) / 100 }));
     } else {
-      const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf, motivo FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
+      const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf, motivo, consumo FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
       const planoList = planosSemNf(emp);
       const anex = {};
       const locaisIds = db.prepare(`SELECT contapagar_id FROM contabil_nf_contapagar WHERE empresa_id=? AND validade_fiscal=1`).all(emp).map(r => r.contapagar_id);
@@ -793,7 +809,7 @@ router.get('/bi/detalhe', async (req, res) => {
         const k = g.loja_erp + '|' + g.pessoa_id; if (anex[k]) { const usa = Math.min(anex[k], v); v -= usa; anex[k] -= usa; }
         if (v <= 0) continue;
         const f = flags[String(g.pessoa_id)];
-        const mot = (f && f.emite_nf === 0) ? (f.motivo || 'Não emite') : motivoPlano(g.plano, planoList);
+        const mot = (f && (f.emite_nf === 0 || f.consumo === 1)) ? (f.motivo || (f.consumo === 1 ? 'Conta de consumo' : 'Não emite')) : motivoPlano(g.plano, planoList);
         const alvo = bucket === 'perda' ? !mot : (mot === bucket);
         if (!alvo) continue;
         itens.push({ loja: mapa[Number(g.loja_erp)] || String(g.loja_erp), fornecedor: g.fornecedor, plano: g.plano, n: Number(g.n) || 0, valor: Math.round(v * 100) / 100 });
@@ -814,7 +830,7 @@ router.get('/perda', async (req, res) => {
     const unis = unisEmpresa(emp, req.query.loja);
     if (!unis.length) return res.json({ grupos: [], total: 0 });
     const mapa = mapaLojas(emp);
-    const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
+    const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf, consumo FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
     const planoList = planosSemNf(emp);
     const periodo = { de: req.query.de, ate: req.query.ate };
     const sem = await contab.semNfPorFornecedor(unis, periodo);
@@ -828,7 +844,7 @@ router.get('/perda', async (req, res) => {
       const k = g.loja_erp + '|' + g.pessoa_id; if (anex[k]) { const usa = Math.min(anex[k], v); v -= usa; anex[k] -= usa; }
       if (v <= 0) continue;
       const f = flags[String(g.pessoa_id)];
-      if (f && f.emite_nf === 0) continue;             // já marcado não-emite (fornecedor)
+      if (f && (f.emite_nf === 0 || f.consumo === 1)) continue;  // já marcado não-emite / conta de consumo (fornecedor)
       if (motivoPlano(g.plano, planoList)) continue;   // já classificado (plano)
       grupos.push({ loja: mapa[Number(g.loja_erp)] || String(g.loja_erp), pessoa_id: g.pessoa_id, fornecedor: g.fornecedor, plano: g.plano, n: Number(g.n) || 0, valor: Math.round(v * 100) / 100 });
     }
