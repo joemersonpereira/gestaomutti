@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import MultiLojaSelect from '../components/MultiLojaSelect';
 import ScrollX from '../components/ScrollX';
+import CacheBar from '../components/CacheBar';
 
 // Cadastro de Fornecedores (do contas a pagar do ERP) — marca se EMITE nota fiscal ou não.
 // Quem não emite (sócio/retirada, compra internacional, imposto/DARF, pessoa física) sai da conta de
@@ -30,12 +31,13 @@ export default function Fornecedores() {
   const [carregando, setCarregando] = useState(false);
   const [filtroEmite, setFiltroEmite] = useState('todos'); // todos | emite | nao
   const [recibosDe, setRecibosDe] = useState(null); // fornecedor com o painel de recibos aberto
+  const [cache, setCache] = useState(null);
   const setNRecibos = (pessoaId, n) => setRows(rs => rs.map(x => x.pessoa_id === pessoaId ? { ...x, n_recibos: n } : x));
 
-  const carregar = useCallback(() => {
+  const carregar = useCallback((forcar) => {
     setCarregando(true);
-    const p = new URLSearchParams(); if (loja) p.set('loja', loja);
-    API.get(`/contabilidade/fornecedores?${p.toString()}`).then(r => setRows(r.data.fornecedores || [])).catch(() => setRows([])).finally(() => setCarregando(false));
+    const p = new URLSearchParams(); if (loja) p.set('loja', loja); if (forcar) p.set('forcar', '1');
+    API.get(`/contabilidade/fornecedores?${p.toString()}`).then(r => { setRows(r.data.fornecedores || []); setCache(r.data.cache); }).catch(() => setRows([])).finally(() => setCarregando(false));
   }, [API, loja]);
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -67,10 +69,11 @@ export default function Fornecedores() {
         <div style={s.lab}>Lojas<MultiLojaSelect value={loja} onChange={setLoja} compact /></div>
         <div style={s.lab}>Buscar<input style={{ ...s.inp, minWidth: 220 }} value={busca} onChange={e => setBusca(e.target.value)} placeholder="nome ou CNPJ" /></div>
         <div style={s.lab}>Mostrar<select style={s.inp} value={filtroEmite} onChange={e => setFiltroEmite(e.target.value)}><option value="todos">Todos</option><option value="emite">Só emite NF</option><option value="nao">Só NÃO emite</option></select></div>
-        <button style={s.btn} onClick={carregar}>🔎 Aplicar</button>
+        <button style={s.btn} onClick={() => carregar()}>🔎 Aplicar</button>
         <div style={{ flex: 1 }} />
         <div style={{ fontSize: 12, color: '#64748b' }}>{rows.length} fornecedor(es) · <b style={{ color: '#b45309' }}>{naoEmite} não emitem</b></div>
       </div>
+      <CacheBar cache={cache} onAtualizar={() => carregar(true)} atualizando={carregando} />
       <ScrollX>
         <table style={s.tbl}>
           <thead><tr>{['Fornecedor', 'CNPJ', 'Títulos', 'Valor', '% c/ nota', 'Emite NF?', 'Motivo (se não emite)', 'Recibo'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>

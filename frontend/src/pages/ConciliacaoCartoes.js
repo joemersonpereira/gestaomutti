@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useOrdenavel, ThOrd } from '../components/Ordenavel';
+import CacheBar from '../components/CacheBar';
 
 // Conciliação de Cartões — a Tesouraria sobe o relatório de cada operadora todo dia; o sistema
 // confronta com o que o ERP registrou e lista o que precisa ser corrigido à mão no ERP.
@@ -116,21 +117,23 @@ function useDados(API, url, params, deps) {
   const fresco = jaTinha && (Date.now() - jaTinha.ts < TTL_UI_MS);
   const [d, setD] = useState(fresco ? jaTinha.data : null);
   const [carreg, setCarreg] = useState(!fresco);
+  const [cache, setCache] = useState(fresco ? (jaTinha.data && jaTinha.data.cache) : null);
   const buscar = useCallback((forcar) => {
     const chave = url + '|' + JSON.stringify(params);
     if (!forcar) {
       const c = CACHE_UI.get(chave);
-      if (c && (Date.now() - c.ts < TTL_UI_MS)) { setD(c.data); setCarreg(false); return; }
+      if (c && (Date.now() - c.ts < TTL_UI_MS)) { setD(c.data); setCache(c.data && c.data.cache); setCarreg(false); return; }
     }
     setCarreg(true);
-    API.get(url, { params }).then(r => { CACHE_UI.set(chave, { ts: Date.now(), data: r.data }); setD(r.data); })
+    // forcar: além de pular o cache de tela, pede ?forcar=1 pro servidor recalcular do ERP.
+    API.get(url, { params: forcar ? { ...params, forcar: 1 } : params }).then(r => { CACHE_UI.set(chave, { ts: Date.now(), data: r.data }); setD(r.data); setCache(r.data && r.data.cache); })
       .catch(e => setD({ erro: e.response?.data?.erro || e.message })).finally(() => setCarreg(false));
   }, deps); // eslint-disable-line
   useEffect(() => { buscar(false); }, [buscar]);
   // recarregar (chamado após uma mudança — importar, marcar tratativa) sempre busca de novo,
   // nunca serve do cache — senão a tela mostraria o dado de antes da mudança por até 2 minutos.
   const recarregar = useCallback(() => buscar(true), [buscar]);
-  return [d, carreg, recarregar];
+  return [d, carreg, recarregar, cache];
 }
 
 function Stat({ n, l, cor = '#1e293b', bg, sub }) {
@@ -169,7 +172,7 @@ function Barras({ itens, titulo, campo = 'n', sufixo = '', cor = '#7A4FB0', vazi
 
 // ── Painel (BI do mês) ─────────────────────────────────────────────────────
 function Painel({ API, f, irPara }) {
-  const [d, carreg] = useDados(API, '/conciliacao-cartao/painel', f, [API, f.ini, f.fim, f.loja, f.grupo]);
+  const [d, carreg, recarregar, cache] = useDados(API, '/conciliacao-cartao/painel', f, [API, f.ini, f.fim, f.loja, f.grupo]);
   const usaErp = f.fonte === 'erp';
   const [edi, carregEdi] = useDados(API, usaErp ? '/conciliacao-cartao/edi' : '/conciliacao-cartao/lojas',
     usaErp ? { ini: f.ini, fim: f.fim, loja: f.loja, grupo: f.grupo } : {}, [API, f.ini, f.fim, f.loja, f.grupo, usaErp]);
@@ -180,6 +183,7 @@ function Painel({ API, f, irPara }) {
   const semRelatorio = usaErp ? (edi.diasSemRelatorio || []) : (d.diasSemRelatorio || []);
   return (
     <>
+      <CacheBar cache={cache} onAtualizar={recarregar} atualizando={carreg} />
       {(() => {
         const pct = r.pctCasado;
         const pctCor = pct == null ? '#94a3b8' : pct >= 95 ? '#15803d' : pct >= 80 ? '#B7791F' : '#C0392B';

@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import MultiLojaSelect from '../components/MultiLojaSelect';
 import ScrollX from '../components/ScrollX';
 import { useOrdenavel, ThOrd } from '../components/Ordenavel';
+import CacheBar from '../components/CacheBar';
 
 // colunas ordenáveis da tabela de lançamentos manuais (clicar no cabeçalho ordena; Valor = maior↔menor)
 const COLS_MANUAIS = [
@@ -142,7 +143,8 @@ function Manuais({ API }) {
       .catch(() => setPlanos([]));
   }, [API, loja, de, ate, selContas, semCartao]);
 
-  const carregar = useCallback(() => {
+  const [cache, setCache] = useState(null);
+  const carregar = useCallback((forcar) => {
     setCarregando(true); setErro(null);
     const p = new URLSearchParams();
     if (loja) p.set('loja', loja);
@@ -151,8 +153,9 @@ function Manuais({ API }) {
     if (selContas.length) p.set('contas', selContas.join(','));
     if (semCartao) p.set('semCartao', '1');
     if (plano) p.set('plano', plano);
+    if (forcar) p.set('forcar', '1');
     API.get(`/contabilidade/auditoria/manuais?${p.toString()}`)
-      .then(r => setRows(r.data.lancamentos || []))
+      .then(r => { setRows(r.data.lancamentos || []); setCache(r.data.cache); })
       .catch(e => setErro(e.response?.data?.erro || 'Erro ao carregar lançamentos.'))
       .finally(() => setCarregando(false));
   }, [API, loja, de, ate, selContas, semCartao, plano]);
@@ -177,7 +180,7 @@ function Manuais({ API }) {
         <label style={s.lab}>De<input type="date" style={s.inp} value={de} onChange={e => setDe(e.target.value)} /></label>
         <label style={s.lab}>Até<input type="date" style={s.inp} value={ate} onChange={e => setAte(e.target.value)} /></label>
         <label style={{ ...s.lab, flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 6 }}><input type="checkbox" checked={semCartao} onChange={e => setSemCartao(e.target.checked)} /> Ocultar reprocesso de cartão</label>
-        <button style={s.btn} onClick={carregar} disabled={carregando}>{carregando ? 'Carregando…' : '🔄 Atualizar'}</button>
+        <button style={s.btn} onClick={() => carregar(true)} disabled={carregando}>{carregando ? 'Carregando…' : '🔄 Atualizar'}</button>
         <button style={{ ...s.btn, marginLeft: 'auto' }} onClick={() => baixarCsv('lancamentos-manuais.csv', [
           { h: 'Data', f: l => l.datahora }, { h: 'Loja', f: l => l.loja }, { h: 'Conta', f: l => l.conta },
           { h: 'Tipo', f: l => l.tipo }, { h: 'Valor', f: l => l.valor }, { h: 'Plano', f: l => l.plano_contas || '' },
@@ -190,6 +193,7 @@ function Manuais({ API }) {
         <div style={s.card}><div style={s.cardLab}>Entradas (crédito)</div><div style={{ ...s.cardVal, color: '#15803d' }}>{brl(totE)}</div></div>
         <div style={s.card}><div style={s.cardLab}>Saídas (débito)</div><div style={{ ...s.cardVal, color: '#b91c1c' }}>{brl(totS)}</div></div>
       </div>
+      <CacheBar cache={cache} onAtualizar={() => carregar(true)} atualizando={carregando} />
 
       {erro && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
 
