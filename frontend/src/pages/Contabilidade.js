@@ -1892,8 +1892,9 @@ function LeadTime({ API, lojas }) {
   const [loja, setLoja] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [res, setRes] = useState(null); const [erro, setErro] = useState('');
+  const [drill, setDrill] = useState(null); // {key, lojaId, label, loading, rows, erro}
   const conferir = async () => {
-    setCarregando(true); setErro(''); setRes(null);
+    setCarregando(true); setErro(''); setRes(null); setDrill(null);
     try {
       const params = { competencia }; if (loja) params.loja = loja;
       const r = await API.get('/contabilidade/espiao/lead-estoque', { params });
@@ -1901,7 +1902,18 @@ function LeadTime({ API, lojas }) {
     } catch (e) { setErro(e.response && e.response.data && e.response.data.erro || 'erro.'); }
     finally { setCarregando(false); }
   };
-  const BUCKETS = [['ate1', 'até 1 dia', '#16a34a'], ['d13', '1 a 3 dias', '#65a30d'], ['d37', '3 a 7 dias', '#ca8a04'], ['d715', '7 a 15 dias', '#ea580c'], ['m15', 'mais de 15 dias', '#b91c1c']];
+  // clicou numa faixa → lista as empresas daquela faixa (toggle)
+  const abrirFaixa = async (L, k, label, min, max) => {
+    const key = L.loja_id + '|' + k;
+    if (drill && drill.key === key) { setDrill(null); return; }
+    setDrill({ key, lojaId: L.loja_id, label, loading: true, rows: [] });
+    try {
+      const params = { competencia, loja: L.loja_id, min }; if (max != null) params.max = max;
+      const r = await API.get('/contabilidade/espiao/lead-estoque/detalhe', { params });
+      setDrill({ key, lojaId: L.loja_id, label, loading: false, rows: r.data.notas || [] });
+    } catch (e) { setDrill({ key, lojaId: L.loja_id, label, loading: false, rows: [], erro: e.response && e.response.data && e.response.data.erro || 'erro ao abrir a faixa.' }); }
+  };
+  const BUCKETS = [['ate1', 'até 1 dia', '#16a34a', 0, 1], ['d13', '1 a 3 dias', '#65a30d', 1, 3], ['d37', '3 a 7 dias', '#ca8a04', 3, 7], ['d715', '7 a 15 dias', '#ea580c', 7, 15], ['m15', 'mais de 15 dias', '#b91c1c', 15, null]];
   return (
     <>
       <p style={s.sub}>Quanto tempo leva entre a <b>emissão do XML</b> (fornecedor) e a <b>entrada efetiva no nosso estoque</b> (Alpha). Mede a agilidade do recebimento, por loja e competência.</p>
@@ -1921,12 +1933,29 @@ function LeadTime({ API, lojas }) {
               <div><div style={{ fontSize: 11, color: '#94a3b8' }}>mediana</div><div style={{ fontSize: 22, fontWeight: 800 }}>{L.mediana} <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>dias</span></div></div>
               <div><div style={{ fontSize: 11, color: '#94a3b8' }}>pior</div><div style={{ fontSize: 22, fontWeight: 800, color: '#b91c1c' }}>{L.pior} <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>dias</span></div></div>
             </div>
-            <div style={{ marginBottom: 12 }}>{BUCKETS.map(([k, lbl, cor]) => { const v = L.buckets[k] || 0; const pct = L.n ? Math.round(v / L.n * 100) : 0; return (
-              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, fontSize: 12 }}>
-                <div style={{ width: 92, color: '#475569' }}>{lbl}</div>
+            <div style={{ marginBottom: 12 }}>{BUCKETS.map(([k, lbl, cor, min, max]) => { const v = L.buckets[k] || 0; const pct = L.n ? Math.round(v / L.n * 100) : 0; const aberta = drill && drill.key === (L.loja_id + '|' + k); return (
+              <div key={k} onClick={v ? () => abrirFaixa(L, k, lbl, min, max) : undefined} title={v ? 'ver as ' + v + ' nota(s) de ' + lbl : ''}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, fontSize: 12, cursor: v ? 'pointer' : 'default', background: aberta ? '#f1f5f9' : 'transparent', borderRadius: 6, padding: '2px 4px' }}>
+                <div style={{ width: 92, color: '#475569', fontWeight: aberta ? 700 : 400 }}>{lbl}</div>
                 <div style={{ flex: 1, background: '#eef2f7', borderRadius: 6, height: 16, overflow: 'hidden' }}><div style={{ width: Math.max(2, pct) + '%', height: '100%', background: cor }} /></div>
                 <div style={{ width: 70, textAlign: 'right', color: '#475569' }}><b>{v}</b> · {pct}%</div>
+                <div style={{ width: 14, textAlign: 'center', color: '#94a3b8' }}>{v ? (aberta ? '▾' : '▸') : ''}</div>
               </div>); })}</div>
+            {drill && drill.lojaId === L.loja_id && (
+              <div style={{ ...s.card, margin: '0 0 12px', background: '#f8fafc' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>📋 Empresas · {drill.label}{!drill.loading && !drill.erro ? ` (${drill.rows.length})` : ''}</div>
+                  <button style={{ ...s.btn, padding: '2px 10px', fontSize: 11 }} onClick={() => setDrill(null)}>fechar</button>
+                </div>
+                {drill.loading && <div style={{ fontSize: 12, color: '#94a3b8' }}>carregando…</div>}
+                {drill.erro && <div style={{ fontSize: 12, color: '#b91c1c' }}>⚠️ {drill.erro}</div>}
+                {!drill.loading && !drill.erro && !drill.rows.length && <div style={{ fontSize: 12, color: '#94a3b8' }}>Nenhuma nota nessa faixa.</div>}
+                {!drill.loading && !drill.erro && !!drill.rows.length && (
+                  <ScrollX><table style={s.tbl}><thead><tr>{['NF', 'Fornecedor', 'Emissão', 'Entrada', 'Dias'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+                    <tbody>{drill.rows.map((p, j) => <tr key={j}><td style={s.td}>{p.numero}</td><td style={s.td}>{p.fornecedor}</td><td style={s.td}>{p.emissao}</td><td style={s.td}>{p.entrada}</td><td style={{ ...s.tdNum, fontWeight: 800, color: p.dias >= 15 ? '#b91c1c' : p.dias >= 7 ? '#b45309' : '#0d6b5e' }}>{p.dias}d</td></tr>)}</tbody></table></ScrollX>
+                )}
+              </div>
+            )}
             {!!(L.piores || []).length && <>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#b91c1c', margin: '6px 0 4px' }}>🐢 As que mais demoraram</div>
               <ScrollX><table style={s.tbl}><thead><tr>{['NF', 'Fornecedor', 'Emissão', 'Entrada', 'Dias'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>

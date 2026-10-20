@@ -1156,6 +1156,33 @@ router.get('/espiao/lead-estoque', async (req, res) => {
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
+// detalhe de uma FAIXA de dias do BI (clicou numa barra do gráfico) — lista as notas/empresas daquela faixa
+router.get('/espiao/lead-estoque/detalhe', async (req, res) => {
+  try {
+    const { competencia, loja } = req.query;
+    if (!competencia || !/^\d{4}-\d{2}$/.test(competencia)) return res.status(400).json({ erro: 'Informe a competência (AAAA-MM).' });
+    const l = lojasEmpresa(req.usuario.empresa_id).find(x => x.id === loja && x.erp_unidadenegocio_id != null);
+    if (!l) return res.status(400).json({ erro: 'Escolha uma loja válida.' });
+    const min = Number(req.query.min); const max = req.query.max === '' || req.query.max == null ? null : Number(req.query.max);
+    if (!Number.isFinite(min)) return res.status(400).json({ erro: 'Faixa inválida.' });
+    const [ano, mes] = competencia.split('-').map(Number);
+    const ini = `${competencia}-01`, fim = `${competencia}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`;
+    const uni = Number(l.erp_unidadenegocio_id);
+    const faixa = 'EXTRACT(EPOCH FROM (nf.datahoraentrada - nf.datahoraemissao))/86400.0';
+    const rows = await erpQuery(`SELECT nf.numero, COALESCE(p.razaosocial,p.nome) fornecedor,
+        to_char(nf.datahoraemissao,'DD/MM/YYYY') emissao, to_char(nf.datahoraentrada,'DD/MM/YYYY') entrada,
+        ROUND((${faixa})::numeric,1) dias
+      FROM notafiscal nf LEFT JOIN fornecedor f ON f.id=nf.fornecedorid LEFT JOIN pessoa p ON p.id=f.pessoaid
+      WHERE nf.unidadenegocioid=$1 AND nf.fornecedorid IS NOT NULL
+        AND nf.datahoraentrada >= $2::date AND nf.datahoraentrada < ($3::date + interval '1 day')
+        AND nf.datahoraemissao IS NOT NULL AND nf.datahoraentrada >= nf.datahoraemissao
+        AND (${faixa}) >= $4 ${max != null ? `AND (${faixa}) < $5` : ''}
+      ORDER BY (nf.datahoraentrada - nf.datahoraemissao) DESC LIMIT 500`,
+      max != null ? [uni, ini, fim, min, max] : [uni, ini, fim, min]);
+    res.json({ ok: true, loja: l.nome, loja_id: l.id, min, max, n: rows.length, notas: rows });
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+
 // ── Espião NFe: cruza o que a SEFAZ tem (XML capturado) × o que foi lançado (SPED) ──────────────
 // Acha a "NF de entrada não lançada" — o maior erro de SPED. Config dos tokens no backend/.env.
 router.get('/sped/espiao/status', async (req, res) => {
