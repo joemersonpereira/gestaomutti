@@ -23,6 +23,11 @@ const PERFIS = ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade
 const PERFIS_ESCRITA = ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro'];
 router.use(auth);
 router.use(exigePerfil(...PERFIS));
+// Cache de ERP (Contabilidade + Fiscal + Fornecedores + Auditoria usam este router). Pula o BI de
+// tempo de entrada (lead-*) que já tem cache próprio com botão atualizar. Escrita invalida 'ctb:'.
+const { cacheMiddleware: _cacheMw, invalidarMiddleware: _invMw } = require('../lib/erpCache');
+router.use(_cacheMw('ctb', { skip: req => req.path.startsWith('/espiao/lead-') }));
+router.use(_invMw('ctb:'));
 
 // Lojas para o seletor (id do app + nome + id do ERP).
 router.get('/lojas', (req, res) => res.json({ lojas: lojasEmpresa(req.usuario.empresa_id) }));

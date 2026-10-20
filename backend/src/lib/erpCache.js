@@ -79,4 +79,37 @@ function wrapInvalidar(prefixo) {
   };
 }
 
-module.exports = { ler, gravar, chaveDe, periodoVolatil, comMeta, wrapCache, wrapInvalidar, invalidar };
+// Middleware de router: cacheia os GET que respondem via res.json, keyando por path + query.
+// Cobre inclusive rotas com :id (a chave usa req.path). Pula GETs listados em `skip(req)`.
+// Base da chave = `${modulo}:${req.path}` → invalidar com o prefixo `${modulo}:`.
+// Respostas de erro (status >= 400 ou body.erro) não são cacheadas.
+function cacheMiddleware(modulo, { skip } = {}) {
+  return (req, res, next) => {
+    if (req.method !== 'GET') return next();
+    const emp = req.usuario && req.usuario.empresa_id;
+    if (!emp) return next();
+    if (skip && skip(req)) return next();
+    const base = `${modulo}:${req.path}`;
+    const hit = ler(base, emp, req.query);
+    if (hit) return res.json(comMeta(hit.payload, { atualizado_em: hit.atualizado_em, deCache: true }));
+    const orig = res.json.bind(res);
+    res.json = (body) => {
+      if (res.statusCode < 400 && body && !(typeof body === 'object' && body.erro)) {
+        try { const at = gravar(base, emp, req.query, body); return orig(comMeta(body, { atualizado_em: at, deCache: false })); }
+        catch (e) { /* cache falhou: responde normal */ }
+      }
+      return orig(body);
+    };
+    next();
+  };
+}
+
+// Middleware de router: invalida o cache do módulo após qualquer escrita (não-GET) bem-sucedida.
+function invalidarMiddleware(prefixo) {
+  return (req, res, next) => {
+    if (req.method !== 'GET') res.on('finish', () => { if (res.statusCode < 400) { try { invalidar(req.usuario.empresa_id, prefixo); } catch (e) { /* ignore */ } } });
+    next();
+  };
+}
+
+module.exports = { ler, gravar, chaveDe, periodoVolatil, comMeta, wrapCache, wrapInvalidar, invalidar, cacheMiddleware, invalidarMiddleware };
