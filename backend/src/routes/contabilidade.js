@@ -154,7 +154,8 @@ router.get('/fornecedores', async (req, res) => {
     if (!unis.length) return res.json({ fornecedores: [] });
     const lista = await contab.fornecedoresContaPagar(unis, { de: req.query.de, ate: req.query.ate });
     const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf, motivo FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
-    res.json({ fornecedores: lista.map(f => ({ ...f, emite_nf: flags[String(f.pessoa_id)] ? flags[String(f.pessoa_id)].emite_nf : 1, motivo: flags[String(f.pessoa_id)] ? flags[String(f.pessoa_id)].motivo : null })) });
+    const nRec = {}; db.prepare(`SELECT pessoa_id, COUNT(*) n FROM contabil_fornecedor_recibo WHERE empresa_id=? GROUP BY pessoa_id`).all(emp).forEach(r => { nRec[String(r.pessoa_id)] = r.n; });
+    res.json({ fornecedores: lista.map(f => ({ ...f, emite_nf: flags[String(f.pessoa_id)] ? flags[String(f.pessoa_id)].emite_nf : 1, motivo: flags[String(f.pessoa_id)] ? flags[String(f.pessoa_id)].motivo : null, n_recibos: nRec[String(f.pessoa_id)] || 0 })) });
   } catch (e) { res.status(503).json({ erro: 'ERP indisponível.', detalhe: String(e.message || e) }); }
 });
 router.put('/fornecedores/:pessoaId', exigePerfil(...PERFIS_ESCRITA), (req, res) => {
@@ -162,6 +163,37 @@ router.put('/fornecedores/:pessoaId', exigePerfil(...PERFIS_ESCRITA), (req, res)
   db.prepare(`INSERT INTO contabil_fornecedor (empresa_id,pessoa_id,nome,cnpj,emite_nf,motivo,atualizado_em) VALUES (?,?,?,?,?,?,datetime('now'))
     ON CONFLICT(empresa_id,pessoa_id) DO UPDATE SET nome=excluded.nome, cnpj=excluded.cnpj, emite_nf=excluded.emite_nf, motivo=excluded.motivo, atualizado_em=datetime('now')`)
     .run(req.usuario.empresa_id, req.params.pessoaId, b.nome || null, b.cnpj || null, b.emite_nf ? 1 : 0, b.motivo || null);
+  res.json({ ok: true });
+});
+
+// ── Recibo/boleto do fornecedor que não emite NF tradicional (conta de consumo) ──────────────────
+// O boleto traz os dados fiscais; guardamos o comprovante por fornecedor + competência (mês).
+const b64Buf = d => { try { return Buffer.from(String(d || '').replace(/^data:[^;]+;base64,/, ''), 'base64'); } catch { return null; } };
+router.get('/fornecedores/:pessoaId/recibos', (req, res) => {
+  const rows = db.prepare(`SELECT id, competencia, nome, tipo_mime, tamanho, criado_em FROM contabil_fornecedor_recibo
+    WHERE empresa_id=? AND pessoa_id=? ORDER BY competencia DESC, id DESC`).all(req.usuario.empresa_id, req.params.pessoaId);
+  res.json({ recibos: rows });
+});
+router.post('/fornecedores/:pessoaId/recibos', exigePerfil(...PERFIS_ESCRITA), (req, res) => {
+  const b = req.body || {};
+  if (!/^\d{4}-\d{2}$/.test(b.competencia || '')) return res.status(400).json({ erro: 'Informe a competência (AAAA-MM).' });
+  if (!b.dados) return res.status(400).json({ erro: 'Anexe o recibo/boleto (PDF ou foto).' });
+  const dados = String(b.dados).slice(0, 8000000);
+  const info = db.prepare(`INSERT INTO contabil_fornecedor_recibo (empresa_id,pessoa_id,competencia,nome,tipo_mime,dados,tamanho,usuario_id)
+    VALUES (?,?,?,?,?,?,?,?)`).run(req.usuario.empresa_id, req.params.pessoaId, b.competencia, b.nome || 'recibo', b.tipo_mime || null, dados, b64Buf(dados) ? b64Buf(dados).length : null, req.usuario.id);
+  res.json({ ok: true, id: info.lastInsertRowid });
+});
+router.get('/fornecedores/recibo/:id', (req, res) => {
+  const a = db.prepare(`SELECT nome, tipo_mime, dados FROM contabil_fornecedor_recibo WHERE id=? AND empresa_id=?`).get(req.params.id, req.usuario.empresa_id);
+  if (!a || !a.dados) return res.status(404).json({ erro: 'Recibo não encontrado.' });
+  const buf = b64Buf(a.dados);
+  if (!buf) return res.status(500).json({ erro: 'Arquivo corrompido.' });
+  res.set('Content-Type', a.tipo_mime || 'application/octet-stream');
+  res.set('Content-Disposition', 'inline; filename="' + String(a.nome || 'recibo').replace(/[^\w.\-]+/g, '_') + '"');
+  res.send(buf);
+});
+router.delete('/fornecedores/recibo/:id', exigePerfil(...PERFIS_ESCRITA), (req, res) => {
+  db.prepare(`DELETE FROM contabil_fornecedor_recibo WHERE id=? AND empresa_id=?`).run(req.params.id, req.usuario.empresa_id);
   res.json({ ok: true });
 });
 
