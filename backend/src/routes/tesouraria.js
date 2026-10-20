@@ -17,6 +17,11 @@ const GESTAO_TES = ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesourari
 const ACESSO_ANEXO = [...GESTAO_TES, 'Gerente', 'Subgerente'];
 router.use(auth);
 router.use(exigePerfil(...ACESSO_ANEXO));
+// cache de ERP por rota (aplicado DEPOIS do soGestao, pra não vazar dado de gestão em cache hit).
+// invalidação router-wide: qualquer escrita limpa o cache 'tes:'.
+const { cacheMiddleware: _tesCacheMw, invalidarMiddleware: _tesInvMw } = require('../lib/erpCache');
+const tesCache = _tesCacheMw('tes');
+router.use(_tesInvMw('tes:'));
 const soGestao = exigePerfil(...GESTAO_TES); // bloqueia gerente nas telas de indicador/quebra
 
 const hoje = () => new Date().toISOString().slice(0, 10);
@@ -42,7 +47,7 @@ router.get('/debitos', soGestao, (req, res) => res.json(t.debitosOperador(req.us
 router.post('/debitos/:id/pagar', soGestao, (req, res) => res.json(t.marcarPagoCobranca(req.usuario.empresa_id, req.params.id, { pago: req.body.pago !== false, usuarioId: req.usuario.id })));
 
 // Cupons baixados por operador de caixa (avaliação de atendimento). Filtro por filial ou todas.
-router.get('/cupons-operador', soGestao, async (req, res) => {
+router.get('/cupons-operador', soGestao, tesCache, async (req, res) => {
   try {
     const { ini = primeiroDoMes(), fim = hoje(), loja } = req.query;
     res.json(await t.cuponsPorOperador(req.usuario.empresa_id, { ini, fim, lojaId: loja || null }));
@@ -58,7 +63,7 @@ router.post('/cupons-operador/premiar', soGestao, async (req, res) => {
 });
 
 // Quebras de caixa (sobra/falta) do período
-router.get('/quebras', soGestao, async (req, res) => {
+router.get('/quebras', soGestao, tesCache, async (req, res) => {
   try {
     const { ini = primeiroDoMes(), fim = hoje(), loja } = req.query;
     res.json(await t.quebras(req.usuario.empresa_id, { ini, fim, lojaId: loja || null }));
@@ -77,7 +82,7 @@ router.post('/quebras/cobranca', soGestao, async (req, res) => {
 });
 
 // Indicadores do setor (cancelamentos, estornos, conciliação no prazo)
-router.get('/indicadores', soGestao, async (req, res) => {
+router.get('/indicadores', soGestao, tesCache, async (req, res) => {
   try {
     const { ini = primeiroDoMes(), fim = hoje(), loja } = req.query;
     res.json(await t.indicadoresSetor(req.usuario.empresa_id, { ini, fim, lojaId: loja || null }));
@@ -85,7 +90,7 @@ router.get('/indicadores', soGestao, async (req, res) => {
 });
 
 // Cancelamentos × ponto (quem cancelou estava dentro do horário de trabalho?)
-router.get('/cancelamentos', soGestao, async (req, res) => {
+router.get('/cancelamentos', soGestao, tesCache, async (req, res) => {
   try {
     const { ini = primeiroDoMes(), fim = hoje(), loja } = req.query;
     res.json(await t.cancelamentos(req.usuario.empresa_id, { ini, fim, lojaId: loja || null }));
@@ -93,7 +98,7 @@ router.get('/cancelamentos', soGestao, async (req, res) => {
 });
 
 // Cruzamento: sessões de caixa do dia (ERP) × operadores informados pelo gerente (checklist/lançamentos)
-router.get('/sessoes', soGestao, async (req, res) => {
+router.get('/sessoes', soGestao, tesCache, async (req, res) => {
   try {
     const { data = hoje(), loja } = req.query;
     res.json(await t.conferenciaCaixa(req.usuario.empresa_id, { data, lojaId: loja || null }));
@@ -102,7 +107,7 @@ router.get('/sessoes', soGestao, async (req, res) => {
 
 // ===== FECHAMENTO DO CAIXA DO DIA: anexos de depósitos e despesas =====
 // Situação do dia: caixas (sessões) abertos/fechados da loja + se já tem depósito anexado.
-router.get('/dia', async (req, res) => {
+router.get('/dia', tesCache, async (req, res) => {
   try {
     const data = req.query.data || hoje();
     const loja = req.query.loja;
