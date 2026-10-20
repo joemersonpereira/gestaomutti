@@ -188,6 +188,65 @@ CREATE TABLE IF NOT EXISTS espiao_resumo_cache (
 );
 ```
 
+## Erro devolvido quando o Espião falha (contrato desde 2026-10-19)
+
+Toda rota que chama o Espião (`sped/espiao/status`, `sped/entradas-faltantes`,
+`sped/:id/cruzar-espiao`, `espiao/xml/:chave`) devolve, em caso de falha, o mesmo formato. A
+rota responde **502**, e o `/status` responde 200 com `ok:false`:
+
+```json
+{
+  "erro": "Espião respondeu HTTP 401 (Não autorizado) em /v1-cloud/empresas: \"Token não autorizado\". A API recusou o par de tokens …",
+  "status": 401,
+  "detalhe": {
+    "status": 401, "codigo": "HTTP 401 (Não autorizado)",
+    "mensagemApi": "Token não autorizado", "endpoint": "/v1-cloud/empresas",
+    "dica": "…", "tokens": { "conta": "69bb8d83", "usuario": "319ea23f" },
+    "em": "2026-10-20T02:03:51.156Z"
+  }
+}
+```
+
+- `status` é o código HTTP **do Espião** (0/`null` = sem resposta: rede, DNS ou timeout de 30 s).
+- `tokens` traz a **impressão digital** de cada token (8 primeiros hex do sha256), nunca o valor.
+  Serve para conferir, pela tela, qual token o servidor carregou depois de trocar o `.env`.
+- `dica` vem de uma tabela por código. Para 401, a mensagem da API diz qual token falhou: *"Token U
+  inválido"* = usuário, *"Token C inválido"* = conta. *"Token não autorizado"* é genérico, e a API
+  devolve a mesma resposta para tokens inventados.
+- Atenção: `/v1-cloud/consulta/chave/xml` valida a chave **antes** do token. Um 400 nesse endpoint
+  não prova que os tokens são válidos.
+
+### Paginação e limite de chamadas (conferido na API real em 2026-10-19)
+
+- **Fim da paginação é `"codigoProximaPagina": "-1"`**, e não campo vazio. Pedir a página `"-1"`
+  **devolve a página 1 de novo**: quem testar só "veio algum código?" entra em laço e repete as
+  mesmas notas. Até 2026-10-19 o v1 fazia exatamente isso. Pare quando o código for `"-1"` ou
+  ausente.
+- Cada página tem até 100 itens (exemplo real: Esplanada, 01–19/out = 334 notas em 4 páginas).
+- **Limite de 3 chamadas/s por conta**: acima disso a API responde 429 *"API calls quota
+  exceeded"*. O v1 usa uma fila única com ≥ 400 ms entre chamadas e tenta de novo até 2 vezes no
+  429 (1,5 s, depois 3 s). Na v2.0, se houver mais de uma instância, a fila tem de ser
+  compartilhada (o limite é da conta, não do processo).
+- Os cabeçalhos são `esp-cloud-token` (conta) e `user-token` (usuário), como no swagger
+  `v1-cloud`. Existe também um swagger `v1-api`, de outro produto, que este sistema não usa.
+
+Nenhuma tabela nova. Em v2.0, o mesmo contrato vale para qualquer cliente de API externa. Se for
+útil guardar histórico das falhas:
+
+```sql
+CREATE TABLE IF NOT EXISTS integracao_falha_log (
+  id           BIGSERIAL   PRIMARY KEY,
+  empresa_id   TEXT        NOT NULL,
+  integracao   TEXT        NOT NULL,            -- 'espiao'
+  endpoint     TEXT        NOT NULL,
+  status_http  INTEGER,                         -- NULL = sem resposta
+  mensagem_api TEXT,
+  token_digital JSONB,                          -- {"conta":"…","usuario":"…"} (sha256/8, nunca o token)
+  criado_em    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_intfalha_emp_int ON integracao_falha_log (empresa_id, integracao, criado_em DESC);
+```
+
 ## Arquivos (v1, SQLite)
 
 - `backend/src/routes/contabilidade.js` — rotas `sped/entradas-faltantes`, `espiao/lead-estoque`,

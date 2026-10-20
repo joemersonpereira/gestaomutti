@@ -1437,6 +1437,23 @@ function PainelBI({ API }) {
 const ROT_TIPO_SPED = { fiscal: 'SPED Fiscal (ICMS/IPI)', contribuicoes: 'SPED Contribuições (PIS/COFINS)', ecd: 'ECD (Contábil)', outro: 'Outro' };
 const ROT_ETAPA = { envio: 'Envio (dia 01)', retorno: 'Retorno da contab.', corrigido: 'Corrigido (dia 10)', final: 'Final / entregue' };
 const kb = n => !n ? '—' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+// linha técnica do Espião: código HTTP · endpoint · qual token está carregado (impressão digital, não o valor) · hora
+function espiaoTecnico(d) {
+  if (!d) return '';
+  const tk = d.tokens || {};
+  const hora = d.em ? new Date(d.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+  return [d.codigo || (d.status ? 'HTTP ' + d.status : ''), d.endpoint,
+    `token conta #${tk.conta || 'ausente'} · usuário #${tk.usuario || 'ausente'}`, hora && 'testado às ' + hora].filter(Boolean).join(' · ');
+}
+// erro de chamada ao backend → texto com o código HTTP (inclui resposta em blob, como a do download de XML)
+async function espiaoErroTexto(e, padrao) {
+  const r = e && e.response;
+  if (!r) return `${padrao} (sem resposta do servidor: ${(e && e.message) || 'rede'})`;
+  let d = r.data;
+  if (d instanceof Blob) { try { d = JSON.parse(await d.text()); } catch { d = null; } }
+  const msg = (d && d.erro) || padrao;
+  return /HTTP \d{3}/.test(msg) ? msg : `${msg} (HTTP ${r.status})`;
+}
 
 export function SpedRepo({ API }) {
   const [arquivos, setArquivos] = useState([]);
@@ -1475,7 +1492,8 @@ export function SpedRepo({ API }) {
   const testarEspiao = useCallback(() => {
     setTestandoEspiao(true);
     return API.get('/contabilidade/sped/espiao/status').then(r => setEspiaoStatus(r.data))
-      .catch(() => setEspiaoStatus({ configurado: false })).finally(() => setTestandoEspiao(false));
+      .catch(async e => setEspiaoStatus({ ok: false, configurado: true, erro: await espiaoErroTexto(e, 'Falha ao testar a conexão do Espião') }))
+      .finally(() => setTestandoEspiao(false));
   }, [API]);
   useEffect(() => { testarEspiao(); }, [testarEspiao]);
 
@@ -1484,7 +1502,7 @@ export function SpedRepo({ API }) {
     try {
       const r = await API.post(`/contabilidade/sped/${a.id}/cruzar-espiao`);
       setEspiaoResult({ nome: a.nome, ...r.data });
-    } catch (e) { setMsg('⚠️ Espião: ' + (e.response && e.response.data && e.response.data.erro || 'erro ao cruzar.')); }
+    } catch (e) { setMsg('⚠️ ' + await espiaoErroTexto(e, 'Espião: erro ao cruzar.')); }
     finally { setCruzando(null); }
   };
   const [validando, setValidando] = useState(null);
@@ -1599,10 +1617,11 @@ export function SpedRepo({ API }) {
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
         {espiaoStatus && (
-          <div style={{ fontSize: 12, color: espiaoStatus.ok ? '#15803d' : '#a16207' }}>
+          <div style={{ fontSize: 12, color: espiaoStatus.ok ? '#15803d' : '#a16207', flex: '1 1 320px', minWidth: 0, overflowWrap: 'anywhere' }}>
             {espiaoStatus.ok ? '🟢 Espião NFe conectado — o botão 🔎 Espião cruza cada SPED Fiscal com a SEFAZ e aponta as NF não lançadas.'
-              : espiaoStatus.configurado ? `🟡 Espião NFe configurado, mas sem autorização (${espiaoStatus.erro || ''}) — libere o módulo API Cloud / faça o step-up do token do usuário na conta Espião.`
-                : '⚪ Espião NFe não configurado.'}
+              : espiaoStatus.configurado ? `🟡 Espião NFe configurado, mas a chamada falhou — ${espiaoStatus.erro || 'sem detalhe'}`
+                : `⚪ ${espiaoStatus.erro || 'Espião NFe não configurado.'}`}
+            {espiaoStatus.detalhe && <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{espiaoTecnico(espiaoStatus.detalhe)}</div>}
           </div>
         )}
         <button style={s.btn} onClick={testarEspiao} disabled={testandoEspiao}>{testandoEspiao ? 'testando…' : '🔌 testar conexão Espião'}</button>
@@ -1833,7 +1852,7 @@ function NfFaltantes({ API, lojas, espiaoStatus }) {
       a.href = url; a.download = (numero ? 'NF' + numero + '-' : '') + chave + '.xml';
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     } catch (e) {
-      alert((e.response && e.response.data && e.response.data.erro) || 'Não foi possível baixar o XML dessa nota.');
+      alert(await espiaoErroTexto(e, 'Não foi possível baixar o XML dessa nota.'));
     } finally { setBaixando(null); }
   };
 
@@ -1843,7 +1862,7 @@ function NfFaltantes({ API, lojas, espiaoStatus }) {
       const params = { competencia }; if (loja) params.loja = loja; if (diasMin) params.diasMin = diasMin;
       const r = await API.get('/contabilidade/sped/entradas-faltantes', { params });
       setRes(r.data);
-    } catch (e) { setErro(e.response && e.response.data && e.response.data.erro || 'erro ao conferir.'); }
+    } catch (e) { setErro(await espiaoErroTexto(e, 'erro ao conferir.')); }
     finally { setCarregando(false); }
   };
   const corDias = d => (d >= 15 ? '#b91c1c' : d >= 7 ? '#b45309' : '#64748b');
@@ -1853,7 +1872,8 @@ function NfFaltantes({ API, lojas, espiaoStatus }) {
       <p style={s.sub}>Cruza o que a <b>SEFAZ tem</b> (via Espião) com o que foi <b>lançado no Alpha</b> — aponta as <b>notas que faltam dar entrada</b>, ordenadas da <b>mais antiga</b> (mais urgente). Não precisa do SPED: direto, por loja e competência. O confronto não baixa nada; o <b>📥 XML</b> em cada linha é opcional, só se você quiser o arquivo.</p>
       {espiaoStatus && !espiaoStatus.ok && (
         <div style={{ fontSize: 12.5, marginBottom: 12, color: '#a16207', background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 8, padding: 10 }}>
-          🟡 A integração do Espião ainda não está autorizada ({espiaoStatus.erro || 'token'}). Libere o módulo API / faça o step-up do token do usuário na conta Espião pra este cruzamento funcionar.
+          🟡 O Espião não está respondendo, e sem ele este cruzamento não funciona — {espiaoStatus.erro || 'sem detalhe'}
+          {espiaoStatus.detalhe && <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>{espiaoTecnico(espiaoStatus.detalhe)}</div>}
         </div>
       )}
       <div style={s.filtros}>

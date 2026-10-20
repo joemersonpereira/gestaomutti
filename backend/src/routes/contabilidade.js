@@ -1196,7 +1196,7 @@ router.get('/sped/entradas-faltantes', async (req, res) => {
     for (const l of lojas) {
       const cnpj = soDigitos(l.cnpj);
       const sef = await espiao.nfeResumoPeriodo({ cnpjCpf: cnpj, dataInicial: ini, dataFinal: fim, emitidaRecebida: 0, modelo: 55 });
-      if (!sef.ok) return res.status(502).json({ erro: `Espião (${l.nome}): ${sef.erro}` });
+      if (!sef.ok) return res.status(502).json({ erro: `${l.nome} — ${sef.erro}`, status: sef.status, detalhe: sef.detalhe });
       // chaves já lançadas no Alpha pra essa unidade (janela ampla pra não acusar nota lançada noutro mês)
       const rows = await erpQuery(`SELECT DISTINCT regexp_replace(chaveacesso,'[^0-9]','','g') AS chave
         FROM notafiscal WHERE unidadenegocioid = $1 AND chaveacesso IS NOT NULL
@@ -1232,7 +1232,7 @@ router.get('/espiao/xml/:chave', async (req, res) => {
   try {
     if (!espiao.habilitado()) return res.status(400).json({ erro: 'Integração Espião não configurada (.env).' });
     const r = await espiao.xmlPorChave(req.params.chave);
-    if (!r.ok) return res.status(502).json({ erro: r.erro });
+    if (!r.ok) return res.status(502).json({ erro: r.erro, status: r.status, detalhe: r.detalhe });
     const d = r.dados || {};
     const xml = (typeof d === 'string') ? d : (d.xml || d.mensagem || d.xmlNfe || (d.dados && d.dados.xml) || '');
     if (!xml || String(xml).indexOf('<') < 0) return res.status(404).json({ erro: 'XML não disponível para essa nota.' });
@@ -1344,9 +1344,8 @@ router.get('/espiao/lead-estoque/detalhe', async (req, res) => {
 // ── Espião NFe: cruza o que a SEFAZ tem (XML capturado) × o que foi lançado (SPED) ──────────────
 // Acha a "NF de entrada não lançada" — o maior erro de SPED. Config dos tokens no backend/.env.
 router.get('/sped/espiao/status', async (req, res) => {
-  if (!espiao.habilitado()) return res.json({ ok: false, configurado: false, erro: 'Tokens do Espião não configurados.' });
   const r = await espiao.testarConexao();
-  res.json({ ok: r.ok, configurado: true, erro: r.erro || null, status: r.status || null });
+  res.json({ ok: r.ok, configurado: espiao.habilitado(), erro: r.erro || null, status: r.status || null, detalhe: r.detalhe || null });
 });
 // cruza um arquivo SPED já no repositório com o Espião (período + CNPJ saem do próprio arquivo)
 router.post('/sped/:id/cruzar-espiao', exigePerfil(...PERFIS_ESCRITA), async (req, res) => {
@@ -1363,7 +1362,7 @@ router.post('/sped/:id/cruzar-espiao', exigePerfil(...PERFIS_ESCRITA), async (re
     const fim = `${row.competencia}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`;
     const chavesSped = chavesEntradaSped(buf);
     const resp = await espiao.nfeResumoPeriodo({ cnpjCpf: cnpj, dataInicial: ini, dataFinal: fim, emitidaRecebida: 0, modelo: 55 });
-    if (!resp.ok) return res.status(502).json({ erro: 'Espião: ' + resp.erro });
+    if (!resp.ok) return res.status(502).json({ erro: resp.erro, status: resp.status, detalhe: resp.detalhe });
     const canc = s => /cancel/i.test(String(s || ''));
     const notas = (resp.notas || []).filter(n => !canc(n.situacao)); // notas válidas recebidas
     const faltantes = notas.filter(n => !chavesSped.has(soDigitos(n.chaveAcesso)));
