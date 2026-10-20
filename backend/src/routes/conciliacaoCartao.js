@@ -6,10 +6,17 @@ const { auth, exigePerfil } = require('../middleware/auth');
 const { lojasEmpresa } = require('../lib/escopoCompras');
 const cc = require('../lib/conciliacaoCartao');
 const rp = require('../lib/repasseCartao');
+const { wrapCache, invalidar } = require('../lib/erpCache');
 
 const GESTAO_CONC = ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro', 'Contabilidade'];
 router.use(auth);
 router.use(exigePerfil(...GESTAO_CONC));
+// qualquer escrita (import de relatório, correção, remanejo, ajustes, repasses…) invalida o cache
+// da Conciliação, pra o painel refletir na hora o que acabou de mudar.
+router.use((req, res, next) => {
+  if (req.method !== 'GET') res.on('finish', () => { if (res.statusCode < 400) { try { invalidar(req.usuario.empresa_id, 'cc-'); } catch (e) { /* ignore */ } } });
+  next();
+});
 
 const wrap = fn => async (req, res) => { try { res.json(await fn(req)); } catch (e) { res.status(502).json({ erro: e.message }); } };
 // período padrão: mês corrente
@@ -25,25 +32,25 @@ const periodo = req => ({
 router.get('/lojas', (req, res) => res.json({ lojas: lojasEmpresa(req.usuario.empresa_id) }));
 
 // BI do período: o que ainda está errado + o que já foi corrigido no ERP
-router.get('/painel', wrap(req => cc.painel(req.usuario.empresa_id, periodo(req))));
+router.get('/painel', wrapCache('cc-painel')(req => cc.painel(req.usuario.empresa_id, periodo(req))));
 // divergências dos relatórios importados no período
-router.get('/divergencias', wrap(req => cc.confrontarPeriodo(req.usuario.empresa_id, { ...periodo(req), operadora: req.query.operadora || null })));
+router.get('/divergencias', wrapCache('cc-divergencias')(req => cc.confrontarPeriodo(req.usuario.empresa_id, { ...periodo(req), operadora: req.query.operadora || null })));
 // confronto usando os arquivos que o próprio ERP já importa (não depende de upload)
-router.get('/edi', wrap(req => cc.edi(req.usuario.empresa_id, periodo(req))));
+router.get('/edi', wrapCache('cc-edi')(req => cc.edi(req.usuario.empresa_id, periodo(req))));
 // toda venda de cartão do ERP sem nenhum cruzamento de relatório ainda (manual ou EDI automático)
-router.get('/pendentes', wrap(req => cc.pendentesPorOperadora(req.usuario.empresa_id, periodo(req))));
+router.get('/pendentes', wrapCache('cc-pendentes')(req => cc.pendentesPorOperadora(req.usuario.empresa_id, periodo(req))));
 // vendas de cartão cuja modalidade não bate em nenhuma operadora conhecida (falta mapear em Ajustes)
-router.get('/sem-operadora', wrap(req => cc.semOperadoraIdentificada(req.usuario.empresa_id, periodo(req))));
+router.get('/sem-operadora', wrapCache('cc-sem-operadora')(req => cc.semOperadoraIdentificada(req.usuario.empresa_id, periodo(req))));
 
-router.get('/taxas', wrap(req => cc.taxasCobradas(req.usuario.empresa_id, { ...periodo(req), lojaId: req.query.loja || null })));
+router.get('/taxas', wrapCache('cc-taxas')(req => cc.taxasCobradas(req.usuario.empresa_id, { ...periodo(req), lojaId: req.query.loja || null })));
 
-router.get('/recebimentos-futuros', wrap(req => cc.recebimentosFuturos(req.usuario.empresa_id, { lojaId: req.query.loja || null, dias: req.query.dias, ini: req.query.rini || null, fim: req.query.rfim || null })));
-router.get('/recebimentos-futuros/itens', wrap(req => cc.recebimentosFuturosItens(req.usuario.empresa_id, { lojaId: req.query.loja || null, dias: req.query.dias, ini: req.query.rini || null, fim: req.query.rfim || null })));
+router.get('/recebimentos-futuros', wrapCache('cc-receb-fut')(req => cc.recebimentosFuturos(req.usuario.empresa_id, { lojaId: req.query.loja || null, dias: req.query.dias, ini: req.query.rini || null, fim: req.query.rfim || null })));
+router.get('/recebimentos-futuros/itens', wrapCache('cc-receb-fut-itens')(req => cc.recebimentosFuturosItens(req.usuario.empresa_id, { lojaId: req.query.loja || null, dias: req.query.dias, ini: req.query.rini || null, fim: req.query.rfim || null })));
 
-router.get('/custo-maquinas', wrap(req => cc.custoMaquinas(req.usuario.empresa_id, { ...periodo(req), lojaId: req.query.loja || null })));
+router.get('/custo-maquinas', wrapCache('cc-custo-maq')(req => cc.custoMaquinas(req.usuario.empresa_id, { ...periodo(req), lojaId: req.query.loja || null })));
 
 // BI: taxa combinada (cadastro) × taxa praticada (ERP) — quanto a credenciadora cobrou a mais
-router.get('/bi-taxa', wrap(req => cc.biTaxaCombinada(req.usuario.empresa_id, { ...periodo(req), lojaId: req.query.loja || null })));
+router.get('/bi-taxa', wrapCache('cc-bi-taxa')(req => cc.biTaxaCombinada(req.usuario.empresa_id, { ...periodo(req), lojaId: req.query.loja || null })));
 // contratos de negociação (anexo + validade) por operadora/loja
 router.get('/repasses/contratos', wrap(req => ({ ok: true, contratos: rp.contratosTaxa(req.usuario.empresa_id) })));
 router.post('/repasses/contrato', wrap(req => rp.salvarContratoTaxa(req.usuario.empresa_id, { ...req.body, usuarioId: req.usuario.id })));
@@ -59,7 +66,7 @@ router.get('/repasses/contrato/arquivo', (req, res) => {
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 // histórico de correções feitas no ERP
-router.get('/correcoes', wrap(req => cc.correcoes(req.usuario.empresa_id, periodo(req))));
+router.get('/correcoes', wrapCache('cc-correcoes')(req => cc.correcoes(req.usuario.empresa_id, periodo(req))));
 
 // lotes importados
 router.get('/lotes', wrap(req => ({ ok: true, lotes: cc.lotes(req.usuario.empresa_id) })));
@@ -95,8 +102,8 @@ router.post('/ajustes/modalidades', wrap(req => cc.salvarDepara(req.usuario.empr
 router.post('/ajustes/operadora', wrap(req => cc.salvarDeparaOperadora(req.usuario.empresa_id, req.body.operadora, req.body.modalidades || [])));
 
 // ── Repasses: o que a credenciadora pagou (trilha do dinheiro) ─────────────
-router.get('/repasses', wrap(req => rp.conferir(req.usuario.empresa_id, periodo(req))));
-router.get('/repasses/vencimentos', wrap(req => rp.conferirVencimentos(req.usuario.empresa_id, { ...periodo(req), apenasDivergentes: req.query.todos !== '1' })));
+router.get('/repasses', wrapCache('cc-repasses')(req => rp.conferir(req.usuario.empresa_id, periodo(req))));
+router.get('/repasses/vencimentos', wrapCache('cc-repasses-venc')(req => rp.conferirVencimentos(req.usuario.empresa_id, { ...periodo(req), apenasDivergentes: req.query.todos !== '1' })));
 router.get('/repasses/lotes', wrap(req => ({ ok: true, lotes: rp.lotes(req.usuario.empresa_id) })));
 router.get('/repasses/deposito/:id', wrap(req => rp.detalheDeposito(req.usuario.empresa_id, Number(req.params.id))));
 router.delete('/repasses/lotes/:id', wrap(req => rp.apagarLote(req.usuario.empresa_id, Number(req.params.id))));
