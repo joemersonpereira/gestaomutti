@@ -716,9 +716,20 @@ function AcessosConfig({ API }) {
   const [funcoes, setFuncoes] = useState([]); const [overrides, setOverrides] = useState({});
   const [protegidos, setProtegidos] = useState([]); const [semOverride, setSemOverride] = useState([]);
   const [funcao, setFuncao] = useState(''); const [msg, setMsg] = useState(''); const [busca, setBusca] = useState('');
+  // remove dos overrides as chaves de módulos que não existem mais (ex.: devolucoes) — limpa a config.
+  const podar = (mp) => {
+    const validos = new Set(MODULOS_META.map(m => m.id));
+    const out = {};
+    for (const [f, mods] of Object.entries(mp || {})) {
+      const limpo = {};
+      for (const [id, v] of Object.entries(mods || {})) if (validos.has(id)) limpo[id] = v;
+      if (Object.keys(limpo).length) out[f] = limpo;
+    }
+    return out;
+  };
   useEffect(() => {
     API.get('/acessos/config').then(r => {
-      setFuncoes(r.data.funcoes || []); setOverrides(r.data.overrides || {});
+      setFuncoes(r.data.funcoes || []); setOverrides(podar(r.data.overrides || {}));
       setProtegidos(r.data.protegidos || []); setSemOverride(r.data.sempreLiberado || []);
       setFuncao((r.data.funcoes || []).find(f => !((r.data.sempreLiberado || []).includes(f))) || '');
     }).catch(() => {});
@@ -733,7 +744,7 @@ function AcessosConfig({ API }) {
       return { ...prev, [funcao]: mp };
     });
   }
-  async function salvar() { const r = await API.put('/acessos/config', { overrides }); setOverrides(r.data.overrides || {}); setMsg('✅ Acessos salvos.'); setTimeout(() => setMsg(''), 2500); }
+  async function salvar() { const r = await API.put('/acessos/config', { overrides: podar(overrides) }); setOverrides(podar(r.data.overrides || {})); setMsg('✅ Acessos salvos.'); setTimeout(() => setMsg(''), 2500); }
   const bloqueiaProtegido = id => protegidos.includes(id) && funcao === 'Gestor Geral';
   const travada = semOverride.includes(funcao);
   const mods = MODULOS_META.filter(m => !busca.trim() || m.label.toLowerCase().includes(busca.toLowerCase()));

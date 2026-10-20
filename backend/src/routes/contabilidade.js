@@ -19,7 +19,7 @@ const auditoria = require('../lib/auditoriaErp');
 const orcamento = require('../lib/orcamentoErp');
 
 // Acesso ao módulo: contabilidade entra para ACESSAR (read-only). Lançar/editar é do financeiro/direção.
-const PERFIS = ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'];
+const PERFIS = ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Suporte'];
 const PERFIS_ESCRITA = ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro'];
 router.use(auth);
 router.use(exigePerfil(...PERFIS));

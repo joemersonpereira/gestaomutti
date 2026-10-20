@@ -135,7 +135,7 @@ const MODULOS = [
   { id: 'relatorios', label: '📑 Relatórios', C: Relatorios, perfis: [...GESTAO, 'RH', 'Marketing', 'Financeiro', 'Controladoria'] },
   { id: 'controladoria', label: '🔍 Controladoria', C: Controladoria, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
   { id: 'contabilidade', label: '🧮 Contabilidade', C: Contabilidade, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'] },
-  { id: 'fiscal', label: '📋 Fiscal', C: Fiscal, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'] },
+  { id: 'fiscal', label: '📋 Fiscal', C: Fiscal, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Suporte'] },
   { id: 'fornecedores', label: '🏭 Fornecedores', C: Fornecedores, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Financeiro'] },
   { id: 'auditoria-contabil', label: '🔎 Auditoria', C: AuditoriaContabil, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'] },
   { id: 'tesouraria', label: '🏦 Tesouraria', C: TesourariaCaixa, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Supervisor', 'Gerente', 'Subgerente'] },
