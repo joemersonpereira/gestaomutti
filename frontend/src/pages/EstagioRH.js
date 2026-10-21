@@ -12,7 +12,7 @@ export default function EstagioRH() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '6px 0 12px', borderBottom: '1px solid var(--line,#ddd8cf)', marginBottom: 16 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, color: 'var(--fg,#1c2a2e)' }}>🎓 Estágios</h1>
         <div style={{ ...s.tabs, margin: 0, marginLeft: 'auto', flexWrap: 'wrap' }}>
-          {[['fichas', '👤 Estagiários'], ['ranking', '🏅 Ranking'], ['contrato', '📄 Documentos'], ['avaliacoes', '📊 Avaliações'], ['renovacao', '🔄 Renovação'], ['pagamento', '💵 Pagamento'], ['ferias', '🌴 Férias/Rescisão'], ['instituicao', '🏫 Instituição de Ensino'], ['seguros', '🛡️ Seguros']].map(([k, l]) => (
+          {[['fichas', '👤 Estagiários'], ['ranking', '🏅 Ranking'], ['modelos', '📄 Documentos'], ['avaliacoes', '📊 Avaliações'], ['renovacao', '🔄 Renovação'], ['pagamento', '💵 Pagamento'], ['ferias', '🌴 Férias/Rescisão'], ['instituicao', '🏫 Instituição de Ensino'], ['seguros', '🛡️ Seguros']].map(([k, l]) => (
             <button key={k} onClick={() => setAba(k)} style={{ ...s.tab, ...(aba === k ? s.tabAtiva : {}) }}>{l}</button>
           ))}
         </div>
@@ -20,9 +20,9 @@ export default function EstagioRH() {
       {aba === 'fichas' && <Fichas API={API} />}
       {aba === 'talentos' && <Talentos API={API} />}
       {aba === 'ranking' && <Ranking2 API={API} />}
-      {aba === 'contrato' && <Contrato API={API} />}
+      {aba === 'modelos' && <ModelosDoc API={API} />}
       {aba === 'avaliacoes' && <Avaliacoes API={API} />}
-      {aba === 'renovacao' && <Renovacao API={API} irContrato={() => setAba('contrato')} />}
+      {aba === 'renovacao' && <Renovacao API={API} />}
       {aba === 'pagamento' && <Pagamento API={API} />}
       {aba === 'ferias' && <FeriasRescisao API={API} />}
       {aba === 'instituicao' && <Escolas API={API} />}
@@ -469,9 +469,56 @@ function contratoHtml(texto, ciencia) {
     + '</style></head><body>' + corpo + '</body></html>';
 }
 
+// ───────── Documentos: SÓ os MODELOS (templates) ─────────
+// A aba "Documentos" edita os modelos de contrato/aditivo/recibos/etc. A geração por
+// estagiário (preencher a ficha, imprimir, controle de assinatura) fica na ficha do
+// próprio colaborador (Cadastros › Colaborador › 🎓 Contrato de estágio). Pedido do Joe.
+const PLACEHOLDERS_AJUDA = 'nome, cpf, rg, nascimento, endereco, telefone, email, escola, escola_cnpj, escola_endereco, escola_representante, empresa_registro, empresa_registro_cnpj, empresa_registro_endereco, empresa_atuacao_endereco, atividade, horario, horas_dia, horas_semana, valor_bolsa, vale_transporte, beneficios, seguro, resp_nome, resp_cpf, resp_parentesco, data_inicio, data_fim, socio_nome, socio_cpf, supervisor_nome, supervisor_cargo, supervisor_email, cidade_data, assinatura_responsavel';
+function ModelosDoc({ API }) {
+  const [modelos, setModelos] = useState([
+    { chave: 'modelo_contrato_18', nome: 'Contrato de Estágio — TCE (acima de 18 anos)' },
+    { chave: 'modelo_contrato_16_17', nome: 'Contrato de Estágio — TCE (16 a 17 anos)' },
+    { chave: 'modelo_aditivo', nome: 'Renovação — Termo Aditivo ao TCE' },
+    { chave: 'modelo_ciencia_guia', nome: 'Termo de Ciência do Guia do Colaborador' },
+  ]);
+  const [chave, setChave] = useState('modelo_contrato_18');
+  const [modelo, setModelo] = useState('');
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    API.get('/estagio/config/modelos_doc').then(r => {
+      try {
+        const l = JSON.parse(r.data.valor || '[]');
+        // a ciência do Guia não está na lista do seletor (sai junto do contrato), mas é editável aqui
+        if (l.length) setModelos([...l, { chave: 'modelo_ciencia_guia', nome: 'Termo de Ciência do Guia do Colaborador' }]);
+      } catch { /* usa default */ }
+    }).catch(() => {});
+  }, [API]);
+  useEffect(() => { API.get('/estagio/config/' + chave).then(r => setModelo(r.data.valor || '')).catch(() => setModelo('')); }, [API, chave]);
+  const salvar = () => API.put('/estagio/config/' + chave, { valor: modelo }).then(() => setMsg('✅ Modelo salvo')).catch(() => setMsg('⚠️ erro ao salvar'));
+  return (
+    <div>
+      <div style={{ ...s.msg, background: '#eff6ff', color: '#1e40af', marginBottom: 12 }}>
+        Aqui você edita os <b>modelos</b> dos documentos (contrato, renovação, recibos, declaração…). Para <b>gerar e imprimir</b> o contrato de um estagiário, abra <b>Colaboradores › a pessoa › 🎓 Contrato de estágio</b> — lá os campos são preenchidos pela ficha. O <b>Termo de Ciência do Guia</b> e o <b>📘 Guia do Colaborador</b> saem automaticamente junto do contrato.
+      </div>
+      <div style={s.card}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <label style={s.lab}>Documento<select style={{ ...s.inp, minWidth: 320 }} value={chave} onChange={e => { setChave(e.target.value); setMsg(''); }}>{modelos.map(m => <option key={m.chave} value={m.chave}>{m.nome}</option>)}</select></label>
+          <button style={s.btnP} onClick={salvar}>💾 Salvar modelo</button>
+          <button style={s.btn} onClick={() => window.open('/guia-colaborador.pdf', '_blank')} title="Guia do Colaborador (Código de Conduta + Regimento) — sai junto do contrato pro estagiário assinar">📘 Ver Guia do Colaborador</button>
+        </div>
+        {msg && <div style={s.msg}>{msg}</div>}
+      </div>
+      <div style={s.card}>
+        <div style={s.cardT}>Texto do modelo <span style={{ fontWeight: 400, color: '#64748b' }}>— use {'{{campo}}'}: {PLACEHOLDERS_AJUDA}</span></div>
+        <textarea style={{ ...s.inp, width: '100%', minHeight: 420, fontFamily: 'monospace', fontSize: 12 }} value={modelo} onChange={e => setModelo(e.target.value)} />
+      </div>
+    </div>
+  );
+}
+
 // ───────── Contrato (gera pelo modelo, preenchendo a ficha) ─────────
-// colaboradorId (opcional): quando vem da ficha do Colaborador, fixa a ficha de estágio dele
-// e esconde o seletor de estagiário.
+// Usado DENTRO da ficha do colaborador (colaboradorId). Preenche pela ficha, imprime e
+// controla a assinatura. A edição dos modelos fica na aba Documentos (ModelosDoc).
 export function Contrato({ API, colaboradorId }) {
   const [fichas, setFichas] = useState([]);
   const [esc, setEsc] = useState([]); const [emp, setEmp] = useState([]); const [seg, setSeg] = useState([]); const [lojas, setLojas] = useState([]); const [colabs, setColabs] = useState([]);
@@ -479,7 +526,6 @@ export function Contrato({ API, colaboradorId }) {
   const [modelos, setModelos] = useState([{ chave: 'modelo_contrato_18', nome: 'Contrato (acima de 18 anos)' }, { chave: 'modelo_contrato_16_17', nome: 'Contrato (16 a 17 anos)' }]);
   const [chave, setChave] = useState('modelo_contrato_18');
   const [fid, setFid] = useState('');
-  const [editTpl, setEditTpl] = useState(false);
   const [msg, setMsg] = useState('');
   const [sup, setSup] = useState({ nome: '', cargo: '', email: '' }); // supervisor do estágio (config)
   const [assinanteId, setAssinanteId] = useState(''); // colaborador que assina pela empresa ('' = sócio padrão da loja)
@@ -557,7 +603,6 @@ export function Contrato({ API, colaboradorId }) {
     w.document.write(contratoHtml(texto, cienciaTxt));
     w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
   };
-  const salvarTpl = () => API.put('/estagio/config/' + chave, { valor: modelo }).then(() => { setMsg('✅ Modelo salvo'); setEditTpl(false); }).catch(() => setMsg('⚠️ erro'));
   // controle de assinatura do documento (onde ele está)
   const DOC_LABELS = [['pendente', '📝 Pendente'], ['enviado_loja', '📦 Enviado pra loja'], ['com_estagiario', '🧑‍🎓 Com o estagiário'], ['assinado', '✅ Assinado (devolvido)']];
   useEffect(() => { const fx = fichas.find(x => x.id === fid) || {}; setDocSt(fx.doc_status || 'pendente'); setAssinanteId(fx.assinante_empresa_id || ''); }, [fid, fichas]);
@@ -572,17 +617,10 @@ export function Contrato({ API, colaboradorId }) {
           {colaboradorId && !fid && <span style={{ ...s.lab, color: '#b45309' }}>Sem ficha de estágio vinculada a este colaborador ainda.</span>}
           {fid && <button style={s.btnP} onClick={imprimir}>🖨️ Imprimir / PDF</button>}
           <button style={s.btn} onClick={() => window.open('/guia-colaborador.pdf', '_blank')} title="Guia do Colaborador (Código de Conduta + Regimento) — vai junto do contrato pro estagiário assinar">📘 Guia do Colaborador</button>
-          <button style={s.btn} onClick={() => setEditTpl(v => !v)}>{editTpl ? 'Fechar modelo' : '✏️ Editar modelo'}</button>
         </div>
+        <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>Para alterar o texto do modelo, use <b>Estágios › 📄 Documentos</b>.</div>
         {msg && <div style={s.msg}>{msg}</div>}
       </div>
-      {editTpl && (
-        <div style={s.card}>
-          <div style={s.cardT}>Modelo do contrato (use {'{{campo}}'}: nome, cpf, rg, nascimento, endereco, telefone, email, escola, escola_cnpj, escola_endereco, escola_representante, empresa_registro, empresa_registro_cnpj, empresa_registro_endereco, empresa_atuacao_endereco, loja, atividade, valor_bolsa, vale_transporte, beneficios, seguro, resp_nome, resp_cpf, resp_parentesco, data_inicio, data_fim, socio_nome, socio_cpf, supervisor_nome, supervisor_cargo, supervisor_email, cidade_data)</div>
-          <textarea style={{ ...s.inp, width: '100%', minHeight: 240, fontFamily: 'monospace', fontSize: 12 }} value={modelo} onChange={e => setModelo(e.target.value)} />
-          <button style={{ ...s.btnP, marginTop: 8 }} onClick={salvarTpl}>Salvar modelo</button>
-        </div>
-      )}
       {fid && <div style={s.card}>
         <div style={s.cardT}>Controle de assinatura</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -650,7 +688,7 @@ function Avaliacoes({ API }) {
 }
 
 // ───────── Renovação (índice → gerente/RH) ─────────
-function Renovacao({ API, irContrato }) {
+function Renovacao({ API }) {
   const [fichas, setFichas] = useState([]);
   const [rows, setRows] = useState([]);
   const [fid, setFid] = useState('');
@@ -663,7 +701,7 @@ function Renovacao({ API, irContrato }) {
   const ST = { pendente_rh: ['#b45309', 'RH avaliando'], pendente_gerente: ['#1d4ed8', 'Com o gerente'], aprovada: ['#15803d', 'Aprovada'], recusada: ['#b91c1c', 'Recusada'] };
   return (
     <div>
-      <div style={{ ...s.msg, background: '#eff6ff', color: '#1e40af', marginBottom: 12 }}>Perto do fim do contrato, abra a renovação: <b>índice ≥ 90%</b> vai direto pro <b>gerente</b> decidir; <b>abaixo de 90%</b> o <b>RH avalia primeiro</b> e depois encaminha. Renovação aprovada → gere o <b>contrato novo</b> na aba Contrato.</div>
+      <div style={{ ...s.msg, background: '#eff6ff', color: '#1e40af', marginBottom: 12 }}>Perto do fim do contrato, abra a renovação: <b>índice ≥ 90%</b> vai direto pro <b>gerente</b> decidir; <b>abaixo de 90%</b> o <b>RH avalia primeiro</b> e depois encaminha. Renovação aprovada → gere o <b>Termo Aditivo</b> na ficha do colaborador (Colaboradores › 🎓 Contrato de estágio, modelo "Renovação — Termo Aditivo").</div>
       <div style={s.card}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <label style={s.lab}>Abrir renovação para<select style={{ ...s.inp, minWidth: 260 }} value={fid} onChange={e => setFid(e.target.value)}><option value="">— estagiário —</option>{fichas.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></label>
@@ -687,7 +725,7 @@ function Renovacao({ API, irContrato }) {
                   <td style={s.td}>
                     {r.status === 'pendente_rh' && <button style={s.btnMini} onClick={() => rhOk(r.id)}>RH → gerente</button>}
                     {r.status === 'pendente_gerente' && <><button style={s.btnMini} onClick={() => decidir(r.id, 'aprovada')}>aprovar</button>{' '}<button style={s.btnMini} onClick={() => decidir(r.id, 'recusada')}>recusar</button></>}
-                    {r.status === 'aprovada' && <button style={s.btnMini} onClick={irContrato}>📄 novo contrato</button>}
+                    {r.status === 'aprovada' && <span style={s.leg}>📄 gere o aditivo na ficha do colaborador</span>}
                   </td>
                 </tr>
               ))}
