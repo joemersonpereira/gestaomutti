@@ -1833,7 +1833,7 @@ const DOC_TIPOS = ['CPF', 'RG', 'Comprovante de residência', 'Certidão de casa
 export function FichaColaborador({ API, colaboradorId, nome, onDesligar, documentos = true, semTitulo = false, estagiario = false }) {
   const [aba, setAba] = useState(estagiario ? 'estagio' : 'historico');
   const abas = [
-    ...(estagiario ? [['estagio', '🎓 Contrato de estágio']] : []),
+    ...(estagiario ? [['estagio', '🎓 Documentos do estágio']] : []),
     ['historico', '🕓 Histórico'], ['desempenho', '📈 Desempenho'], ['desenvolvimento', '🎓 Desenvolvimento'],
     ...(documentos ? [['documentos', '📎 Documentos']] : []),
   ];
@@ -1851,7 +1851,7 @@ export function FichaColaborador({ API, colaboradorId, nome, onDesligar, documen
       </div>
       {aba === 'estagio' && estagiario && (
         <div>
-          <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>Gera e imprime o contrato (TCE), o Termo Aditivo de renovação e os recibos usando os dados da ficha de estágio (loja, bolsa, sócio que assina, supervisor, horário). O Guia do Colaborador e o Termo de Ciência saem junto do contrato.</div>
+          <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>Gera e imprime todos os documentos do estágio usando os dados da ficha (loja, bolsa, sócio que assina, supervisor, horário): escolha em <b>Documento</b> — contrato (TCE), renovação (aditivo), recibo de pagamento, recibo de recesso, rescisão, relatório, declaração ou termo de ciência do Guia. O Guia do Colaborador e o Termo de Ciência saem junto do contrato.</div>
           <ContratoEstagio API={API} colaboradorId={colaboradorId} />
         </div>
       )}

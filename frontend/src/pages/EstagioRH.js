@@ -154,6 +154,7 @@ function Fichas({ API }) {
   const [colabs, setColabs] = useState([]);
   const [f, setF] = useState(vazia);
   const [editId, setEditId] = useState(null);
+  const [gerarFid, setGerarFid] = useState(null); // ficha selecionada p/ gerar o contrato aqui mesmo
   const [msg, setMsg] = useState('');
   const carregar = useCallback(() => API.get('/estagio/ficha').then(r => setRows(r.data)).catch(() => {}), [API]);
   useEffect(() => {
@@ -177,8 +178,20 @@ function Fichas({ API }) {
   const ST = { ativo: '#15803d', inativo: '#6b7280', rescindido: '#b91c1c' };
   const empRegistro = empresas.filter(e => e.tipo === 'registro' || e.tipo === 'ambos');
   const empAtuacao = empresas.filter(e => e.tipo === 'atuacao' || e.tipo === 'ambos');
+  const gerarContrato = r => { setGerarFid(r.id); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const nomeGerar = (rows.find(x => x.id === gerarFid) || {}).nome || '';
   return (
     <div>
+      {gerarFid && (
+        <div style={{ ...s.card, borderTop: '3px solid #185FA5' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div style={s.cardT}>📄 Documentos do estágio — {nomeGerar}</div>
+            <button style={s.btn} onClick={() => setGerarFid(null)}>✖ Fechar</button>
+          </div>
+          <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>Escolha em <b>Documento</b> o que vai emitir: contrato (TCE), renovação (aditivo), recibo de pagamento, recibo de recesso, rescisão, relatório, declaração ou o termo de ciência do Guia.</div>
+          <Contrato API={API} fichaId={gerarFid} />
+        </div>
+      )}
       <div style={s.card}>
         <div style={s.cardT}>{editId ? 'Editar ficha' : 'Nova ficha de estagiário'}</div>
         <div style={s.grid}>
@@ -245,7 +258,7 @@ function Fichas({ API }) {
                   <td style={s.td}>{r.seguro_id ? nomeDe(seguros, r.seguro_id) : <span style={{ color: '#b91c1c' }}>sem seguro</span>}</td>
                   <td style={s.td}>{r.dados_bancarios_em ? <span style={{ color: '#15803d' }}>{r.banco || 'banco'} {r.conta || ''}</span> : r.pix ? <span style={{ color: '#b45309' }}>PIX (pend.)</span> : <span style={{ color: '#b91c1c' }}>pendente</span>}</td>
                   <td style={s.td}><span style={{ ...s.pill, background: ST[r.status] || '#999' }}>{r.status}</span></td>
-                  <td style={s.td}><button style={s.btnMini} onClick={() => editar(r)}>editar</button>{' '}<button style={s.btnMini} onClick={() => linkBanco(r.id)}>🔗 banco</button>{' '}<button style={s.btnMini} onClick={() => remover(r.id)}>remover</button></td>
+                  <td style={s.td}><button style={s.btnMini} onClick={() => gerarContrato(r)}>📄 documentos</button>{' '}<button style={s.btnMini} onClick={() => editar(r)}>editar</button>{' '}<button style={s.btnMini} onClick={() => linkBanco(r.id)}>🔗 banco</button>{' '}<button style={s.btnMini} onClick={() => remover(r.id)}>remover</button></td>
                 </tr>
               ))}
               {!rows.length && <tr><td style={s.td} colSpan={8}>Nenhum estagiário cadastrado.</td></tr>}
@@ -482,7 +495,7 @@ function contratoHtml(texto, ciencia) {
 // A aba "Documentos" edita os modelos de contrato/aditivo/recibos/etc. A geração por
 // estagiário (preencher a ficha, imprimir, controle de assinatura) fica na ficha do
 // próprio colaborador (Cadastros › Colaborador › 🎓 Contrato de estágio). Pedido do Joe.
-const PLACEHOLDERS_AJUDA = 'nome, cpf, rg, nascimento, endereco, telefone, email, escola, escola_cnpj, escola_endereco, escola_representante, empresa_registro, empresa_registro_cnpj, empresa_registro_endereco, empresa_atuacao_endereco, atividade, horario, horas_dia, horas_semana, valor_bolsa, vale_transporte, beneficios, seguro, resp_nome, resp_cpf, resp_parentesco, data_inicio, data_fim, socio_nome, socio_cpf, supervisor_nome, supervisor_cargo, supervisor_email, cidade_data, assinatura_responsavel';
+const PLACEHOLDERS_AJUDA = 'nome, cpf, rg, nascimento, endereco, telefone, email, escola, escola_cnpj, escola_endereco, escola_representante, empresa_registro, empresa_registro_cnpj, empresa_registro_endereco, empresa_atuacao_endereco, atividade, horario, horas_dia, horas_semana, horas, valor_bolsa, vale_transporte, beneficios, seguro, competencia, resp_nome, resp_cpf, resp_parentesco, data_inicio, data_fim, data_rescisao, obs_rescisao, socio_nome, socio_cpf, supervisor, supervisor_nome, supervisor_cargo, supervisor_email, cidade_data, assinatura_responsavel';
 function ModelosDoc({ API }) {
   const [modelos, setModelos] = useState([
     { chave: 'modelo_contrato_18', nome: 'Contrato de Estágio — TCE (acima de 18 anos)' },
@@ -526,9 +539,10 @@ function ModelosDoc({ API }) {
 }
 
 // ───────── Contrato (gera pelo modelo, preenchendo a ficha) ─────────
-// Usado DENTRO da ficha do colaborador (colaboradorId). Preenche pela ficha, imprime e
-// controla a assinatura. A edição dos modelos fica na aba Documentos (ModelosDoc).
-export function Contrato({ API, colaboradorId }) {
+// Preenche pela ficha, imprime e controla a assinatura. A edição dos modelos fica na aba
+// Documentos (ModelosDoc). Fixa a ficha por `fichaId` (aba Estagiários) ou por `colaboradorId`
+// (ficha do colaborador); sem nenhum dos dois, mostra o seletor de estagiário.
+export function Contrato({ API, colaboradorId, fichaId }) {
   const [fichas, setFichas] = useState([]);
   const [esc, setEsc] = useState([]); const [emp, setEmp] = useState([]); const [seg, setSeg] = useState([]); const [lojas, setLojas] = useState([]); const [colabs, setColabs] = useState([]);
   const [modelo, setModelo] = useState('');
@@ -554,7 +568,7 @@ export function Contrato({ API, colaboradorId }) {
   }, [API]);
   useEffect(() => { API.get('/estagio/config/' + chave).then(r => setModelo(r.data.valor || '')).catch(() => {}); }, [API, chave]);
   // Quando aberto pela ficha do colaborador, seleciona a ficha de estágio dele automaticamente.
-  useEffect(() => { if (colaboradorId && fichas.length) { const f = fichas.find(x => x.colaborador_id === colaboradorId); if (f) setFid(f.id); } }, [colaboradorId, fichas]);
+  useEffect(() => { if (fichaId) { setFid(fichaId); return; } if (colaboradorId && fichas.length) { const f = fichas.find(x => x.colaborador_id === colaboradorId); if (f) setFid(f.id); } }, [fichaId, colaboradorId, fichas]);
   const nome = (arr, id, campo = 'nome') => (arr.find(x => x.id === id) || {})[campo] || '';
   // Para loja, o nome que vai no contrato é a RAZÃO SOCIAL (cai pro nome/apelido se não tiver).
   const nomeAtu = id => { const e = emp.find(x => x.id === id); if (e) return e.nome || ''; const l = lojas.find(x => x.id === id); return l ? (l.razao_social || l.nome || '') : ''; };
@@ -596,6 +610,14 @@ export function Contrato({ API, colaboradorId }) {
       socio_nome: assina ? assina.nome : (socio ? socio.nome : ''),
       socio_cpf: assina ? (assina.cpf || '') : (socio ? (socio.cpf || '') : ''),
       supervisor_nome: superv ? superv.nome : (sup.nome || '(supervisor)'), supervisor_cargo: superv ? (superv.funcao || '') : (sup.cargo || ''), supervisor_email: superv ? (superv.email || '') : (sup.email || ''),
+      // supervisor (nome puro) — usado no relatório e na declaração
+      supervisor: superv ? superv.nome : (sup.nome || '(supervisor)'),
+      // carga horária por extenso — usada no relatório
+      horas: [f.horas_dia && (f.horas_dia + ' horas/dia'), f.horas_semana && (f.horas_semana + ' horas/semana')].filter(Boolean).join(' · ') || (f.horario || ''),
+      // competência do recibo: mês/ano corrente (o recibo com valores reais do mês sai na aba Pagamento)
+      competencia: (() => { const d = new Date(); return String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); })(),
+      // rescisão: por padrão usa o fim previsto do estágio; o RH ajusta o texto se precisar
+      data_rescisao: fmtD(f.data_fim), obs_rescisao: '',
       // bloco de assinatura do responsável — só aparece quando a ficha tem responsável (menor de 18)
       assinatura_responsavel: f.resp_nome ? ('\n_______________________________________\nRESPONSÁVEL LEGAL (assina pelo menor)\n' + f.resp_nome + (f.resp_cpf ? '    CPF: ' + f.resp_cpf : '') + (f.resp_parentesco ? '    (' + f.resp_parentesco + ')' : '')) : '',
       cidade_data: 'Entre Rios, ' + new Date().toLocaleDateString('pt-BR'),
@@ -605,7 +627,9 @@ export function Contrato({ API, colaboradorId }) {
   const aplicar = tpl => { const map = montarMap(); return map ? tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => (map[k] != null ? map[k] : '')) : ''; };
   const preencher = () => aplicar(modelo);
   const texto = fid ? preencher() : '';
-  const cienciaTxt = fid && ciencia ? aplicar(ciencia) : ''; // termo de ciência do Guia, já preenchido
+  // o termo de ciência do Guia só acompanha o CONTRATO/aditivo — não vai em recibo, rescisão, declaração, etc.
+  const ehContrato = ['modelo_contrato_18', 'modelo_contrato_16_17', 'modelo_aditivo'].includes(chave);
+  const cienciaTxt = fid && ciencia && ehContrato ? aplicar(ciencia) : ''; // termo de ciência do Guia, já preenchido
   const imprimir = () => {
     const w = window.open('', '_blank');
     // o contrato e o termo de ciência do Guia saem juntos (o Guia é mencionado em cláusula e assinado pelo estagiário)
@@ -620,8 +644,8 @@ export function Contrato({ API, colaboradorId }) {
     <div>
       <div style={s.card}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <label style={s.lab}>Modelo<select style={{ ...s.inp, minWidth: 240 }} value={chave} onChange={e => setChave(e.target.value)}>{modelos.map(m => <option key={m.chave} value={m.chave}>{m.nome}</option>)}</select></label>
-          {!colaboradorId && <label style={s.lab}>Estagiário<select style={{ ...s.inp, minWidth: 220 }} value={fid} onChange={e => setFid(e.target.value)}><option value="">— selecione —</option>{fichas.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></label>}
+          <label style={s.lab}>Documento<select style={{ ...s.inp, minWidth: 260 }} value={chave} onChange={e => setChave(e.target.value)}>{modelos.map(m => <option key={m.chave} value={m.chave}>{m.nome}</option>)}</select></label>
+          {!colaboradorId && !fichaId && <label style={s.lab}>Estagiário<select style={{ ...s.inp, minWidth: 220 }} value={fid} onChange={e => setFid(e.target.value)}><option value="">— selecione —</option>{fichas.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></label>}
           <label style={s.lab}>Assina pela empresa<select style={{ ...s.inp, minWidth: 220 }} value={assinanteId} onChange={e => setAssinanteId(e.target.value)}><option value="">Sócio padrão da loja</option>{colabs.map(c => <option key={c.id} value={c.id}>{c.nome}{c.funcao ? ' · ' + c.funcao : ''}</option>)}</select></label>
           {colaboradorId && !fid && <span style={{ ...s.lab, color: '#b45309' }}>Sem ficha de estágio vinculada a este colaborador ainda.</span>}
           {fid && <button style={s.btnP} onClick={imprimir}>🖨️ Imprimir / PDF</button>}
