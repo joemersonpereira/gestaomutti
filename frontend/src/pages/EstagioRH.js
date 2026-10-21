@@ -12,7 +12,7 @@ export default function EstagioRH() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '6px 0 12px', borderBottom: '1px solid var(--line,#ddd8cf)', marginBottom: 16 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, color: 'var(--fg,#1c2a2e)' }}>🎓 Estágios</h1>
         <div style={{ ...s.tabs, margin: 0, marginLeft: 'auto', flexWrap: 'wrap' }}>
-          {[['fichas', '👤 Estagiários'], ['ranking', '🏅 Ranking'], ['contrato', '📄 Documentos'], ['avaliacoes', '📊 Avaliações'], ['renovacao', '🔄 Renovação'], ['pagamento', '💵 Pagamento'], ['ferias', '🌴 Férias/Rescisão'], ['seguros', '🛡️ Seguros']].map(([k, l]) => (
+          {[['fichas', '👤 Estagiários'], ['ranking', '🏅 Ranking'], ['contrato', '📄 Documentos'], ['avaliacoes', '📊 Avaliações'], ['renovacao', '🔄 Renovação'], ['pagamento', '💵 Pagamento'], ['ferias', '🌴 Férias/Rescisão'], ['instituicao', '🏫 Instituição de Ensino'], ['seguros', '🛡️ Seguros']].map(([k, l]) => (
             <button key={k} onClick={() => setAba(k)} style={{ ...s.tab, ...(aba === k ? s.tabAtiva : {}) }}>{l}</button>
           ))}
         </div>
@@ -25,7 +25,7 @@ export default function EstagioRH() {
       {aba === 'renovacao' && <Renovacao API={API} irContrato={() => setAba('contrato')} />}
       {aba === 'pagamento' && <Pagamento API={API} />}
       {aba === 'ferias' && <FeriasRescisao API={API} />}
-      {/* Escolas e Empresas foram movidas para Parâmetros (a pedido do Joe). */}
+      {aba === 'instituicao' && <Escolas API={API} />}
       {aba === 'seguros' && <Seguros API={API} />}
     </div>
   );
@@ -38,13 +38,13 @@ export function Escolas({ API }) {
   const [msg, setMsg] = useState('');
   const carregar = useCallback(() => API.get('/estagio/escola').then(r => setRows(r.data)).catch(() => {}), [API]);
   useEffect(() => { carregar(); }, [carregar]);
-  const salvar = () => API.post('/estagio/escola', { ...f, ativo: 1 }).then(() => { setMsg('✅ Escola salva'); setF({ nome: '', cnpj: '', endereco: '', cidade: '', contato: '', telefone: '' }); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro')));
-  const remover = id => { if (window.confirm('Remover escola?')) API.delete('/estagio/escola/' + id).then(carregar); };
+  const salvar = () => API.post('/estagio/escola', { ...f, ativo: 1 }).then(() => { setMsg('✅ Instituição salva'); setF({ nome: '', cnpj: '', endereco: '', cidade: '', contato: '', telefone: '', representante: '' }); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro')));
+  const remover = id => { if (window.confirm('Remover instituição de ensino?')) API.delete('/estagio/escola/' + id).then(carregar); };
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   return (
     <div>
       <div style={s.card}>
-        <div style={s.cardT}>Nova escola (interveniente do contrato)</div>
+        <div style={s.cardT}>Nova instituição de ensino (escola, faculdade ou curso técnico — interveniente do contrato)</div>
         <div style={s.grid}>
           <label style={s.lab}>Nome<input style={s.inp} value={f.nome} onChange={e => set('nome', e.target.value)} /></label>
           <label style={s.lab}>CNPJ<input style={s.inp} value={f.cnpj} onChange={e => set('cnpj', e.target.value)} /></label>
@@ -52,11 +52,12 @@ export function Escolas({ API }) {
           <label style={{ ...s.lab, gridColumn: '1 / -1' }}>Endereço<input style={s.inp} value={f.endereco} onChange={e => set('endereco', e.target.value)} /></label>
           <label style={s.lab}>Contato<input style={s.inp} value={f.contato} onChange={e => set('contato', e.target.value)} /></label>
           <label style={s.lab}>Telefone<input style={s.inp} value={f.telefone} onChange={e => set('telefone', e.target.value)} /></label>
+          <label style={{ ...s.lab, gridColumn: '1 / -1' }}>Representante (assina pela escola)<input style={s.inp} value={f.representante || ''} onChange={e => set('representante', e.target.value)} placeholder="nome de quem assina pela instituição de ensino" /></label>
         </div>
         <button style={{ ...s.btnP, marginTop: 10 }} onClick={salvar}>Cadastrar</button>
         {msg && <div style={s.msg}>{msg}</div>}
       </div>
-      <Tabela cols={[['nome', 'Escola'], ['cnpj', 'CNPJ'], ['cidade', 'Cidade'], ['endereco', 'Endereço'], ['telefone', 'Telefone']]} rows={rows} onDel={remover} />
+      <Tabela cols={[['nome', 'Instituição de Ensino'], ['cnpj', 'CNPJ'], ['cidade', 'Cidade'], ['endereco', 'Endereço'], ['telefone', 'Telefone']]} rows={rows} onDel={remover} />
     </div>
   );
 }
@@ -122,7 +123,7 @@ function Seguros({ API }) {
 }
 
 // ───────── Ficha do estagiário ─────────
-const vazia = { nome: '', cpf: '', nascimento: '', escola_id: '', curso: '', serie: '', empresa_registro_id: '', empresa_atuacao_id: '', loja: '', valor_bolsa: '', vale_transporte: '', beneficios: '', seguro_id: '', resp_nome: '', resp_cpf: '', resp_telefone: '', resp_parentesco: '', data_inicio: '', data_fim: '', status: 'ativo', banco: '', agencia: '', conta: '', tipo_conta: '', pix: '' };
+const vazia = { nome: '', cpf: '', rg: '', nascimento: '', endereco: '', telefone: '', email: '', escola_id: '', curso: '', serie: '', empresa_registro_id: '', empresa_atuacao_id: '', loja: '', valor_bolsa: '', vale_transporte: '', beneficios: '', seguro_id: '', resp_nome: '', resp_cpf: '', resp_telefone: '', resp_parentesco: '', data_inicio: '', data_fim: '', status: 'ativo', banco: '', agencia: '', conta: '', tipo_conta: '', pix: '' };
 function Fichas({ API }) {
   const [rows, setRows] = useState([]);
   const [escolas, setEscolas] = useState([]);
@@ -160,8 +161,12 @@ function Fichas({ API }) {
         <div style={s.grid}>
           <label style={{ ...s.lab, gridColumn: '1 / -1' }}>Nome<input style={s.inp} value={f.nome} onChange={e => set('nome', e.target.value)} /></label>
           <label style={s.lab}>CPF<input style={s.inp} value={f.cpf} onChange={e => set('cpf', e.target.value)} /></label>
+          <label style={s.lab}>RG<input style={s.inp} value={f.rg || ''} onChange={e => set('rg', e.target.value)} /></label>
           <label style={s.lab}>Nascimento<input type="date" style={s.inp} value={f.nascimento || ''} onChange={e => set('nascimento', e.target.value)} /></label>
-          <label style={s.lab}>Escola<select style={s.inp} value={f.escola_id || ''} onChange={e => set('escola_id', e.target.value)}><option value="">—</option>{escolas.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></label>
+          <label style={{ ...s.lab, gridColumn: '1 / -1' }}>Endereço<input style={s.inp} value={f.endereco || ''} onChange={e => set('endereco', e.target.value)} placeholder="rua, nº, bairro, cidade/UF, CEP" /></label>
+          <label style={s.lab}>Celular<input style={s.inp} value={f.telefone || ''} onChange={e => set('telefone', e.target.value)} /></label>
+          <label style={s.lab}>E-mail<input style={s.inp} value={f.email || ''} onChange={e => set('email', e.target.value)} /></label>
+          <label style={s.lab}>Instituição de Ensino<select style={s.inp} value={f.escola_id || ''} onChange={e => set('escola_id', e.target.value)}><option value="">—</option>{escolas.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></label>
           <label style={s.lab}>Curso<input style={s.inp} value={f.curso || ''} onChange={e => set('curso', e.target.value)} /></label>
           <label style={s.lab}>Série/Período<input style={s.inp} value={f.serie || ''} onChange={e => set('serie', e.target.value)} /></label>
           <label style={s.lab}>Empresa de registro<select style={s.inp} value={f.empresa_registro_id || ''} onChange={e => set('empresa_registro_id', e.target.value)}><option value="">—</option>{lojas.length ? <optgroup label="Lojas">{lojas.map(l => <option key={l.id} value={l.id}>🏪 {l.nome}</option>)}</optgroup> : null}{empRegistro.length ? <optgroup label="Empresas">{empRegistro.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</optgroup> : null}</select></label>
@@ -398,6 +403,39 @@ function Ranking2({ API }) {
   );
 }
 
+// Impressão formatada do contrato: transforma o texto (modelo preenchido) em um documento A4
+// com título, blocos de seção destacados, cláusulas em negrito e linhas de assinatura.
+// O modelo continua sendo TEXTO editável — a formatação é aplicada só na hora de imprimir/gerar PDF.
+function contratoHtml(texto) {
+  const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const linhas = String(texto || '').split('\n');
+  const SECOES = ['INSTITUIÇÃO DE ENSINO', 'UNIDADE CONCEDENTE', 'ESTAGIÁRIO'];
+  const ROTULOS = /^(CONCEDENTE|SUPERVISOR DO ESTÁGIO|INSTITUIÇÃO DE ENSINO|ESTAGIÁRIO|RESPONSÁVEL LEGAL)\b/;
+  const out = []; let i = 0, assin = false, blk = null;
+  const flush = () => { if (blk) { out.push('<div class="assinblk">' + blk.join('') + '</div>'); blk = null; } };
+  while (i < linhas.length && !linhas[i].trim()) i++;
+  const tit = []; while (i < linhas.length && linhas[i].trim()) { tit.push(linhas[i]); i++; }
+  out.push('<h1>' + tit.map(esc).join('<br>') + '</h1>');
+  for (; i < linhas.length; i++) {
+    const t = linhas[i].trim();
+    if (/^_{5,}/.test(t)) { flush(); assin = true; blk = ['<div class="assin"></div>']; continue; }
+    if (assin && blk) { if (t) blk.push('<p class="sig' + (ROTULOS.test(t) ? ' b' : '') + '">' + esc(t) + '</p>'); continue; }
+    if (!t) { out.push('<div class="sp"></div>'); continue; }
+    if (SECOES.includes(t.toUpperCase())) { out.push('<div class="sec">' + esc(t) + '</div>'); continue; }
+    if (/^CLÁUSULA/.test(t)) { out.push('<p class="cl">' + esc(t) + '</p>'); continue; }
+    out.push('<p>' + esc(t) + '</p>');
+  }
+  flush();
+  return '<!doctype html><html><head><meta charset="utf-8"><title>Contrato de Estágio</title><style>'
+    + '@page{size:A4;margin:2cm 2.2cm}body{font-family:Arial,Helvetica,sans-serif;font-size:10.5pt;line-height:1.5;color:#111}'
+    + 'h1{text-align:center;font-size:13pt;font-weight:800;text-transform:uppercase;margin:0 0 14px;padding-bottom:10px;border-bottom:2px solid #111;letter-spacing:.3px}'
+    + '.sec{font-weight:800;background:#eef2f7;border-left:4px solid #334155;padding:5px 9px;margin:12px 0 6px;text-transform:uppercase;letter-spacing:.3px}'
+    + 'p{margin:5px 0;text-align:justify}p.cl{font-weight:700;margin:11px 0 4px}.sp{height:7px}'
+    + '.assinblk{break-inside:avoid;page-break-inside:avoid;margin-top:28px}'
+    + '.assin{border-top:1px solid #111;width:60%;margin:0 auto 3px}p.sig{text-align:center;margin:1px 0}p.sig.b{font-weight:700}'
+    + '</style></head><body>' + out.join('') + '</body></html>';
+}
+
 // ───────── Contrato (gera pelo modelo, preenchendo a ficha) ─────────
 // colaboradorId (opcional): quando vem da ficha do Colaborador, fixa a ficha de estágio dele
 // e esconde o seletor de estagiário.
@@ -410,7 +448,12 @@ export function Contrato({ API, colaboradorId }) {
   const [fid, setFid] = useState('');
   const [editTpl, setEditTpl] = useState(false);
   const [msg, setMsg] = useState('');
+  const [sup, setSup] = useState({ nome: '', cargo: '', email: '' }); // supervisor do estágio (config)
+  const [assinanteId, setAssinanteId] = useState(''); // colaborador que assina pela empresa ('' = sócio padrão da loja)
+  const [docSt, setDocSt] = useState('pendente'); // controle de assinatura do documento
   useEffect(() => {
+    Promise.all(['supervisor_nome', 'supervisor_cargo', 'supervisor_email'].map(k => API.get('/estagio/config/' + k).then(r => r.data.valor || '').catch(() => '')))
+      .then(([nome, cargo, email]) => setSup({ nome, cargo, email }));
     API.get('/estagio/ficha').then(r => setFichas(r.data)).catch(() => {});
     API.get('/estagio/escola').then(r => setEsc(r.data)).catch(() => {});
     API.get('/estagio/empresa').then(r => setEmp(r.data)).catch(() => {});
@@ -444,17 +487,24 @@ export function Contrato({ API, colaboradorId }) {
     const f = fichas.find(x => x.id === fid); if (!f) return '';
     const sg = seg.find(x => x.id === f.seguro_id);
     const socio = socioDaLoja(f.empresa_registro_id, f.empresa_atuacao_id);
+    const assina = assinanteId ? colabs.find(x => x.id === assinanteId) : null; // quem foi escolhido p/ assinar pela empresa
     const seguroTxt = sg ? `${sg.seguradora}${sg.apolice ? ' — apólice ' + sg.apolice : ''}${sg.vigencia_fim ? ' (vigência até ' + fmtD(sg.vigencia_fim) + ')' : ''}` : '(seguro não vinculado)';
     const map = {
-      nome: f.nome || '', cpf: f.cpf || '', escola: nome(esc, f.escola_id), curso: f.curso || '', serie: f.serie || '',
+      nome: f.nome || '', cpf: f.cpf || '', rg: f.rg || '', nascimento: fmtD(f.nascimento), endereco: f.endereco || '', telefone: f.telefone || '', email: f.email || '',
+      escola: nome(esc, f.escola_id), curso: f.curso || '', serie: f.serie || '',
       empresa_atuacao: nomeAtu(f.empresa_atuacao_id), empresa_registro: nomeAtu(f.empresa_registro_id), loja: f.loja || '',
       empresa_registro_cnpj: campoEmp(f.empresa_registro_id, 'cnpj'), empresa_registro_endereco: campoEmp(f.empresa_registro_id, 'endereco'),
       empresa_atuacao_cnpj: campoEmp(f.empresa_atuacao_id, 'cnpj'), empresa_atuacao_endereco: campoEmp(f.empresa_atuacao_id, 'endereco'),
-      escola_cnpj: nome(esc, f.escola_id, 'cnpj'), escola_endereco: nome(esc, f.escola_id, 'endereco'), atividade: f.curso || 'Auxiliar de Loja',
+      escola_cnpj: nome(esc, f.escola_id, 'cnpj'), escola_endereco: nome(esc, f.escola_id, 'endereco'), escola_representante: nome(esc, f.escola_id, 'representante') || '(representante da escola)',
+      atividade: f.curso || 'Auxiliar no Atendimento ao Cliente',
       valor_bolsa: brl(f.valor_bolsa), vale_transporte: brl(f.vale_transporte), beneficios: f.beneficios || '—',
       seguro: seguroTxt, resp_nome: f.resp_nome || '', resp_cpf: f.resp_cpf || '', resp_parentesco: f.resp_parentesco || '',
       data_inicio: fmtD(f.data_inicio), data_fim: fmtD(f.data_fim),
-      socio_nome: socio ? socio.nome : '', socio_cpf: socio ? (socio.cpf || '') : '',
+      socio_nome: assina ? assina.nome : (socio ? socio.nome : ''),
+      socio_cpf: assina ? (assina.cpf || '') : (socio ? (socio.cpf || '') : ''),
+      supervisor_nome: sup.nome || '(supervisor)', supervisor_cargo: sup.cargo || '', supervisor_email: sup.email || '',
+      // bloco de assinatura do responsável — só aparece quando a ficha tem responsável (menor de 18)
+      assinatura_responsavel: f.resp_nome ? ('\n_______________________________________\nRESPONSÁVEL LEGAL (assina pelo menor)\n' + f.resp_nome + (f.resp_cpf ? '    CPF: ' + f.resp_cpf : '') + (f.resp_parentesco ? '    (' + f.resp_parentesco + ')' : '')) : '',
       cidade_data: 'Entre Rios, ' + new Date().toLocaleDateString('pt-BR'),
     };
     return modelo.replace(/\{\{(\w+)\}\}/g, (_, k) => (map[k] != null ? map[k] : ''));
@@ -462,29 +512,42 @@ export function Contrato({ API, colaboradorId }) {
   const texto = fid ? preencher() : '';
   const imprimir = () => {
     const w = window.open('', '_blank');
-    w.document.write(`<html><head><title>Contrato de Estágio</title><style>body{font-family:Arial;padding:40px;white-space:pre-wrap;font-size:13px;line-height:1.6;color:#111}</style></head><body>${texto.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))}</body></html>`);
+    w.document.write(contratoHtml(texto));
     w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
   };
   const salvarTpl = () => API.put('/estagio/config/' + chave, { valor: modelo }).then(() => { setMsg('✅ Modelo salvo'); setEditTpl(false); }).catch(() => setMsg('⚠️ erro'));
+  // controle de assinatura do documento (onde ele está)
+  const DOC_LABELS = [['pendente', '📝 Pendente'], ['enviado_loja', '📦 Enviado pra loja'], ['com_estagiario', '🧑‍🎓 Com o estagiário'], ['assinado', '✅ Assinado (devolvido)']];
+  useEffect(() => { setDocSt((fichas.find(x => x.id === fid) || {}).doc_status || 'pendente'); }, [fid, fichas]);
+  const mudarStatus = (st) => API.put('/estagio/ficha/' + fid + '/doc-status', { status: st }).then(() => { setDocSt(st); setFichas(fs => fs.map(x => x.id === fid ? { ...x, doc_status: st } : x)); }).catch(() => {});
   return (
     <div>
       <div style={s.card}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <label style={s.lab}>Modelo<select style={{ ...s.inp, minWidth: 240 }} value={chave} onChange={e => setChave(e.target.value)}>{modelos.map(m => <option key={m.chave} value={m.chave}>{m.nome}</option>)}</select></label>
           {!colaboradorId && <label style={s.lab}>Estagiário<select style={{ ...s.inp, minWidth: 220 }} value={fid} onChange={e => setFid(e.target.value)}><option value="">— selecione —</option>{fichas.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></label>}
+          <label style={s.lab}>Assina pela empresa<select style={{ ...s.inp, minWidth: 220 }} value={assinanteId} onChange={e => setAssinanteId(e.target.value)}><option value="">Sócio padrão da loja</option>{colabs.map(c => <option key={c.id} value={c.id}>{c.nome}{c.funcao ? ' · ' + c.funcao : ''}</option>)}</select></label>
           {colaboradorId && !fid && <span style={{ ...s.lab, color: '#b45309' }}>Sem ficha de estágio vinculada a este colaborador ainda.</span>}
           {fid && <button style={s.btnP} onClick={imprimir}>🖨️ Imprimir / PDF</button>}
+          <button style={s.btn} onClick={() => window.open('/guia-colaborador.pdf', '_blank')} title="Guia do Colaborador (Código de Conduta + Regimento) — vai junto do contrato pro estagiário assinar">📘 Guia do Colaborador</button>
           <button style={s.btn} onClick={() => setEditTpl(v => !v)}>{editTpl ? 'Fechar modelo' : '✏️ Editar modelo'}</button>
         </div>
         {msg && <div style={s.msg}>{msg}</div>}
       </div>
       {editTpl && (
         <div style={s.card}>
-          <div style={s.cardT}>Modelo do contrato (use {'{{campo}}'}: nome, cpf, escola, empresa_registro, empresa_atuacao, loja, valor_bolsa, vale_transporte, beneficios, seguro, resp_nome, resp_cpf, resp_parentesco, data_inicio, data_fim, socio_nome, socio_cpf, cidade_data)</div>
+          <div style={s.cardT}>Modelo do contrato (use {'{{campo}}'}: nome, cpf, rg, nascimento, endereco, telefone, email, escola, escola_cnpj, escola_endereco, escola_representante, empresa_registro, empresa_registro_cnpj, empresa_registro_endereco, empresa_atuacao_endereco, loja, atividade, valor_bolsa, vale_transporte, beneficios, seguro, resp_nome, resp_cpf, resp_parentesco, data_inicio, data_fim, socio_nome, socio_cpf, supervisor_nome, supervisor_cargo, supervisor_email, cidade_data)</div>
           <textarea style={{ ...s.inp, width: '100%', minHeight: 240, fontFamily: 'monospace', fontSize: 12 }} value={modelo} onChange={e => setModelo(e.target.value)} />
           <button style={{ ...s.btnP, marginTop: 8 }} onClick={salvarTpl}>Salvar modelo</button>
         </div>
       )}
+      {fid && <div style={s.card}>
+        <div style={s.cardT}>Controle de assinatura</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {DOC_LABELS.map(([v, l]) => <button key={v} onClick={() => mudarStatus(v)} style={docSt === v ? s.btnP : s.btn}>{l}</button>)}
+        </div>
+        <div style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>Status atual: <b>{(DOC_LABELS.find(x => x[0] === docSt) || [])[1] || docSt}</b> — acompanhe o contrato do envio até voltar assinado.</div>
+      </div>}
       {fid && <div style={s.card}><div style={s.cardT}>Prévia do contrato</div><div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6 }}>{texto}</div></div>}
     </div>
   );

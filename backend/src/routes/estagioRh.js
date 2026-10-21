@@ -17,10 +17,10 @@ router.use(auth);
 
 // definição das entidades: tabela + campos graváveis
 const TAB = {
-  escola: { t: 'estagio_escola', campos: ['nome', 'cidade', 'contato', 'telefone', 'cnpj', 'endereco', 'ativo'] },
+  escola: { t: 'estagio_escola', campos: ['nome', 'cidade', 'contato', 'telefone', 'cnpj', 'endereco', 'representante', 'ativo'] },
   empresa: { t: 'estagio_empresa', campos: ['nome', 'cnpj', 'tipo', 'endereco', 'ativo'] },
   seguro: { t: 'estagio_seguro', campos: ['seguradora', 'apolice', 'vigencia_ini', 'vigencia_fim', 'valor', 'cobertura', 'ativo'] },
-  ficha: { t: 'estagio_ficha', campos: ['nome', 'cpf', 'nascimento', 'escola_id', 'curso', 'serie', 'empresa_registro_id', 'empresa_atuacao_id', 'loja', 'valor_bolsa', 'vale_transporte', 'beneficios', 'seguro_id', 'resp_nome', 'resp_cpf', 'resp_telefone', 'resp_parentesco', 'data_inicio', 'data_fim', 'status', 'origem', 'banco', 'agencia', 'conta', 'tipo_conta', 'pix'] },
+  ficha: { t: 'estagio_ficha', campos: ['nome', 'cpf', 'rg', 'nascimento', 'endereco', 'telefone', 'email', 'escola_id', 'curso', 'serie', 'empresa_registro_id', 'empresa_atuacao_id', 'loja', 'valor_bolsa', 'vale_transporte', 'beneficios', 'seguro_id', 'resp_nome', 'resp_cpf', 'resp_telefone', 'resp_parentesco', 'data_inicio', 'data_fim', 'status', 'origem', 'banco', 'agencia', 'conta', 'tipo_conta', 'pix'] },
   avaliacao: { t: 'estagio_avaliacao', campos: ['ficha_id', 'competencia', 'nota', 'supervisor', 'comentario'] },
   ferias: { t: 'estagio_ferias', campos: ['ficha_id', 'data_ini', 'data_fim', 'dias', 'status', 'obs'] },
   candidato: { t: 'estagio_candidato', campos: ['nome', 'cpf', 'email', 'telefone', 'escola', 'curso', 'serie', 'boletim', 'frequencia', 'status', 'obs', 'tipo_vaga'] },
@@ -42,6 +42,15 @@ router.put('/config/:chave', exigePerfil(...PERFIS), (req, res) => {
   db.prepare(`INSERT INTO estagio_config (empresa_id,chave,valor,atualizado_em) VALUES (?,?,?,datetime('now'))
     ON CONFLICT(empresa_id,chave) DO UPDATE SET valor=excluded.valor, atualizado_em=excluded.atualizado_em`).run(emp(req), req.params.chave, req.body?.valor || '');
   res.json({ ok: true });
+});
+
+// ── Controle de assinatura do contrato (onde o documento está) ──
+const DOC_STATUS = ['pendente', 'enviado_loja', 'com_estagiario', 'assinado'];
+router.put('/ficha/:id/doc-status', exigePerfil(...PERFIS), (req, res) => {
+  const st = DOC_STATUS.includes(req.body?.status) ? req.body.status : 'pendente';
+  db.prepare(`UPDATE estagio_ficha SET doc_status=?, doc_status_em=datetime('now'), doc_obs=? WHERE id=? AND empresa_id=?`)
+    .run(st, req.body?.obs || null, req.params.id, emp(req));
+  res.json({ ok: true, status: st });
 });
 
 // ── Índice de aprovação de uma ficha ──
