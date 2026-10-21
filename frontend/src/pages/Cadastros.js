@@ -5,7 +5,7 @@ import Indicadores from './Indicadores';
 import RegrasSistema from './RegrasSistema';
 import { abrirTermoCampanha } from './Premiacao';
 import AutoCadastroRH from './AutoCadastroRH';
-import { Escolas as EscolasEstagio, Contrato as ContratoEstagio } from './EstagioRH';
+import { Contrato as ContratoEstagio } from './EstagioRH';
 import { MODULOS_META } from '../App';
 
 export default function Cadastros({ modo = 'tudo' }) {
@@ -14,7 +14,7 @@ export default function Cadastros({ modo = 'tudo' }) {
   // Abas por modo: colaborador (Gente & Gestão) · config (Configuração) · afastamentos (Gente & Gestão)
   const ABAS = {
     colaborador: ['colaboradores'],
-    config: ['lojas', 'estagio-escolas'],
+    config: ['lojas'],
     afastamentos: ['rh'],
     tudo: ['colaboradores', 'lojas', 'empresas', 'premiacao', 'checklist', 'ocorrencias', 'indicadores', 'pilares', 'conquistas', 'regras-fonte', 'acessos', 'rh', 'campanhas', 'termos', 'funcoes'],
   };
@@ -38,7 +38,6 @@ export default function Cadastros({ modo = 'tudo' }) {
 
       {aba === 'colaboradores' && <Colaboradores API={API} />}
       {aba === 'lojas' && <Lojas API={API} podeCriar={podeLoja} />}
-      {aba === 'estagio-escolas' && <EscolasEstagio API={API} />}
       {aba === 'empresas' && <TerceirizadasCadastro API={API} />}
       {aba === 'premiacao' && <Premiacoes API={API} />}
       {aba === 'checklist' && <ChecklistCadastro API={API} />}
