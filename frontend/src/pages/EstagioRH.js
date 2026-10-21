@@ -33,18 +33,21 @@ export default function EstagioRH() {
 
 // ───────── Escolas ─────────
 export function Escolas({ API }) {
+  const vaziaE = { nome: '', cnpj: '', endereco: '', cidade: '', contato: '', telefone: '', representante: '' };
   const [rows, setRows] = useState([]);
-  const [f, setF] = useState({ nome: '', cnpj: '', endereco: '', cidade: '', contato: '', telefone: '' });
+  const [f, setF] = useState(vaziaE);
+  const [editId, setEditId] = useState(null);
   const [msg, setMsg] = useState('');
   const carregar = useCallback(() => API.get('/estagio/escola').then(r => setRows(r.data)).catch(() => {}), [API]);
   useEffect(() => { carregar(); }, [carregar]);
-  const salvar = () => API.post('/estagio/escola', { ...f, ativo: 1 }).then(() => { setMsg('✅ Instituição salva'); setF({ nome: '', cnpj: '', endereco: '', cidade: '', contato: '', telefone: '', representante: '' }); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro')));
+  const salvar = () => API.post('/estagio/escola', { ...f, id: editId || undefined, ativo: 1 }).then(() => { setMsg(editId ? '✅ Instituição atualizada' : '✅ Instituição salva'); setF(vaziaE); setEditId(null); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro')));
   const remover = id => { if (window.confirm('Remover instituição de ensino?')) API.delete('/estagio/escola/' + id).then(carregar); };
+  const editar = r => { setEditId(r.id); setF({ ...vaziaE, ...r }); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   return (
     <div>
       <div style={s.card}>
-        <div style={s.cardT}>Nova instituição de ensino (escola, faculdade ou curso técnico — interveniente do contrato)</div>
+        <div style={s.cardT}>{editId ? 'Editar instituição de ensino' : 'Nova instituição de ensino (escola, faculdade ou curso técnico — interveniente do contrato)'}</div>
         <div style={s.grid}>
           <label style={s.lab}>Nome<input style={s.inp} value={f.nome} onChange={e => set('nome', e.target.value)} /></label>
           <label style={s.lab}>CNPJ<input style={s.inp} value={f.cnpj} onChange={e => set('cnpj', e.target.value)} /></label>
@@ -54,58 +57,66 @@ export function Escolas({ API }) {
           <label style={s.lab}>Telefone<input style={s.inp} value={f.telefone} onChange={e => set('telefone', e.target.value)} /></label>
           <label style={{ ...s.lab, gridColumn: '1 / -1' }}>Representante (assina pela escola)<input style={s.inp} value={f.representante || ''} onChange={e => set('representante', e.target.value)} placeholder="nome de quem assina pela instituição de ensino" /></label>
         </div>
-        <button style={{ ...s.btnP, marginTop: 10 }} onClick={salvar}>Cadastrar</button>
+        <button style={{ ...s.btnP, marginTop: 10 }} onClick={salvar}>{editId ? 'Salvar alterações' : 'Cadastrar'}</button>
+        {editId && <button style={{ ...s.btn, marginTop: 10, marginLeft: 8 }} onClick={() => { setEditId(null); setF(vaziaE); }}>Cancelar</button>}
         {msg && <div style={s.msg}>{msg}</div>}
       </div>
-      <Tabela cols={[['nome', 'Instituição de Ensino'], ['cnpj', 'CNPJ'], ['cidade', 'Cidade'], ['endereco', 'Endereço'], ['telefone', 'Telefone']]} rows={rows} onDel={remover} />
+      <Tabela cols={[['nome', 'Instituição de Ensino'], ['cnpj', 'CNPJ'], ['cidade', 'Cidade'], ['endereco', 'Endereço'], ['telefone', 'Telefone']]} rows={rows} onDel={remover} onEdit={editar} />
     </div>
   );
 }
 
 // ───────── Empresas ─────────
 export function Empresas({ API }) {
+  const vaziaE = { nome: '', cnpj: '', tipo: 'ambos', endereco: '' };
   const [rows, setRows] = useState([]);
-  const [f, setF] = useState({ nome: '', cnpj: '', tipo: 'ambos', endereco: '' });
+  const [f, setF] = useState(vaziaE);
+  const [editId, setEditId] = useState(null);
   const [msg, setMsg] = useState('');
   const carregar = useCallback(() => API.get('/estagio/empresa').then(r => setRows(r.data)).catch(() => {}), [API]);
   useEffect(() => { carregar(); }, [carregar]);
-  const salvar = () => API.post('/estagio/empresa', { ...f, ativo: 1 }).then(() => { setMsg('✅ Empresa salva'); setF({ nome: '', cnpj: '', tipo: 'ambos', endereco: '' }); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro')));
+  const salvar = () => API.post('/estagio/empresa', { ...f, id: editId || undefined, ativo: 1 }).then(() => { setMsg(editId ? '✅ Empresa atualizada' : '✅ Empresa salva'); setF(vaziaE); setEditId(null); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro')));
   const remover = id => { if (window.confirm('Remover empresa?')) API.delete('/estagio/empresa/' + id).then(carregar); };
+  const editar = r => { setEditId(r.id); setF({ ...vaziaE, ...r }); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const TIPO = { registro: 'Registro', atuacao: 'Atuação', ambos: 'Registro + Atuação' };
   return (
     <div>
       <div style={s.card}>
-        <div style={s.cardT}>Nova empresa</div>
+        <div style={s.cardT}>{editId ? 'Editar empresa' : 'Nova empresa'}</div>
         <div style={s.grid}>
           <label style={s.lab}>Nome / razão social<input style={s.inp} value={f.nome} onChange={e => set('nome', e.target.value)} /></label>
           <label style={s.lab}>CNPJ<input style={s.inp} value={f.cnpj} onChange={e => set('cnpj', e.target.value)} /></label>
           <label style={s.lab}>Tipo<select style={s.inp} value={f.tipo} onChange={e => set('tipo', e.target.value)}><option value="registro">Registro</option><option value="atuacao">Atuação</option><option value="ambos">Registro + Atuação</option></select></label>
           <label style={{ ...s.lab, gridColumn: '1 / -1' }}>Endereço<input style={s.inp} value={f.endereco} onChange={e => set('endereco', e.target.value)} /></label>
         </div>
-        <button style={{ ...s.btnP, marginTop: 10 }} onClick={salvar}>Cadastrar</button>
+        <button style={{ ...s.btnP, marginTop: 10 }} onClick={salvar}>{editId ? 'Salvar alterações' : 'Cadastrar'}</button>
+        {editId && <button style={{ ...s.btn, marginTop: 10, marginLeft: 8 }} onClick={() => { setEditId(null); setF(vaziaE); }}>Cancelar</button>}
         {msg && <div style={s.msg}>{msg}</div>}
       </div>
-      <Tabela cols={[['nome', 'Empresa'], ['cnpj', 'CNPJ'], ['tipo', 'Tipo', v => TIPO[v] || v], ['endereco', 'Endereço']]} rows={rows} onDel={remover} />
+      <Tabela cols={[['nome', 'Empresa'], ['cnpj', 'CNPJ'], ['tipo', 'Tipo', v => TIPO[v] || v], ['endereco', 'Endereço']]} rows={rows} onDel={remover} onEdit={editar} />
     </div>
   );
 }
 
 // ───────── Seguros ─────────
 function Seguros({ API }) {
+  const vaziaS = { seguradora: '', apolice: '', vigencia_ini: '', vigencia_fim: '', valor: '', cobertura: '' };
   const [rows, setRows] = useState([]);
-  const [f, setF] = useState({ seguradora: '', apolice: '', vigencia_ini: '', vigencia_fim: '', valor: '', cobertura: '' });
+  const [f, setF] = useState(vaziaS);
+  const [editId, setEditId] = useState(null);
   const [msg, setMsg] = useState('');
   const carregar = useCallback(() => API.get('/estagio/seguro').then(r => setRows(r.data)).catch(() => {}), [API]);
   useEffect(() => { carregar(); }, [carregar]);
-  const salvar = () => API.post('/estagio/seguro', { ...f, valor: Number(f.valor) || 0, ativo: 1 }).then(() => { setMsg('✅ Seguro salvo'); setF({ seguradora: '', apolice: '', vigencia_ini: '', vigencia_fim: '', valor: '', cobertura: '' }); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro')));
+  const salvar = () => API.post('/estagio/seguro', { ...f, id: editId || undefined, valor: Number(f.valor) || 0, ativo: 1 }).then(() => { setMsg(editId ? '✅ Seguro atualizado' : '✅ Seguro salvo'); setF(vaziaS); setEditId(null); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro')));
   const remover = id => { if (window.confirm('Remover seguro?')) API.delete('/estagio/seguro/' + id).then(carregar); };
+  const editar = r => { setEditId(r.id); setF({ ...vaziaS, ...r }); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   return (
     <div>
       <div style={{ ...s.msg, background: '#eff6ff', color: '#1e40af', marginBottom: 12 }}>O seguro é <b>obrigatório por lei</b> (Lei 11.788) e precisa constar no contrato. Cadastre a apólice aqui para vincular na ficha do estagiário.</div>
       <div style={s.card}>
-        <div style={s.cardT}>Novo seguro</div>
+        <div style={s.cardT}>{editId ? 'Editar seguro' : 'Novo seguro'}</div>
         <div style={s.grid}>
           <label style={s.lab}>Seguradora<input style={s.inp} value={f.seguradora} onChange={e => set('seguradora', e.target.value)} /></label>
           <label style={s.lab}>Apólice<input style={s.inp} value={f.apolice} onChange={e => set('apolice', e.target.value)} /></label>
@@ -114,22 +125,24 @@ function Seguros({ API }) {
           <label style={s.lab}>Valor (R$)<input type="number" style={s.inp} value={f.valor} onChange={e => set('valor', e.target.value)} /></label>
           <label style={{ ...s.lab, gridColumn: '1 / -1' }}>Cobertura<input style={s.inp} value={f.cobertura} onChange={e => set('cobertura', e.target.value)} placeholder="Ex.: morte acidental, invalidez…" /></label>
         </div>
-        <button style={{ ...s.btnP, marginTop: 10 }} onClick={salvar}>Cadastrar</button>
+        <button style={{ ...s.btnP, marginTop: 10 }} onClick={salvar}>{editId ? 'Salvar alterações' : 'Cadastrar'}</button>
+        {editId && <button style={{ ...s.btn, marginTop: 10, marginLeft: 8 }} onClick={() => { setEditId(null); setF(vaziaS); }}>Cancelar</button>}
         {msg && <div style={s.msg}>{msg}</div>}
       </div>
-      <Tabela cols={[['seguradora', 'Seguradora'], ['apolice', 'Apólice'], ['vigencia_ini', 'Início'], ['vigencia_fim', 'Fim'], ['valor', 'Valor', brl], ['cobertura', 'Cobertura']]} rows={rows} onDel={remover} />
+      <Tabela cols={[['seguradora', 'Seguradora'], ['apolice', 'Apólice'], ['vigencia_ini', 'Início'], ['vigencia_fim', 'Fim'], ['valor', 'Valor', brl], ['cobertura', 'Cobertura']]} rows={rows} onDel={remover} onEdit={editar} />
     </div>
   );
 }
 
 // ───────── Ficha do estagiário ─────────
-const vazia = { nome: '', cpf: '', rg: '', nascimento: '', endereco: '', telefone: '', email: '', escola_id: '', curso: '', serie: '', empresa_registro_id: '', empresa_atuacao_id: '', loja: '', valor_bolsa: '', vale_transporte: '', beneficios: '', seguro_id: '', resp_nome: '', resp_cpf: '', resp_telefone: '', resp_parentesco: '', data_inicio: '', data_fim: '', status: 'ativo', banco: '', agencia: '', conta: '', tipo_conta: '', pix: '' };
+const vazia = { nome: '', cpf: '', rg: '', nascimento: '', endereco: '', telefone: '', email: '', escola_id: '', curso: '', serie: '', empresa_registro_id: '', empresa_atuacao_id: '', assinante_empresa_id: '', supervisor_id: '', loja: '', horario: '', horas_dia: '', horas_semana: '', valor_bolsa: '', vale_transporte: '', beneficios: '', seguro_id: '', resp_nome: '', resp_cpf: '', resp_telefone: '', resp_parentesco: '', data_inicio: '', data_fim: '', status: 'ativo', banco: '', agencia: '', conta: '', tipo_conta: '', pix: '' };
 function Fichas({ API }) {
   const [rows, setRows] = useState([]);
   const [escolas, setEscolas] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [seguros, setSeguros] = useState([]);
   const [lojas, setLojas] = useState([]);
+  const [colabs, setColabs] = useState([]);
   const [f, setF] = useState(vazia);
   const [editId, setEditId] = useState(null);
   const [msg, setMsg] = useState('');
@@ -140,6 +153,7 @@ function Fichas({ API }) {
     API.get('/estagio/empresa').then(r => setEmpresas(r.data)).catch(() => {});
     API.get('/estagio/seguro').then(r => setSeguros(r.data)).catch(() => {});
     API.get('/referencias/lojas').then(r => setLojas(r.data.lojas || [])).catch(() => {});
+    API.get('/colaboradores').then(r => setColabs(r.data.colaboradores || [])).catch(() => {});
   }, [API, carregar]);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const salvar = () => {
@@ -171,11 +185,15 @@ function Fichas({ API }) {
           <label style={s.lab}>Série/Período<input style={s.inp} value={f.serie || ''} onChange={e => set('serie', e.target.value)} /></label>
           <label style={s.lab}>Empresa de registro<select style={s.inp} value={f.empresa_registro_id || ''} onChange={e => set('empresa_registro_id', e.target.value)}><option value="">—</option>{lojas.length ? <optgroup label="Lojas">{lojas.map(l => <option key={l.id} value={l.id}>🏪 {l.nome}</option>)}</optgroup> : null}{empRegistro.length ? <optgroup label="Empresas">{empRegistro.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</optgroup> : null}</select></label>
           <label style={s.lab}>Empresa de atuação<select style={s.inp} value={f.empresa_atuacao_id || ''} onChange={e => set('empresa_atuacao_id', e.target.value)}><option value="">—</option>{lojas.length ? <optgroup label="Lojas">{lojas.map(l => <option key={l.id} value={l.id}>🏪 {l.nome}</option>)}</optgroup> : null}{empAtuacao.length ? <optgroup label="Empresas">{empAtuacao.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</optgroup> : null}</select></label>
-          <label style={s.lab}>Loja<input style={s.inp} value={f.loja || ''} onChange={e => set('loja', e.target.value)} /></label>
+          <label style={s.lab}>Assina pela empresa<select style={s.inp} value={f.assinante_empresa_id || ''} onChange={e => set('assinante_empresa_id', e.target.value)}><option value="">Sócio padrão da loja</option>{colabs.map(c => <option key={c.id} value={c.id}>{c.nome}{c.funcao ? ' · ' + c.funcao : ''}</option>)}</select></label>
+          <label style={s.lab}>Supervisor do estágio<select style={s.inp} value={f.supervisor_id || ''} onChange={e => set('supervisor_id', e.target.value)}><option value="">— (usa o padrão)</option>{colabs.map(c => <option key={c.id} value={c.id}>{c.nome}{c.funcao ? ' · ' + c.funcao : ''}</option>)}</select></label>
           <label style={s.lab}>Valor da bolsa (R$)<input type="number" style={s.inp} value={f.valor_bolsa} onChange={e => set('valor_bolsa', e.target.value)} /></label>
           <label style={s.lab}>Vale transporte (R$)<input type="number" style={s.inp} value={f.vale_transporte} onChange={e => set('vale_transporte', e.target.value)} /></label>
           <label style={s.lab}>Seguro<select style={s.inp} value={f.seguro_id || ''} onChange={e => set('seguro_id', e.target.value)}><option value="">—</option>{seguros.map(x => <option key={x.id} value={x.id}>{x.seguradora} {x.apolice ? '· ' + x.apolice : ''}</option>)}</select></label>
           <label style={{ ...s.lab, gridColumn: '1 / -1' }}>Benefícios<input style={s.inp} value={f.beneficios || ''} onChange={e => set('beneficios', e.target.value)} placeholder="Ex.: vale-refeição, plano…" /></label>
+          <label style={{ ...s.lab, gridColumn: '1 / -1' }}>Horário do estágio<input style={s.inp} value={f.horario || ''} onChange={e => set('horario', e.target.value)} placeholder="Ex.: 13h às 18h, de segunda a sábado" /></label>
+          <label style={s.lab}>Horas por dia<input style={s.inp} value={f.horas_dia || ''} onChange={e => set('horas_dia', e.target.value)} placeholder="Ex.: 05 (cinco)" /></label>
+          <label style={s.lab}>Horas por semana<input style={s.inp} value={f.horas_semana || ''} onChange={e => set('horas_semana', e.target.value)} placeholder="Ex.: 30 (trinta)" /></label>
           <label style={s.lab}>Início<input type="date" style={s.inp} value={f.data_inicio || ''} onChange={e => set('data_inicio', e.target.value)} /></label>
           <label style={s.lab}>Fim (previsto)<input type="date" style={s.inp} value={f.data_fim || ''} onChange={e => set('data_fim', e.target.value)} /></label>
           <label style={s.lab}>Status<select style={s.inp} value={f.status} onChange={e => set('status', e.target.value)}><option value="ativo">Ativo</option><option value="inativo">Inativo</option><option value="rescindido">Rescindido</option></select></label>
@@ -406,34 +424,49 @@ function Ranking2({ API }) {
 // Impressão formatada do contrato: transforma o texto (modelo preenchido) em um documento A4
 // com título, blocos de seção destacados, cláusulas em negrito e linhas de assinatura.
 // O modelo continua sendo TEXTO editável — a formatação é aplicada só na hora de imprimir/gerar PDF.
-function contratoHtml(texto) {
+// renderiza um documento (contrato ou termo de ciência) em HTML formatado: título, quadros de seção e blocos de assinatura
+function docHtml(texto) {
   const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   const linhas = String(texto || '').split('\n');
   const SECOES = ['INSTITUIÇÃO DE ENSINO', 'UNIDADE CONCEDENTE', 'ESTAGIÁRIO'];
   const ROTULOS = /^(CONCEDENTE|SUPERVISOR DO ESTÁGIO|INSTITUIÇÃO DE ENSINO|ESTAGIÁRIO|RESPONSÁVEL LEGAL)\b/;
-  const out = []; let i = 0, assin = false, blk = null;
+  const out = []; let i = 0, assin = false, blk = null, sec = null;
   const flush = () => { if (blk) { out.push('<div class="assinblk">' + blk.join('') + '</div>'); blk = null; } };
+  const flushSec = () => { if (sec) { out.push('<div class="secbox">' + sec.join('') + '</div>'); sec = null; } };
   while (i < linhas.length && !linhas[i].trim()) i++;
   const tit = []; while (i < linhas.length && linhas[i].trim()) { tit.push(linhas[i]); i++; }
   out.push('<h1>' + tit.map(esc).join('<br>') + '</h1>');
   for (; i < linhas.length; i++) {
     const t = linhas[i].trim();
-    if (/^_{5,}/.test(t)) { flush(); assin = true; blk = ['<div class="assin"></div>']; continue; }
+    if (/^_{5,}/.test(t)) { flushSec(); flush(); assin = true; blk = ['<div class="assin"></div>']; continue; }
     if (assin && blk) { if (t) blk.push('<p class="sig' + (ROTULOS.test(t) ? ' b' : '') + '">' + esc(t) + '</p>'); continue; }
+    if (SECOES.includes(t.toUpperCase())) { flushSec(); sec = ['<div class="sec">' + esc(t) + '</div>']; continue; }
+    // dentro de um quadro de seção: acumula até começar o corpo (cláusulas / "As partes")
+    const corpo = /^CLÁUSULA/.test(t) || /^As partes/i.test(t);
+    if (sec && !corpo) { if (t) sec.push('<p>' + esc(t) + '</p>'); else sec.push('<div class="spx"></div>'); continue; }
+    flushSec();
     if (!t) { out.push('<div class="sp"></div>'); continue; }
-    if (SECOES.includes(t.toUpperCase())) { out.push('<div class="sec">' + esc(t) + '</div>'); continue; }
     if (/^CLÁUSULA/.test(t)) { out.push('<p class="cl">' + esc(t) + '</p>'); continue; }
     out.push('<p>' + esc(t) + '</p>');
   }
-  flush();
+  flushSec(); flush();
+  return out.join('');
+}
+function contratoHtml(texto, ciencia) {
+  // o termo de ciência do Guia (quando houver) sai em página nova, junto com o contrato
+  const corpo = docHtml(texto) + (ciencia ? '<div class="pb"></div>' + docHtml(ciencia) : '');
   return '<!doctype html><html><head><meta charset="utf-8"><title>Contrato de Estágio</title><style>'
     + '@page{size:A4;margin:2cm 2.2cm}body{font-family:Arial,Helvetica,sans-serif;font-size:10.5pt;line-height:1.5;color:#111}'
     + 'h1{text-align:center;font-size:13pt;font-weight:800;text-transform:uppercase;margin:0 0 14px;padding-bottom:10px;border-bottom:2px solid #111;letter-spacing:.3px}'
-    + '.sec{font-weight:800;background:#eef2f7;border-left:4px solid #334155;padding:5px 9px;margin:12px 0 6px;text-transform:uppercase;letter-spacing:.3px}'
+    + '.secbox{border:1px solid #334155;border-radius:6px;margin:12px 0;overflow:hidden;break-inside:avoid;page-break-inside:avoid}'
+    + '.secbox .sec{margin:0;border-bottom:1px solid #334155}'
+    + '.secbox p{margin:4px 11px}.secbox .spx{height:3px}'
+    + '.sec{font-weight:800;background:#eef2f7;padding:5px 9px;text-transform:uppercase;letter-spacing:.3px}'
     + 'p{margin:5px 0;text-align:justify}p.cl{font-weight:700;margin:11px 0 4px}.sp{height:7px}'
     + '.assinblk{break-inside:avoid;page-break-inside:avoid;margin-top:28px}'
     + '.assin{border-top:1px solid #111;width:60%;margin:0 auto 3px}p.sig{text-align:center;margin:1px 0}p.sig.b{font-weight:700}'
-    + '</style></head><body>' + out.join('') + '</body></html>';
+    + '.pb{break-before:page;page-break-before:always}'
+    + '</style></head><body>' + corpo + '</body></html>';
 }
 
 // ───────── Contrato (gera pelo modelo, preenchendo a ficha) ─────────
@@ -451,6 +484,7 @@ export function Contrato({ API, colaboradorId }) {
   const [sup, setSup] = useState({ nome: '', cargo: '', email: '' }); // supervisor do estágio (config)
   const [assinanteId, setAssinanteId] = useState(''); // colaborador que assina pela empresa ('' = sócio padrão da loja)
   const [docSt, setDocSt] = useState('pendente'); // controle de assinatura do documento
+  const [ciencia, setCiencia] = useState(''); // termo de ciência do Guia do Colaborador (sai junto com o contrato)
   useEffect(() => {
     Promise.all(['supervisor_nome', 'supervisor_cargo', 'supervisor_email'].map(k => API.get('/estagio/config/' + k).then(r => r.data.valor || '').catch(() => '')))
       .then(([nome, cargo, email]) => setSup({ nome, cargo, email }));
@@ -461,6 +495,7 @@ export function Contrato({ API, colaboradorId }) {
     API.get('/referencias/lojas').then(r => setLojas(r.data.lojas || [])).catch(() => {});
     API.get('/colaboradores').then(r => setColabs(r.data.colaboradores || [])).catch(() => {});
     API.get('/estagio/config/modelos_doc').then(r => { try { const l = JSON.parse(r.data.valor || '[]'); if (l.length) setModelos(l); } catch { /* usa default */ } }).catch(() => {});
+    API.get('/estagio/config/modelo_ciencia_guia').then(r => setCiencia(r.data.valor || '')).catch(() => {});
   }, [API]);
   useEffect(() => { API.get('/estagio/config/' + chave).then(r => setModelo(r.data.valor || '')).catch(() => {}); }, [API, chave]);
   // Quando aberto pela ficha do colaborador, seleciona a ficha de estágio dele automaticamente.
@@ -483,11 +518,13 @@ export function Contrato({ API, colaboradorId }) {
     }
     return null;
   };
-  const preencher = () => {
-    const f = fichas.find(x => x.id === fid); if (!f) return '';
+  // monta o dicionário de {{campos}} da ficha selecionada (usado pelo contrato e pelo termo de ciência do Guia)
+  const montarMap = () => {
+    const f = fichas.find(x => x.id === fid); if (!f) return null;
     const sg = seg.find(x => x.id === f.seguro_id);
     const socio = socioDaLoja(f.empresa_registro_id, f.empresa_atuacao_id);
     const assina = assinanteId ? colabs.find(x => x.id === assinanteId) : null; // quem foi escolhido p/ assinar pela empresa
+    const superv = f.supervisor_id ? colabs.find(x => x.id === f.supervisor_id) : null; // supervisor vinculado (colaborador)
     const seguroTxt = sg ? `${sg.seguradora}${sg.apolice ? ' — apólice ' + sg.apolice : ''}${sg.vigencia_fim ? ' (vigência até ' + fmtD(sg.vigencia_fim) + ')' : ''}` : '(seguro não vinculado)';
     const map = {
       nome: f.nome || '', cpf: f.cpf || '', rg: f.rg || '', nascimento: fmtD(f.nascimento), endereco: f.endereco || '', telefone: f.telefone || '', email: f.email || '',
@@ -497,28 +534,33 @@ export function Contrato({ API, colaboradorId }) {
       empresa_atuacao_cnpj: campoEmp(f.empresa_atuacao_id, 'cnpj'), empresa_atuacao_endereco: campoEmp(f.empresa_atuacao_id, 'endereco'),
       escola_cnpj: nome(esc, f.escola_id, 'cnpj'), escola_endereco: nome(esc, f.escola_id, 'endereco'), escola_representante: nome(esc, f.escola_id, 'representante') || '(representante da escola)',
       atividade: f.curso || 'Auxiliar no Atendimento ao Cliente',
+      horario: f.horario || '(horário a combinar)', horas_dia: f.horas_dia || '', horas_semana: f.horas_semana || '',
       valor_bolsa: brl(f.valor_bolsa), vale_transporte: brl(f.vale_transporte), beneficios: f.beneficios || '—',
       seguro: seguroTxt, resp_nome: f.resp_nome || '', resp_cpf: f.resp_cpf || '', resp_parentesco: f.resp_parentesco || '',
       data_inicio: fmtD(f.data_inicio), data_fim: fmtD(f.data_fim),
       socio_nome: assina ? assina.nome : (socio ? socio.nome : ''),
       socio_cpf: assina ? (assina.cpf || '') : (socio ? (socio.cpf || '') : ''),
-      supervisor_nome: sup.nome || '(supervisor)', supervisor_cargo: sup.cargo || '', supervisor_email: sup.email || '',
+      supervisor_nome: superv ? superv.nome : (sup.nome || '(supervisor)'), supervisor_cargo: superv ? (superv.funcao || '') : (sup.cargo || ''), supervisor_email: superv ? (superv.email || '') : (sup.email || ''),
       // bloco de assinatura do responsável — só aparece quando a ficha tem responsável (menor de 18)
       assinatura_responsavel: f.resp_nome ? ('\n_______________________________________\nRESPONSÁVEL LEGAL (assina pelo menor)\n' + f.resp_nome + (f.resp_cpf ? '    CPF: ' + f.resp_cpf : '') + (f.resp_parentesco ? '    (' + f.resp_parentesco + ')' : '')) : '',
       cidade_data: 'Entre Rios, ' + new Date().toLocaleDateString('pt-BR'),
     };
-    return modelo.replace(/\{\{(\w+)\}\}/g, (_, k) => (map[k] != null ? map[k] : ''));
+    return map;
   };
+  const aplicar = tpl => { const map = montarMap(); return map ? tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => (map[k] != null ? map[k] : '')) : ''; };
+  const preencher = () => aplicar(modelo);
   const texto = fid ? preencher() : '';
+  const cienciaTxt = fid && ciencia ? aplicar(ciencia) : ''; // termo de ciência do Guia, já preenchido
   const imprimir = () => {
     const w = window.open('', '_blank');
-    w.document.write(contratoHtml(texto));
+    // o contrato e o termo de ciência do Guia saem juntos (o Guia é mencionado em cláusula e assinado pelo estagiário)
+    w.document.write(contratoHtml(texto, cienciaTxt));
     w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
   };
   const salvarTpl = () => API.put('/estagio/config/' + chave, { valor: modelo }).then(() => { setMsg('✅ Modelo salvo'); setEditTpl(false); }).catch(() => setMsg('⚠️ erro'));
   // controle de assinatura do documento (onde ele está)
   const DOC_LABELS = [['pendente', '📝 Pendente'], ['enviado_loja', '📦 Enviado pra loja'], ['com_estagiario', '🧑‍🎓 Com o estagiário'], ['assinado', '✅ Assinado (devolvido)']];
-  useEffect(() => { setDocSt((fichas.find(x => x.id === fid) || {}).doc_status || 'pendente'); }, [fid, fichas]);
+  useEffect(() => { const fx = fichas.find(x => x.id === fid) || {}; setDocSt(fx.doc_status || 'pendente'); setAssinanteId(fx.assinante_empresa_id || ''); }, [fid, fichas]);
   const mudarStatus = (st) => API.put('/estagio/ficha/' + fid + '/doc-status', { status: st }).then(() => { setDocSt(st); setFichas(fs => fs.map(x => x.id === fid ? { ...x, doc_status: st } : x)); }).catch(() => {});
   return (
     <div>
@@ -549,6 +591,7 @@ export function Contrato({ API, colaboradorId }) {
         <div style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>Status atual: <b>{(DOC_LABELS.find(x => x[0] === docSt) || [])[1] || docSt}</b> — acompanhe o contrato do envio até voltar assinado.</div>
       </div>}
       {fid && <div style={s.card}><div style={s.cardT}>Prévia do contrato</div><div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6 }}>{texto}</div></div>}
+      {fid && cienciaTxt && <div style={s.card}><div style={s.cardT}>Prévia — Termo de ciência do Guia do Colaborador <span style={{ fontWeight: 400, color: '#64748b' }}>(sai em página própria, junto do contrato)</span></div><div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.6 }}>{cienciaTxt}</div></div>}
     </div>
   );
 }
@@ -871,7 +914,7 @@ function FeriasRescisao({ API }) {
   );
 }
 
-function Tabela({ cols, rows, onDel }) {
+function Tabela({ cols, rows, onDel, onEdit }) {
   return (
     <div style={s.card}>
       <div style={s.cardT}>{rows.length} cadastrado(s)</div>
@@ -882,7 +925,7 @@ function Tabela({ cols, rows, onDel }) {
             {rows.map(r => (
               <tr key={r.id} style={{ borderTop: '1px solid #eee' }}>
                 {cols.map(c => <td key={c[0]} style={s.td}>{c[2] ? c[2](r[c[0]]) : (r[c[0]] || '—')}</td>)}
-                <td style={s.td}><button style={s.btnMini} onClick={() => onDel(r.id)}>remover</button></td>
+                <td style={s.td}>{onEdit && <button style={s.btnMini} onClick={() => onEdit(r)}>editar</button>}{onEdit ? ' ' : ''}<button style={s.btnMini} onClick={() => onDel(r.id)}>remover</button></td>
               </tr>
             ))}
             {!rows.length && <tr><td style={s.td} colSpan={cols.length + 1}>Nenhum cadastro.</td></tr>}

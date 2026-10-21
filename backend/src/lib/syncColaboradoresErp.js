@@ -69,4 +69,22 @@ async function aplicar(empresaId, { reativar = false } = {}) {
   return { desativados: p.aDesativar.length, reativados: reativar ? p.aReativar.length : 0, marcadosEstagio: p.aMarcarEstagio.length, aDesativar: p.aDesativar, aReativar: reativar ? p.aReativar : [], aMarcarEstagio: p.aMarcarEstagio };
 }
 
-module.exports = { prever, aplicar, cpfsEstagio };
+// Marca automaticamente (sem mexer em ativo/inativo) todo colaborador cujo CPF está no grupo
+// "ESTAGIO" do ERP e ainda não é estagiário, criando a ficha. Seguro (só adiciona). Pro job diário.
+async function marcarEstagioAuto(empresaId) {
+  let estagio; try { estagio = await cpfsEstagio(); } catch (e) { return { marcados: 0, erro: e.message }; }
+  if (!estagio.size) return { marcados: 0 };
+  const colabs = db.prepare(`SELECT id, nome, cpf, loja_id, is_estagiario FROM colaboradores WHERE empresa_id=?`).all(empresaId);
+  const marcar = db.prepare(`UPDATE colaboradores SET is_estagiario=1 WHERE id=? AND empresa_id=?`);
+  let n = 0;
+  const tx = db.transaction(() => {
+    for (const c of colabs) {
+      const cp = dig(c.cpf);
+      if (cp && estagio.has(cp) && !c.is_estagiario) { marcar.run(c.id, empresaId); criarFichaEstagio(empresaId, c); n++; }
+    }
+  });
+  tx();
+  return { marcados: n };
+}
+
+module.exports = { prever, aplicar, cpfsEstagio, marcarEstagioAuto };

@@ -20,7 +20,7 @@ const TAB = {
   escola: { t: 'estagio_escola', campos: ['nome', 'cidade', 'contato', 'telefone', 'cnpj', 'endereco', 'representante', 'ativo'] },
   empresa: { t: 'estagio_empresa', campos: ['nome', 'cnpj', 'tipo', 'endereco', 'ativo'] },
   seguro: { t: 'estagio_seguro', campos: ['seguradora', 'apolice', 'vigencia_ini', 'vigencia_fim', 'valor', 'cobertura', 'ativo'] },
-  ficha: { t: 'estagio_ficha', campos: ['nome', 'cpf', 'rg', 'nascimento', 'endereco', 'telefone', 'email', 'escola_id', 'curso', 'serie', 'empresa_registro_id', 'empresa_atuacao_id', 'loja', 'valor_bolsa', 'vale_transporte', 'beneficios', 'seguro_id', 'resp_nome', 'resp_cpf', 'resp_telefone', 'resp_parentesco', 'data_inicio', 'data_fim', 'status', 'origem', 'banco', 'agencia', 'conta', 'tipo_conta', 'pix'] },
+  ficha: { t: 'estagio_ficha', campos: ['nome', 'cpf', 'rg', 'nascimento', 'endereco', 'telefone', 'email', 'escola_id', 'curso', 'serie', 'empresa_registro_id', 'empresa_atuacao_id', 'assinante_empresa_id', 'supervisor_id', 'loja', 'horario', 'horas_dia', 'horas_semana', 'valor_bolsa', 'vale_transporte', 'beneficios', 'seguro_id', 'resp_nome', 'resp_cpf', 'resp_telefone', 'resp_parentesco', 'data_inicio', 'data_fim', 'status', 'origem', 'banco', 'agencia', 'conta', 'tipo_conta', 'pix'] },
   avaliacao: { t: 'estagio_avaliacao', campos: ['ficha_id', 'competencia', 'nota', 'supervisor', 'comentario'] },
   ferias: { t: 'estagio_ferias', campos: ['ficha_id', 'data_ini', 'data_fim', 'dias', 'status', 'obs'] },
   candidato: { t: 'estagio_candidato', campos: ['nome', 'cpf', 'email', 'telefone', 'escola', 'curso', 'serie', 'boletim', 'frequencia', 'status', 'obs', 'tipo_vaga'] },

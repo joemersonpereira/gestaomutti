@@ -240,7 +240,10 @@ function rodarSyncAlpha() {
     const db = require('./db/connection');
     const empresas = [...new Set(db.prepare('SELECT empresa_id FROM lojas').all().map(r => r.empresa_id))];
     empresas.forEach(eid => Promise.resolve(syncErp.aplicar(eid, { reativar: false }))
-      .then(r => { if (r && r.desativados) console.log(`[sync-alpha] ${eid}: ${r.desativados} colaborador(es) desativado(s) (inativos no Alpha)`); })
+      .then(r => {
+        if (r && r.desativados) console.log(`[sync-alpha] ${eid}: ${r.desativados} colaborador(es) desativado(s) (inativos no Alpha)`);
+        if (r && r.marcadosEstagio) console.log(`[sync-alpha] ${eid}: ${r.marcadosEstagio} marcado(s) como estagiário (grupo ESTAGIO do Alpha) + ficha criada`);
+      })
       .catch(() => {}));
   } catch { /* ignora */ }
 }
