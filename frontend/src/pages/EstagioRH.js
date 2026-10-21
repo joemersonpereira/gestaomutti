@@ -591,16 +591,20 @@ export function Contrato({ API, colaboradorId, fichaId }) {
   const montarMap = () => {
     const f = fichas.find(x => x.id === fid); if (!f) return null;
     const sg = seg.find(x => x.id === f.seguro_id);
-    const socio = socioDaLoja(f.empresa_registro_id, f.empresa_atuacao_id);
+    const socio = socioDaLoja(f.empresa_registro_id, f.empresa_atuacao_id, f.loja);
     const assina = assinanteId ? colabs.find(x => x.id === assinanteId) : null; // quem foi escolhido p/ assinar pela empresa
     const superv = f.supervisor_id ? colabs.find(x => x.id === f.supervisor_id) : null; // supervisor vinculado (colaborador)
     const seguroTxt = sg ? `${sg.seguradora}${sg.apolice ? ' — apólice ' + sg.apolice : ''}${sg.vigencia_fim ? ' (vigência até ' + fmtD(sg.vigencia_fim) + ')' : ''}` : '(seguro não vinculado)';
+    // Empresa de registro/atuação: se o RH não escolheu, cai na LOJA do estagiário (fichas vindas do
+    // Alpha / marcadas como estagiário só têm a loja) — assim todo documento mostra onde a pessoa estagiou.
+    const regId = f.empresa_registro_id || f.loja;
+    const atuId = f.empresa_atuacao_id || f.loja;
     const map = {
       nome: f.nome || '', cpf: f.cpf || '', rg: f.rg || '', nascimento: fmtD(f.nascimento), endereco: f.endereco || '', telefone: f.telefone || '', email: f.email || '',
       escola: nome(esc, f.escola_id), curso: f.curso || '', serie: f.serie || '',
-      empresa_atuacao: nomeAtu(f.empresa_atuacao_id), empresa_registro: nomeAtu(f.empresa_registro_id), loja: f.loja || '',
-      empresa_registro_cnpj: campoEmp(f.empresa_registro_id, 'cnpj'), empresa_registro_endereco: campoEmp(f.empresa_registro_id, 'endereco'),
-      empresa_atuacao_cnpj: campoEmp(f.empresa_atuacao_id, 'cnpj'), empresa_atuacao_endereco: campoEmp(f.empresa_atuacao_id, 'endereco'),
+      empresa_atuacao: nomeAtu(atuId), empresa_registro: nomeAtu(regId), loja: f.loja || '',
+      empresa_registro_cnpj: campoEmp(regId, 'cnpj'), empresa_registro_endereco: campoEmp(regId, 'endereco'),
+      empresa_atuacao_cnpj: campoEmp(atuId, 'cnpj'), empresa_atuacao_endereco: campoEmp(atuId, 'endereco'),
       escola_cnpj: nome(esc, f.escola_id, 'cnpj'), escola_endereco: nome(esc, f.escola_id, 'endereco'), escola_representante: nome(esc, f.escola_id, 'representante') || '(representante da escola)',
       atividade: f.curso || 'Auxiliar no Atendimento ao Cliente',
       horario: f.horario || '(horário a combinar)', horas_dia: f.horas_dia || '', horas_semana: f.horas_semana || '',
