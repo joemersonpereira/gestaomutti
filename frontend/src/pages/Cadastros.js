@@ -395,15 +395,8 @@ function Colaboradores({ API }) {
       </div>
       )}
 
-      {editId && <FichaColaborador API={API} colaboradorId={editId} nome={form.nome} onDesligar={() => setDesligarAlvo({ id: editId, nome: form.nome })} />}
+      {editId && <FichaColaborador API={API} colaboradorId={editId} nome={form.nome} estagiario={!!form.is_estagiario} onDesligar={() => setDesligarAlvo({ id: editId, nome: form.nome })} />}
       {editId && <CampanhasDoColaborador API={API} colaboradorId={editId} />}
-      {editId && form.is_estagiario && (
-        <div style={{ ...s.card, marginTop: 12 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>🎓 Contrato de estágio</div>
-          <div style={{ fontSize: 12, color: '#999', marginBottom: 8 }}>Gera o contrato desta pessoa usando os dados da ficha de estágio (loja, bolsa, sócio que assina, etc.).</div>
-          <ContratoEstagio API={API} colaboradorId={editId} />
-        </div>
-      )}
 
       <div style={s.card}>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Colaboradores <span style={{ color: '#999', fontWeight: 400 }}>({listaFiltrada.length}{listaFiltrada.length !== lista.length ? ` de ${lista.length}` : ''})</span></div>
@@ -1837,9 +1830,13 @@ const DOC_TIPOS = ['CPF', 'RG', 'Comprovante de residência', 'Certidão de casa
 
 // 🧭 Visão 360 do colaborador — tudo numa tela só (histórico, desempenho, desenvolvimento, documentos).
 // `documentos` controla a aba Documentos (só RH/gestão); `semTitulo` esconde o cabeçalho quando já há um.
-export function FichaColaborador({ API, colaboradorId, nome, onDesligar, documentos = true, semTitulo = false }) {
-  const [aba, setAba] = useState('historico');
-  const abas = [['historico', '🕓 Histórico'], ['desempenho', '📈 Desempenho'], ['desenvolvimento', '🎓 Desenvolvimento'], ...(documentos ? [['documentos', '📎 Documentos']] : [])];
+export function FichaColaborador({ API, colaboradorId, nome, onDesligar, documentos = true, semTitulo = false, estagiario = false }) {
+  const [aba, setAba] = useState(estagiario ? 'estagio' : 'historico');
+  const abas = [
+    ...(estagiario ? [['estagio', '🎓 Contrato de estágio']] : []),
+    ['historico', '🕓 Histórico'], ['desempenho', '📈 Desempenho'], ['desenvolvimento', '🎓 Desenvolvimento'],
+    ...(documentos ? [['documentos', '📎 Documentos']] : []),
+  ];
   return (
     <div style={{ ...s.card, borderTop: '3px solid #185FA5' }}>
       {!semTitulo && (
@@ -1852,6 +1849,12 @@ export function FichaColaborador({ API, colaboradorId, nome, onDesligar, documen
         {abas.map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ fontSize: 12, padding: '6px 12px', borderRadius: 20, border: '1px solid ' + (aba === v ? '#185FA5' : '#ddd'), background: aba === v ? '#185FA5' : '#fff', color: aba === v ? '#fff' : '#666', cursor: 'pointer' }}>{l}</button>)}
       </div>
+      {aba === 'estagio' && estagiario && (
+        <div>
+          <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>Gera e imprime o contrato (TCE), o Termo Aditivo de renovação e os recibos usando os dados da ficha de estágio (loja, bolsa, sócio que assina, supervisor, horário). O Guia do Colaborador e o Termo de Ciência saem junto do contrato.</div>
+          <ContratoEstagio API={API} colaboradorId={colaboradorId} />
+        </div>
+      )}
       {aba === 'desempenho' && <FichaDesempenho API={API} id={colaboradorId} />}
       {aba === 'desenvolvimento' && <FichaDesenvolvimento API={API} id={colaboradorId} />}
       {aba === 'documentos' && documentos && <FichaDocumentos API={API} id={colaboradorId} />}

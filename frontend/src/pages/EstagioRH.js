@@ -3,6 +3,15 @@ import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
 
 const brl = n => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// número com vírgula decimal (pro Excel pt-BR) e baixa CSV (separador ';', BOM UTF-8). cols=[{h,f}]
+const numBR = x => x == null || x === '' ? '' : (Number(x) || 0).toFixed(2).replace('.', ',');
+function baixarCSV(nome, cols, linhas) {
+  const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+  const txt = [cols.map(c => esc(c.h)).join(';'), ...linhas.map(l => cols.map(c => esc(c.f(l))).join(';'))].join('\n');
+  const blob = new Blob(['﻿' + txt], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = (nome || 'export') + '.csv'; a.click(); URL.revokeObjectURL(a.href);
+}
 
 export default function EstagioRH() {
   const { API } = useAuth();
@@ -816,6 +825,22 @@ function Pagamento({ API }) {
   useEffect(() => { carregar(); }, [carregar]);
   const gerar = () => API.post('/estagio/pagamento/gerar/' + comp).then(r => { setMsg(`✅ ${r.data.gerados} lançamento(s) gerado(s).`); carregar(); }).catch(() => setMsg('⚠️ erro'));
   const liberar = () => { if (window.confirm('Liberar a lista do mês para pagamento?')) API.post('/estagio/pagamento/liberar/' + comp).then(r => { setMsg(`✅ ${r.data.liberados} liberado(s).`); carregar(); }); };
+  // Planilha (CSV/Excel) de todos os pagamentos do mês, pro Financeiro executar: quem, quanto e como pagar.
+  const planilhaFinanceiro = () => {
+    if (!rows.length) return setMsg('⚠️ Nada gerado. Clique em "Gerar folha do mês" primeiro.');
+    const forma = p => p.dados_bancarios_em ? 'Conta bancária' : p.pix ? 'PIX' : 'Sem dados';
+    const situacao = p => p.fin_ok ? 'Pago' : p.tes_ok ? 'Liberado (aguarda Financeiro)' : p.rh_ok ? 'Aguarda Tesouraria' : 'Aguarda RH';
+    const cols = [
+      { h: 'Estagiário', f: p => p.ficha_nome || '' }, { h: 'CPF', f: p => p.cpf || '' }, { h: 'Loja', f: p => p.loja || '' },
+      { h: 'Forma de pagamento', f: forma }, { h: 'Banco', f: p => p.banco || '' }, { h: 'Agência', f: p => p.agencia || '' },
+      { h: 'Conta', f: p => p.conta || '' }, { h: 'Chave PIX', f: p => p.pix || '' },
+      { h: 'Bolsa', f: p => numBR(p.bolsa) }, { h: 'VT', f: p => numBR(p.vt) }, { h: 'Desconto', f: p => numBR(p.desconto) },
+      { h: 'Obs. desconto', f: p => p.desconto_obs || '' }, { h: 'Líquido a pagar', f: p => numBR(p.liquido) },
+      { h: 'Competência', f: () => comp }, { h: 'Situação', f: situacao },
+    ];
+    baixarCSV('pagamento-estagio-' + comp, cols, rows);
+    setMsg(`📊 Planilha de ${rows.length} pagamento(s) baixada (total líquido ${brl(tot.liq)}).`);
+  };
   const salvarDesc = (p) => { const e = ed[p.id] || {}; API.put('/estagio/pagamento/' + p.id, { desconto: Number(e.desconto ?? p.desconto) || 0, desconto_obs: e.desconto_obs ?? p.desconto_obs }).then(carregar).catch(() => setMsg('⚠️ erro')); };
   const setL = (id, k, v) => setEd(p => ({ ...p, [id]: { ...(p[id] || {}), [k]: v } }));
   const etapa = (p, et, ok) => API.post('/estagio/pagamento/' + p.id + '/etapa', { etapa: et, ok }).then(carregar).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'erro')));
@@ -881,6 +906,7 @@ function Pagamento({ API }) {
           <label style={s.lab}>Competência<input type="month" style={s.inp} value={comp} onChange={e => setComp(e.target.value)} /></label>
           <button style={s.btn} onClick={gerar}>Gerar folha do mês</button>
           <button style={s.btnP} onClick={liberar}>Liberar lista p/ pagamento</button>
+          <button style={s.btn} onClick={planilhaFinanceiro} title="Baixa a planilha (Excel) com todos os pagamentos do mês — nome, CPF, forma de pagamento, dados bancários/PIX e valor líquido — pro Financeiro executar">📊 Planilha p/ Financeiro</button>
         </div>
         {msg && <div style={s.msg}>{msg}</div>}
       </div>
