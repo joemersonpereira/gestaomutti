@@ -62,6 +62,7 @@ function SyncAlpha({ API, onAplicado }) {
   const [msg, setMsg] = useState('');
   const conferir = () => { setCarregando(true); setMsg(''); API.get('/colaboradores/sync-alpha').then(r => { setPrev(r.data); setAberto(true); }).catch(e => setMsg(e.response?.data?.erro || 'Erro.')).finally(() => setCarregando(false)); };
   const aplicar = () => { if (!window.confirm(`Desativar ${prev.aDesativar.length} colaborador(es) que estão inativos no Alpha 7?`)) return; API.post('/colaboradores/sync-alpha/aplicar', { reativar: false }).then(r => { setMsg(`✅ ${r.data.desativados} desativado(s).`); setPrev(null); setAberto(false); onAplicado && onAplicado(); }).catch(e => setMsg(e.response?.data?.erro || 'Erro.')); };
+  const importar = () => { const n = (prev.aImportar || []).length; if (!window.confirm(`Importar ${n} pessoa(s) ativa(s) no Alpha que ainda não estão no app?\n\nElas entram INATIVAS e sem acesso (login), com loja da unidade do ERP (senão Escritório) e função "Operador de Loja". Depois o RH revisa e ativa.`)) return; API.post('/colaboradores/sync-alpha/importar').then(r => { setMsg(`✅ ${r.data.importados} importado(s) (inativos, para o RH revisar).`); setPrev(null); setAberto(false); onAplicado && onAplicado(); }).catch(e => setMsg(e.response?.data?.erro || 'Erro.')); };
   return (
     <div style={{ ...s.card, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -79,6 +80,12 @@ function SyncAlpha({ API, onAplicado }) {
             <div style={{ maxHeight: 160, overflowY: 'auto', fontSize: 12 }}>{prev.aDesativar.map(c => <div key={c.id}>• {c.nome}</div>)}</div>
             <button style={{ ...s.btn, background: '#993C1D', marginTop: 8 }} onClick={aplicar}>Desativar {prev.aDesativar.length} no app</button>
           </> : <div style={{ color: '#3B6D11', marginTop: 6 }}>✓ Tudo em dia — ninguém a desativar.</div>}
+          {prev.aImportar && prev.aImportar.length ? <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #e2e8f0' }}>
+            <div style={{ margin: '0 0 4px', color: '#1d4ed8', fontWeight: 600 }}>A importar — ativos no Alpha fora do app ({prev.aImportar.length}):</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>Entram <b>inativos e sem login</b>; loja = unidade do ERP (senão Escritório), função "Operador de Loja". O RH revisa e ativa.</div>
+            <div style={{ maxHeight: 180, overflowY: 'auto', fontSize: 12 }}>{prev.aImportar.map(c => <div key={c.pessoaid}>• {c.nome} <span style={{ color: '#94a3b8' }}>— {c.loja_nome}</span></div>)}</div>
+            <button style={{ ...s.btn, background: '#1d4ed8', color: '#fff', marginTop: 8 }} onClick={importar}>Importar {prev.aImportar.length} (inativos)</button>
+          </div> : null}
         </div>
       )}
     </div>

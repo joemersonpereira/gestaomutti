@@ -82,6 +82,12 @@ router.post('/sync-alpha/aplicar', exigePerfil('Gestor Geral', 'Diretor Geral', 
   catch (e) { res.status(503).json({ erro: 'ERP indisponível para a varredura.', detalhe: String(e.message || e) }); }
 });
 
+// POST /colaboradores/sync-alpha/importar — cria quem está ativo no ERP e não existe no app (INATIVO, sem login)
+router.post('/sync-alpha/importar', exigePerfil('Gestor Geral', 'Diretor Geral', 'RH'), async (req, res) => {
+  try { res.json(await syncErp.importar(req.usuario.empresa_id)); }
+  catch (e) { res.status(503).json({ erro: 'ERP indisponível para a importação.', detalhe: String(e.message || e) }); }
+});
+
 // POST /colaboradores — cadastrar novo
 router.post('/', exigePerfil('Gestor Geral', 'Diretor Geral', 'RH'), (req, res) => {
   const { nome, email, cpf, funcao_id, loja_id, departamento, salario, admissao, chefe_setor } = req.body;

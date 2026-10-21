@@ -7,6 +7,16 @@ const { erpQuery } = require('../db/erp');
 const { randomUUID } = require('crypto');
 
 const dig = s => String(s || '').replace(/\D/g, '');
+const limpaNome = n => String(n || '').replace(/#+\s*$/, '').trim(); // '#' no fim marca inativo no ERP
+
+// Usuários ATIVOS no ERP (1 por pessoa), com a unidade (loja) quando houver — base do "a importar".
+async function usuariosAtivosErp() {
+  return erpQuery(`SELECT DISTINCT ON (pf.id) pf.id pessoaid, pf.nome,
+      regexp_replace(pf.cpf,'[^0-9]','','g') cpf, u.unidadenegocioid uni
+    FROM usuario u JOIN pessoa pf ON pf.id = u.pessoaid
+    WHERE u.status='A' AND pf.cpf IS NOT NULL AND pf.cpf <> ''
+    ORDER BY pf.id, u.unidadenegocioid NULLS LAST`);
+}
 
 // Mapa cpf(dígitos) → tem algum usuário ATIVO no ERP?
 async function mapaErp() {
@@ -50,7 +60,51 @@ async function prever(empresaId) {
       else { matchInativo++; if (c.ativo) aDesativar.push({ id: c.id, nome: c.nome, cpf: c.cpf }); }
     } else semVinculo.push({ id: c.id, nome: c.nome, cpf: c.cpf });
   });
-  return { total: colabs.length, matchAtivo, matchInativo, aDesativar, aReativar, semVinculo: semVinculo.length, semVinculoLista: semVinculo, aMarcarEstagio };
+  // A IMPORTAR: ativos no ERP (por CPF) que ainda não existem no app. Loja sugerida pela unidade do
+  // ERP (senão Escritório); função padrão "Operador de Loja" (o ERP não traz função confiável) — o RH
+  // revisa/ativa depois. Entram INATIVOS e sem login.
+  let aImportar = [];
+  try {
+    const ativos = await usuariosAtivosErp();
+    const appCpfs = new Set(colabs.map(c => dig(c.cpf)).filter(Boolean));
+    const lojasApp = db.prepare(`SELECT id, nome, erp_unidadenegocio_id FROM lojas WHERE empresa_id=?`).all(empresaId);
+    const lojaPorUni = new Map(lojasApp.filter(l => l.erp_unidadenegocio_id != null).map(l => [Number(l.erp_unidadenegocio_id), l]));
+    const esc = lojasApp.find(l => l.id === 'loja-escritorio') || lojasApp[0];
+    for (const u of ativos) {
+      if (!u.cpf || appCpfs.has(u.cpf)) continue;
+      const loja = (u.uni != null && lojaPorUni.get(Number(u.uni))) || esc;
+      aImportar.push({ pessoaid: u.pessoaid, nome: limpaNome(u.nome) || ('Pessoa ' + u.pessoaid), cpf: u.cpf,
+        loja_id: loja ? loja.id : null, loja_nome: loja ? loja.nome : '—',
+        funcao_id: 'func-operador-loja', funcao_nome: 'Operador de Loja' });
+    }
+  } catch (e) { /* ERP indisponível: segue sem importar */ }
+  return { total: colabs.length, matchAtivo, matchInativo, aDesativar, aReativar, semVinculo: semVinculo.length, semVinculoLista: semVinculo, aMarcarEstagio, aImportar };
+}
+
+// Importa (cria) os colaboradores "a importar": INATIVOS (ativo=0) e sem login (senha aleatória).
+// O RH revisa loja/função e ativa depois. Idempotente (não recria quem já existe por CPF).
+async function importar(empresaId) {
+  const p = await prever(empresaId);
+  const lista = p.aImportar || [];
+  if (!lista.length) return { importados: 0, lista: [] };
+  const bcrypt = require('bcryptjs');
+  const senhaHash = bcrypt.hashSync(randomUUID(), 8); // aleatória: não logam até o RH resetar
+  const jaCpf = db.prepare(`SELECT id FROM colaboradores WHERE cpf=? AND cpf IS NOT NULL AND cpf<>''`);
+  const jaPessoa = db.prepare(`SELECT id FROM colaboradores WHERE erp_pessoa_id=?`);
+  const ins = db.prepare(`INSERT INTO colaboradores
+    (id,empresa_id,loja_id,funcao_id,departamento,situacao,nome,cpf,email,salario,senha_hash,senha_provisoria,ativo,admissao,erp_pessoa_id,origem_erp,criado_em)
+    VALUES (?,?,?,?,?,?,?,?,?,0,?,1,0,'2020-01-01',?,1,datetime('now'))`);
+  let n = 0; const feitos = [];
+  const tx = db.transaction(() => {
+    for (const u of lista) {
+      if ((u.cpf && jaCpf.get(u.cpf)) || jaPessoa.get(u.pessoaid)) continue;
+      ins.run(randomUUID(), empresaId, u.loja_id, u.funcao_id, 'Operação', 'inativo', u.nome, u.cpf || null,
+        'erp-' + u.pessoaid + '@grupomutti.local', senhaHash, u.pessoaid);
+      n++; feitos.push(u.nome);
+    }
+  });
+  tx();
+  return { importados: n, lista: feitos };
 }
 
 // Aplica: desativa os inativos-no-ERP. reativar=true também reativa os que voltaram a ser ativos no ERP.
@@ -87,4 +141,4 @@ async function marcarEstagioAuto(empresaId) {
   return { marcados: n };
 }
 
-module.exports = { prever, aplicar, cpfsEstagio, marcarEstagioAuto };
+module.exports = { prever, aplicar, cpfsEstagio, marcarEstagioAuto, importar };
