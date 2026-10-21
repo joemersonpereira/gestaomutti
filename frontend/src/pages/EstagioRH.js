@@ -474,10 +474,11 @@ function docHtml(texto) {
   flushSec(); flush();
   return out.join('');
 }
-function contratoHtml(texto, ciencia) {
+function contratoHtml(texto, ciencia, titulo) {
   // o termo de ciência do Guia (quando houver) sai em página nova, junto com o contrato
   const corpo = docHtml(texto) + (ciencia ? '<div class="pb"></div>' + docHtml(ciencia) : '');
-  return '<!doctype html><html><head><meta charset="utf-8"><title>Contrato de Estágio</title><style>'
+  const tit = String(titulo || 'Documento de Estágio').replace(/[<>&]/g, '');
+  return '<!doctype html><html><head><meta charset="utf-8"><title>' + tit + '</title><style>'
     + '@page{size:A4;margin:2cm 2.2cm}body{font-family:Arial,Helvetica,sans-serif;font-size:10.5pt;line-height:1.5;color:#111}'
     + 'h1{text-align:center;font-size:13pt;font-weight:800;text-transform:uppercase;margin:0 0 14px;padding-bottom:10px;border-bottom:2px solid #111;letter-spacing:.3px}'
     + '.secbox{border:1px solid #334155;border-radius:6px;margin:12px 0;overflow:hidden;break-inside:avoid;page-break-inside:avoid}'
@@ -629,6 +630,8 @@ export function Contrato({ API, colaboradorId, fichaId }) {
       competencia: (() => { const d = new Date(); return String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); })(),
       // rescisão: por padrão usa o fim previsto do estágio; o RH ajusta o texto se precisar
       data_rescisao: fmtD(f.data_fim || fimISO), obs_rescisao: '',
+      // aviso/recibo de férias-recesso: recesso legal de 30 dias; o período é definido pelo RH no texto
+      ferias_dias: '30 (trinta)', ferias_inicio: '', ferias_fim: '',
       // bloco de assinatura do responsável — só aparece quando a ficha tem responsável (menor de 18)
       assinatura_responsavel: f.resp_nome ? ('\n_______________________________________\nRESPONSÁVEL LEGAL (assina pelo menor)\n' + f.resp_nome + (f.resp_cpf ? '    CPF: ' + f.resp_cpf : '') + (f.resp_parentesco ? '    (' + f.resp_parentesco + ')' : '')) : '',
       cidade_data: 'Entre Rios, ' + new Date().toLocaleDateString('pt-BR'),
@@ -643,8 +646,11 @@ export function Contrato({ API, colaboradorId, fichaId }) {
   const cienciaTxt = fid && ciencia && ehContrato ? aplicar(ciencia) : ''; // termo de ciência do Guia, já preenchido
   const imprimir = () => {
     const w = window.open('', '_blank');
+    // título da janela/PDF = nome do documento escolhido (ex.: "Recibo de Recesso"), não sempre "Contrato"
+    const nomeDoc = (modelos.find(m => m.chave === chave) || {}).nome || 'Documento de Estágio';
+    const estag = (fichas.find(x => x.id === fid) || {}).nome || '';
     // o contrato e o termo de ciência do Guia saem juntos (o Guia é mencionado em cláusula e assinado pelo estagiário)
-    w.document.write(contratoHtml(texto, cienciaTxt));
+    w.document.write(contratoHtml(texto, cienciaTxt, nomeDoc + (estag ? ' — ' + estag : '')));
     w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
   };
   // controle de assinatura do documento (onde ele está)
