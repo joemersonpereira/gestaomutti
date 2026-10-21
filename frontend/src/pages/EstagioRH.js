@@ -692,19 +692,31 @@ function Renovacao({ API }) {
   const [fichas, setFichas] = useState([]);
   const [rows, setRows] = useState([]);
   const [fid, setFid] = useState('');
+  const [ini, setIni] = useState(''); const [fim, setFim] = useState(''); // novo período a renovar
+  const [ed, setEd] = useState({}); // edição inline do período por linha {id:{ini,fim}}
   const [msg, setMsg] = useState('');
   const carregar = useCallback(() => API.get('/estagio/renovacoes').then(r => setRows(r.data)).catch(() => {}), [API]);
   useEffect(() => { API.get('/estagio/ficha').then(r => setFichas(r.data.filter(f => f.status === 'ativo'))).catch(() => {}); carregar(); }, [API, carregar]);
-  const abrir = () => { if (!fid) return; API.post('/estagio/renovacao/abrir/' + fid).then(r => { setMsg(`Índice ${r.data.indice ?? '—'}% → ${r.data.status === 'pendente_gerente' ? 'direto ao gerente' : 'RH avalia primeiro'}`); setFid(''); carregar(); }).catch(() => {}); };
+  const abrir = () => {
+    if (!fid) return setMsg('⚠️ Escolha o estagiário.');
+    if (!ini || !fim) return setMsg('⚠️ Informe o novo período (início e fim) que será renovado.');
+    API.post('/estagio/renovacao/abrir/' + fid, { periodo_inicio: ini, periodo_fim: fim })
+      .then(r => { setMsg(`Índice ${r.data.indice ?? '—'}% → ${r.data.status === 'pendente_gerente' ? 'direto ao gerente' : 'RH avalia primeiro'}`); setFid(''); setIni(''); setFim(''); carregar(); })
+      .catch(() => setMsg('⚠️ erro ao abrir renovação'));
+  };
+  const salvarPeriodo = (id) => { const e = ed[id] || {}; API.put(`/estagio/renovacao/${id}/periodo`, { periodo_inicio: e.ini, periodo_fim: e.fim }).then(() => { setEd(p => { const n = { ...p }; delete n[id]; return n; }); carregar(); }).catch(() => setMsg('⚠️ erro')); };
   const rhOk = (id) => { const p = window.prompt('Parecer do RH:') || ''; API.post(`/estagio/renovacao/${id}/rh`, { parecer: p }).then(carregar); };
-  const decidir = (id, status) => API.post(`/estagio/renovacao/${id}/decidir`, { status }).then(carregar);
+  const decidir = (id, status) => API.post(`/estagio/renovacao/${id}/decidir`, { status }).then(() => { if (status === 'aprovada') setMsg('✅ Aprovada — a vigência da ficha virou o novo período. Gere o Termo Aditivo na ficha do colaborador.'); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'erro')));
   const ST = { pendente_rh: ['#b45309', 'RH avaliando'], pendente_gerente: ['#1d4ed8', 'Com o gerente'], aprovada: ['#15803d', 'Aprovada'], recusada: ['#b91c1c', 'Recusada'] };
+  const per = r => (r.periodo_inicio || r.periodo_fim) ? `${r.periodo_inicio ? fmtD(r.periodo_inicio) : '?'} → ${r.periodo_fim ? fmtD(r.periodo_fim) : '?'}` : '—';
   return (
     <div>
-      <div style={{ ...s.msg, background: '#eff6ff', color: '#1e40af', marginBottom: 12 }}>Perto do fim do contrato, abra a renovação: <b>índice ≥ 90%</b> vai direto pro <b>gerente</b> decidir; <b>abaixo de 90%</b> o <b>RH avalia primeiro</b> e depois encaminha. Renovação aprovada → gere o <b>Termo Aditivo</b> na ficha do colaborador (Colaboradores › 🎓 Contrato de estágio, modelo "Renovação — Termo Aditivo").</div>
+      <div style={{ ...s.msg, background: '#eff6ff', color: '#1e40af', marginBottom: 12 }}>Perto do fim do contrato, abra a renovação e informe o <b>novo período</b> do estágio: <b>índice ≥ 90%</b> vai direto pro <b>gerente</b> decidir; <b>abaixo de 90%</b> o <b>RH avalia primeiro</b> e depois encaminha. Ao <b>aprovar</b>, a vigência da ficha passa a ser o novo período e você gera o <b>Termo Aditivo</b> na ficha do colaborador (Colaboradores › 🎓 Contrato de estágio, modelo "Renovação — Termo Aditivo").</div>
       <div style={s.card}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <label style={s.lab}>Abrir renovação para<select style={{ ...s.inp, minWidth: 260 }} value={fid} onChange={e => setFid(e.target.value)}><option value="">— estagiário —</option>{fichas.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></label>
+          <label style={s.lab}>Abrir renovação para<select style={{ ...s.inp, minWidth: 240 }} value={fid} onChange={e => setFid(e.target.value)}><option value="">— estagiário —</option>{fichas.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></label>
+          <label style={s.lab}>Novo início<input type="date" style={s.inp} value={ini} onChange={e => setIni(e.target.value)} /></label>
+          <label style={s.lab}>Novo fim<input type="date" style={s.inp} value={fim} onChange={e => setFim(e.target.value)} /></label>
           <button style={s.btnP} onClick={abrir}>Abrir renovação</button>
         </div>
         {msg && <div style={s.msg}>{msg}</div>}
@@ -713,13 +725,26 @@ function Renovacao({ API }) {
         <div style={s.cardT}>Renovações ({rows.length})</div>
         <div style={{ overflowX: 'auto' }}>
           <table style={s.tbl}>
-            <thead><tr>{['Estagiário', 'Índice', 'Fim contrato', 'Status', 'Parecer RH', 'Ação'].map(c => <th key={c} style={s.th}>{c}</th>)}</tr></thead>
+            <thead><tr>{['Estagiário', 'Índice', 'Novo período', 'Status', 'Parecer RH', 'Ação'].map(c => <th key={c} style={s.th}>{c}</th>)}</tr></thead>
             <tbody>
-              {rows.map(r => (
+              {rows.map(r => {
+                const editavel = r.status === 'pendente_rh' || r.status === 'pendente_gerente';
+                const e = ed[r.id];
+                return (
                 <tr key={r.id} style={{ borderTop: '1px solid #eee' }}>
                   <td style={s.td}>{r.ficha_nome}</td>
                   <td style={s.td}><b style={{ color: r.indice >= 90 ? '#15803d' : '#b45309' }}>{r.indice != null ? r.indice + '%' : '—'}</b></td>
-                  <td style={s.td}>{fmtD(r.data_fim)}</td>
+                  <td style={s.td}>
+                    {e ? (
+                      <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                        <input type="date" style={{ ...s.inp, padding: '2px 4px' }} value={e.ini || ''} onChange={ev => setEd(p => ({ ...p, [r.id]: { ...e, ini: ev.target.value } }))} />
+                        <input type="date" style={{ ...s.inp, padding: '2px 4px' }} value={e.fim || ''} onChange={ev => setEd(p => ({ ...p, [r.id]: { ...e, fim: ev.target.value } }))} />
+                        <button style={s.btnMini} onClick={() => salvarPeriodo(r.id)}>ok</button>
+                      </span>
+                    ) : (
+                      <span>{per(r)}{editavel && <button style={{ ...s.btnMini, marginLeft: 6 }} onClick={() => setEd(p => ({ ...p, [r.id]: { ini: r.periodo_inicio || '', fim: r.periodo_fim || '' } }))}>✏️</button>}</span>
+                    )}
+                  </td>
                   <td style={s.td}><span style={{ ...s.pill, background: (ST[r.status] || ['#999'])[0] }}>{(ST[r.status] || ['', r.status])[1]}</span></td>
                   <td style={s.td}>{r.rh_parecer || '—'}</td>
                   <td style={s.td}>
@@ -728,7 +753,8 @@ function Renovacao({ API }) {
                     {r.status === 'aprovada' && <span style={s.leg}>📄 gere o aditivo na ficha do colaborador</span>}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {!rows.length && <tr><td style={s.td} colSpan={6}>Nenhuma renovação aberta.</td></tr>}
             </tbody>
           </table>

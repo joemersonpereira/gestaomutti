@@ -65,19 +65,37 @@ router.post('/renovacao/abrir/:fichaId', exigePerfil(...PERFIS), (req, res) => {
   const e = emp(req); const fid = req.params.fichaId;
   const { indice } = indiceFicha(e, fid);
   const status = (indice != null && indice >= 90) ? 'pendente_gerente' : 'pendente_rh';
+  const pi = req.body?.periodo_inicio || null, pf = req.body?.periodo_fim || null; // novo período do estágio
   const { v4: uuid } = require('uuid');
   const existe = db.prepare(`SELECT id FROM estagio_renovacao WHERE empresa_id=? AND ficha_id=?`).get(e, fid);
-  if (existe) db.prepare(`UPDATE estagio_renovacao SET indice=?, status=? WHERE id=?`).run(indice, status, existe.id);
-  else db.prepare(`INSERT INTO estagio_renovacao (id,empresa_id,ficha_id,indice,status) VALUES (?,?,?,?,?)`).run(uuid(), e, fid, indice, status);
+  if (existe) db.prepare(`UPDATE estagio_renovacao SET indice=?, status=?, periodo_inicio=?, periodo_fim=? WHERE id=?`).run(indice, status, pi, pf, existe.id);
+  else db.prepare(`INSERT INTO estagio_renovacao (id,empresa_id,ficha_id,indice,status,periodo_inicio,periodo_fim) VALUES (?,?,?,?,?,?,?)`).run(uuid(), e, fid, indice, status, pi, pf);
   res.json({ ok: true, indice, status });
+});
+// edita o novo período da renovação (enquanto não foi decidida)
+router.put('/renovacao/:id/periodo', exigePerfil(...PERFIS), (req, res) => {
+  db.prepare(`UPDATE estagio_renovacao SET periodo_inicio=?, periodo_fim=? WHERE id=? AND empresa_id=?`)
+    .run(req.body?.periodo_inicio || null, req.body?.periodo_fim || null, req.params.id, emp(req));
+  res.json({ ok: true });
 });
 router.post('/renovacao/:id/rh', exigePerfil(...PERFIS), (req, res) => {
   db.prepare(`UPDATE estagio_renovacao SET rh_parecer=?, status='pendente_gerente' WHERE id=? AND empresa_id=?`).run(req.body?.parecer || '', req.params.id, emp(req));
   res.json({ ok: true });
 });
 router.post('/renovacao/:id/decidir', exigePerfil(...PERFIS), (req, res) => {
+  const e = emp(req);
   const st = req.body?.status; if (!['aprovada', 'recusada'].includes(st)) return res.status(400).json({ erro: 'Status inválido.' });
-  db.prepare(`UPDATE estagio_renovacao SET status=?, decidido_por=?, decidido_em=datetime('now') WHERE id=? AND empresa_id=?`).run(st, req.usuario.nome || null, req.params.id, emp(req));
+  const r = db.prepare(`SELECT * FROM estagio_renovacao WHERE id=? AND empresa_id=?`).get(req.params.id, e);
+  if (!r) return res.status(404).json({ erro: 'Renovação não encontrada.' });
+  // pra aprovar, o novo período precisa estar definido (é o que vai pro Termo Aditivo)
+  if (st === 'aprovada' && !r.periodo_fim) return res.status(400).json({ erro: 'Defina o novo período (início e fim) antes de aprovar — é o que sai no Termo Aditivo.' });
+  db.prepare(`UPDATE estagio_renovacao SET status=?, decidido_por=?, decidido_em=datetime('now') WHERE id=? AND empresa_id=?`).run(st, req.usuario.nome || null, req.params.id, e);
+  // renovação aprovada: a vigência da ficha passa a ser o novo período, pra o Termo Aditivo
+  // gerado na ficha do colaborador sair com as datas renovadas.
+  if (st === 'aprovada' && r.periodo_inicio && r.periodo_fim) {
+    db.prepare(`UPDATE estagio_ficha SET data_inicio=?, data_fim=?, atualizado_em=datetime('now') WHERE id=? AND empresa_id=?`)
+      .run(r.periodo_inicio, r.periodo_fim, r.ficha_id, e);
+  }
   res.json({ ok: true });
 });
 
