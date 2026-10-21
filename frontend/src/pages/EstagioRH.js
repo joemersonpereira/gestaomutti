@@ -555,6 +555,7 @@ export function Contrato({ API, colaboradorId, fichaId }) {
   const [assinanteId, setAssinanteId] = useState(''); // colaborador que assina pela empresa ('' = sócio padrão da loja)
   const [docSt, setDocSt] = useState('pendente'); // controle de assinatura do documento
   const [ciencia, setCiencia] = useState(''); // termo de ciência do Guia do Colaborador (sai junto com o contrato)
+  const [endErp, setEndErp] = useState(''); // endereço vindo do ERP (fallback quando a ficha/colaborador não tem)
   useEffect(() => {
     Promise.all(['supervisor_nome', 'supervisor_cargo', 'supervisor_email'].map(k => API.get('/estagio/config/' + k).then(r => r.data.valor || '').catch(() => '')))
       .then(([nome, cargo, email]) => setSup({ nome, cargo, email }));
@@ -570,6 +571,8 @@ export function Contrato({ API, colaboradorId, fichaId }) {
   useEffect(() => { API.get('/estagio/config/' + chave).then(r => setModelo(r.data.valor || '')).catch(() => {}); }, [API, chave]);
   // Quando aberto pela ficha do colaborador, seleciona a ficha de estágio dele automaticamente.
   useEffect(() => { if (fichaId) { setFid(fichaId); return; } if (colaboradorId && fichas.length) { const f = fichas.find(x => x.colaborador_id === colaboradorId); if (f) setFid(f.id); } }, [fichaId, colaboradorId, fichas]);
+  // Busca o endereço do ERP (pessoa vinculada ao usuário) como último fallback do endereço do estagiário.
+  useEffect(() => { setEndErp(''); if (fid) API.get('/estagio/ficha/' + fid + '/endereco-erp').then(r => setEndErp(r.data.endereco || '')).catch(() => {}); }, [API, fid]);
   const nome = (arr, id, campo = 'nome') => (arr.find(x => x.id === id) || {})[campo] || '';
   // Para loja, o nome que vai no contrato é a RAZÃO SOCIAL (cai pro nome/apelido se não tiver).
   const nomeAtu = id => { const e = emp.find(x => x.id === id); if (e) return e.nome || ''; const l = lojas.find(x => x.id === id); return l ? (l.razao_social || l.nome || '') : ''; };
@@ -608,7 +611,7 @@ export function Contrato({ API, colaboradorId, fichaId }) {
     const iniISO = f.data_inicio || (cl && (cl.admissao || cl.inicio_loja)) || '';   // início = admissão do colaborador se a ficha não tiver
     const fimISO = f.data_fim || (iniISO ? addAno(iniISO) : '');                      // fim previsto = início + 1 ano (padrão editável)
     const map = {
-      nome: f.nome || '', cpf: f.cpf || (cl && cl.cpf) || '', rg: f.rg || '', nascimento: fmtD(f.nascimento || (cl && cl.nascimento)), endereco: f.endereco || endCol, telefone: f.telefone || (cl && cl.telefone) || '', email: f.email || (cl && cl.email) || '',
+      nome: f.nome || '', cpf: f.cpf || (cl && cl.cpf) || '', rg: f.rg || '', nascimento: fmtD(f.nascimento || (cl && cl.nascimento)), endereco: f.endereco || endCol || endErp, telefone: f.telefone || (cl && cl.telefone) || '', email: f.email || (cl && cl.email) || '',
       escola: nome(esc, f.escola_id), curso: f.curso || '', serie: f.serie || '',
       empresa_atuacao: nomeAtu(atuId), empresa_registro: nomeAtu(regId), loja: f.loja || '',
       empresa_registro_cnpj: campoEmp(regId, 'cnpj'), empresa_registro_endereco: campoEmp(regId, 'endereco'),

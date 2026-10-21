@@ -53,6 +53,42 @@ router.put('/ficha/:id/doc-status', exigePerfil(...PERFIS), (req, res) => {
   res.json({ ok: true, status: st });
 });
 
+// ── Endereço do estagiário vindo do ERP (quando o cadastro local não tem) ──
+// A ficha → colaborador_id → colaboradores.erp_pessoa_id (ou casa por CPF em pessoa) → endereço do ERP.
+router.get('/ficha/:id/endereco-erp', exigePerfil(...PERFIS), async (req, res) => {
+  try {
+    const { erpQuery, habilitado } = require('../db/erp');
+    if (!habilitado || !habilitado()) return res.json({ endereco: '', cep: '' });
+    const f = db.prepare('SELECT colaborador_id, cpf FROM estagio_ficha WHERE id=? AND empresa_id=?').get(req.params.id, emp(req));
+    if (!f) return res.status(404).json({ erro: 'Ficha não encontrada.' });
+    let pessoaId = null;
+    if (f.colaborador_id) {
+      const c = db.prepare('SELECT erp_pessoa_id, cpf FROM colaboradores WHERE id=?').get(f.colaborador_id);
+      if (c && c.erp_pessoa_id) pessoaId = c.erp_pessoa_id;
+    }
+    const cpf = String((f.cpf || '')).replace(/\D/g, '');
+    let rows = [];
+    const SQL = `SELECT lg.nome logradouro, e.numero, e.complemento, lg.cep, b.nome bairro, cid.nome cidade, est.sigla uf
+      FROM endereco e
+      JOIN logradouro lg ON lg.id = e.logradouroid
+      LEFT JOIN bairro b ON b.id = lg.bairroid
+      LEFT JOIN cidade cid ON cid.id = b.cidadeid
+      LEFT JOIN estado est ON est.id = cid.estadoid`;
+    if (pessoaId) rows = await erpQuery(SQL + ' WHERE e.pessoaid = $1 ORDER BY e.principal DESC NULLS LAST LIMIT 1', [pessoaId]);
+    else if (cpf) rows = await erpQuery(SQL + ` JOIN pessoa pf ON pf.id = e.pessoaid WHERE regexp_replace(pf.cpf,'[^0-9]','','g') = $1 ORDER BY e.principal DESC NULLS LAST LIMIT 1`, [cpf]);
+    const r = rows[0];
+    if (!r) return res.json({ endereco: '', cep: '' });
+    const cep = r.cep ? String(r.cep).replace(/(\d{5})(\d{3})/, '$1-$2') : '';
+    const endereco = [
+      [r.logradouro, r.numero].filter(Boolean).join(', '),
+      r.complemento, r.bairro,
+      [r.cidade, r.uf].filter(Boolean).join('/'),
+      cep && ('CEP ' + cep),
+    ].filter(Boolean).join(', ');
+    res.json({ endereco, cep });
+  } catch (e) { res.json({ endereco: '', cep: '', erro: e.message }); }
+});
+
 // ── Índice de aprovação de uma ficha ──
 router.get('/indice/:fichaId', exigePerfil(...PERFIS), (req, res) => res.json(indiceFicha(emp(req), req.params.fichaId)));
 
