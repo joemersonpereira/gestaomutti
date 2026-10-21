@@ -599,8 +599,15 @@ export function Contrato({ API, colaboradorId, fichaId }) {
     // Alpha / marcadas como estagiário só têm a loja) — assim todo documento mostra onde a pessoa estagiou.
     const regId = f.empresa_registro_id || f.loja;
     const atuId = f.empresa_atuacao_id || f.loja;
+    // O estagiário também é COLABORADOR: puxa do cadastro dele o que faltar na ficha de estágio
+    // (admissão → início, endereço, nascimento, telefone, e-mail, CPF). Pedido do Joe: "você já tem as informações".
+    const cl = f.colaborador_id ? colabs.find(x => x.id === f.colaborador_id) : null;
+    const endCol = cl ? [cl.endereco, cl.endereco_numero, cl.complemento, cl.bairro, cl.cidade && (cl.cidade + (cl.uf ? '/' + cl.uf : '')), cl.cep && ('CEP ' + cl.cep)].filter(Boolean).join(', ') : '';
+    const addAno = iso => { if (!iso) return ''; const d = new Date(String(iso).slice(0, 10)); if (isNaN(d.getTime())) return ''; d.setFullYear(d.getFullYear() + 1); return d.toISOString().slice(0, 10); };
+    const iniISO = f.data_inicio || (cl && (cl.admissao || cl.inicio_loja)) || '';   // início = admissão do colaborador se a ficha não tiver
+    const fimISO = f.data_fim || (iniISO ? addAno(iniISO) : '');                      // fim previsto = início + 1 ano (padrão editável)
     const map = {
-      nome: f.nome || '', cpf: f.cpf || '', rg: f.rg || '', nascimento: fmtD(f.nascimento), endereco: f.endereco || '', telefone: f.telefone || '', email: f.email || '',
+      nome: f.nome || '', cpf: f.cpf || (cl && cl.cpf) || '', rg: f.rg || '', nascimento: fmtD(f.nascimento || (cl && cl.nascimento)), endereco: f.endereco || endCol, telefone: f.telefone || (cl && cl.telefone) || '', email: f.email || (cl && cl.email) || '',
       escola: nome(esc, f.escola_id), curso: f.curso || '', serie: f.serie || '',
       empresa_atuacao: nomeAtu(atuId), empresa_registro: nomeAtu(regId), loja: f.loja || '',
       empresa_registro_cnpj: campoEmp(regId, 'cnpj'), empresa_registro_endereco: campoEmp(regId, 'endereco'),
@@ -610,7 +617,7 @@ export function Contrato({ API, colaboradorId, fichaId }) {
       horario: f.horario || '(horário a combinar)', horas_dia: f.horas_dia || '', horas_semana: f.horas_semana || '',
       valor_bolsa: brl(f.valor_bolsa), vale_transporte: brl(f.vale_transporte), beneficios: f.beneficios || '—',
       seguro: seguroTxt, resp_nome: f.resp_nome || '', resp_cpf: f.resp_cpf || '', resp_parentesco: f.resp_parentesco || '',
-      data_inicio: fmtD(f.data_inicio), data_fim: fmtD(f.data_fim),
+      data_inicio: fmtD(iniISO), data_fim: fmtD(fimISO),
       socio_nome: assina ? assina.nome : (socio ? socio.nome : ''),
       socio_cpf: assina ? (assina.cpf || '') : (socio ? (socio.cpf || '') : ''),
       supervisor_nome: superv ? superv.nome : (sup.nome || '(supervisor)'), supervisor_cargo: superv ? (superv.funcao || '') : (sup.cargo || ''), supervisor_email: superv ? (superv.email || '') : (sup.email || ''),
@@ -621,7 +628,7 @@ export function Contrato({ API, colaboradorId, fichaId }) {
       // competência do recibo: mês/ano corrente (o recibo com valores reais do mês sai na aba Pagamento)
       competencia: (() => { const d = new Date(); return String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); })(),
       // rescisão: por padrão usa o fim previsto do estágio; o RH ajusta o texto se precisar
-      data_rescisao: fmtD(f.data_fim), obs_rescisao: '',
+      data_rescisao: fmtD(f.data_fim || fimISO), obs_rescisao: '',
       // bloco de assinatura do responsável — só aparece quando a ficha tem responsável (menor de 18)
       assinatura_responsavel: f.resp_nome ? ('\n_______________________________________\nRESPONSÁVEL LEGAL (assina pelo menor)\n' + f.resp_nome + (f.resp_cpf ? '    CPF: ' + f.resp_cpf : '') + (f.resp_parentesco ? '    (' + f.resp_parentesco + ')' : '')) : '',
       cidade_data: 'Entre Rios, ' + new Date().toLocaleDateString('pt-BR'),
