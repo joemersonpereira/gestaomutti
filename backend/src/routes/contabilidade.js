@@ -1069,6 +1069,20 @@ router.get('/sped/:id/arquivo', (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${(r.nome || 'sped.txt').replace(/[^\w.\-]/g, '_')}"`);
   res.send(Buffer.from(r.dados, 'base64'));
 });
+// apagar EM LOTE pelos mesmos filtros da lista (pra limpar uma importação errada de dezenas de milhares).
+// DEVE vir ANTES de '/sped/:id' senão o Express casa 'erros' como :id. Exige ao menos um filtro.
+router.delete('/sped/erros', exigePerfil(...PERFIS_ESCRITA), (req, res) => {
+  const { competencia, status, categoria, tipo, origem } = req.query;
+  const w = ['empresa_id=?']; const p = [req.usuario.empresa_id];
+  if (competencia) { w.push('competencia=?'); p.push(competencia); }
+  if (status) { w.push('status=?'); p.push(status); }
+  if (categoria) { w.push('categoria=?'); p.push(categoria); }
+  if (tipo) { w.push('tipo=?'); p.push(tipo); }
+  if (origem) { w.push('origem=?'); p.push(origem); }
+  if (w.length === 1) return res.status(400).json({ erro: 'Escolha ao menos um filtro (competência, categoria ou status) para apagar em lote.' });
+  const r = db.prepare(`DELETE FROM contabil_sped_erro WHERE ${w.join(' AND ')}`).run(...p);
+  res.json({ ok: true, apagados: r.changes });
+});
 router.delete('/sped/:id', exigePerfil(...PERFIS_ESCRITA), (req, res) => {
   db.prepare(`DELETE FROM contabil_sped WHERE empresa_id=? AND id=?`).run(req.usuario.empresa_id, Number(req.params.id));
   res.json({ ok: true });
@@ -1107,6 +1121,16 @@ router.post('/sped/retorno', (req, res) => {
   // remove cabeçalhos óbvios da planilha
   linhas = linhas.filter(l => !/^(descri[çc][aã]o|erro|pend[eê]ncia|item|registro|nota|observa)/i.test(l.trim()) || l.length > 40);
   if (!linhas.length) return res.status(400).json({ erro: 'Cole a lista de erros ou anexe o arquivo (Excel/CSV/texto) de retorno.' });
+  // GUARDA: evita subir o PRÓPRIO arquivo do SPED aqui (cada linha viraria um "erro" — já aconteceu:
+  // um .txt do SPED gerou 87 mil erros). O SPED é registro |0000|...|, |0150|, |C100|, |H010| etc.
+  const amostra = linhas.slice(0, 8);
+  const parecemSped = amostra.filter(l => /^\|?(0000|0001|0150|0200|0190|C100|C170|C500|H010|H005|9900|9999)\|/.test(l.trim())).length;
+  if (parecemSped >= 2) {
+    return res.status(400).json({ erro: 'Isso parece o ARQUIVO do SPED (registros |0000|, |C100|…), não a lista de pendências da contabilidade. O arquivo do SPED vai na aba "Arquivos". Aqui vai só a lista de erros que a contabilidade devolveu.' });
+  }
+  if (linhas.length > 5000) {
+    return res.status(400).json({ erro: `São ${linhas.length.toLocaleString('pt-BR')} linhas — isso não parece uma lista de pendências da contabilidade (que costuma ter dezenas/centenas). Confira se não é o arquivo do SPED ou um relatório inteiro. Se for mesmo a lista, divida em partes.` });
+  }
   const t = TIPOS_SPED.includes(tipo) ? tipo : 'fiscal';
   const ins = db.prepare(`INSERT INTO contabil_sped_erro (empresa_id, competencia, tipo, loja_id, categoria, registro, descricao, referencia, status, origem, sped_id, obs, usuario_id)
     VALUES (?,?,?,?,?,?,?,?, 'aberto','contabilidade', ?, ?, ?)`);
@@ -1121,17 +1145,22 @@ router.post('/sped/retorno', (req, res) => {
   tx();
   res.status(201).json({ ok: true, inseridos: n });
 });
-// lista de erros (banco de correção), com filtros
+// lista de erros (banco de correção), com filtros. PAGINADO: um SPED pode gerar dezenas de milhares
+// de erros (um por linha do arquivo) — trazer/renderizar tudo trava a tela. Limita a página e devolve o total.
 router.get('/sped/erros', (req, res) => {
   const { competencia, status, categoria, tipo } = req.query;
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 500, 1), 2000);
+  const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
   const w = ['empresa_id=?']; const p = [req.usuario.empresa_id];
   if (competencia) { w.push('competencia=?'); p.push(competencia); }
   if (status) { w.push('status=?'); p.push(status); }
   if (categoria) { w.push('categoria=?'); p.push(categoria); }
   if (tipo) { w.push('tipo=?'); p.push(tipo); }
+  const where = w.join(' AND ');
+  const total = db.prepare(`SELECT COUNT(*) n FROM contabil_sped_erro WHERE ${where}`).get(...p).n;
   const mapLoja = {}; lojasEmpresa(req.usuario.empresa_id).forEach(l => { mapLoja[l.id] = l.nome; });
-  const rows = db.prepare(`SELECT * FROM contabil_sped_erro WHERE ${w.join(' AND ')} ORDER BY competencia DESC, categoria, id DESC`).all(...p);
-  res.json({ ok: true, erros: rows.map(r => ({ ...r, loja_nome: r.loja_id ? (mapLoja[r.loja_id] || r.loja_id) : '—' })) });
+  const rows = db.prepare(`SELECT * FROM contabil_sped_erro WHERE ${where} ORDER BY competencia DESC, categoria, id DESC LIMIT ? OFFSET ?`).all(...p, limit, offset);
+  res.json({ ok: true, total, limit, offset, erros: rows.map(r => ({ ...r, loja_nome: r.loja_id ? (mapLoja[r.loja_id] || r.loja_id) : '—' })) });
 });
 // adicionar um erro manual
 router.post('/sped/erro', (req, res) => {

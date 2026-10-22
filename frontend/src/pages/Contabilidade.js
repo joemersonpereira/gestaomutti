@@ -1437,23 +1437,6 @@ function PainelBI({ API }) {
 const ROT_TIPO_SPED = { fiscal: 'SPED Fiscal (ICMS/IPI)', contribuicoes: 'SPED Contribuições (PIS/COFINS)', ecd: 'ECD (Contábil)', outro: 'Outro' };
 const ROT_ETAPA = { envio: 'Envio (dia 01)', retorno: 'Retorno da contab.', corrigido: 'Corrigido (dia 10)', final: 'Final / entregue' };
 const kb = n => !n ? '—' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
-// linha técnica do Espião: código HTTP · endpoint · qual token está carregado (impressão digital, não o valor) · hora
-function espiaoTecnico(d) {
-  if (!d) return '';
-  const tk = d.tokens || {};
-  const hora = d.em ? new Date(d.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
-  return [d.codigo || (d.status ? 'HTTP ' + d.status : ''), d.endpoint,
-    `token conta #${tk.conta || 'ausente'} · usuário #${tk.usuario || 'ausente'}`, hora && 'testado às ' + hora].filter(Boolean).join(' · ');
-}
-// erro de chamada ao backend → texto com o código HTTP (inclui resposta em blob, como a do download de XML)
-async function espiaoErroTexto(e, padrao) {
-  const r = e && e.response;
-  if (!r) return `${padrao} (sem resposta do servidor: ${(e && e.message) || 'rede'})`;
-  let d = r.data;
-  if (d instanceof Blob) { try { d = JSON.parse(await d.text()); } catch { d = null; } }
-  const msg = (d && d.erro) || padrao;
-  return /HTTP \d{3}/.test(msg) ? msg : `${msg} (HTTP ${r.status})`;
-}
 
 export function SpedRepo({ API }) {
   const [arquivos, setArquivos] = useState([]);
@@ -1492,8 +1475,7 @@ export function SpedRepo({ API }) {
   const testarEspiao = useCallback(() => {
     setTestandoEspiao(true);
     return API.get('/contabilidade/sped/espiao/status').then(r => setEspiaoStatus(r.data))
-      .catch(async e => setEspiaoStatus({ ok: false, configurado: true, erro: await espiaoErroTexto(e, 'Falha ao testar a conexão do Espião') }))
-      .finally(() => setTestandoEspiao(false));
+      .catch(() => setEspiaoStatus({ configurado: false })).finally(() => setTestandoEspiao(false));
   }, [API]);
   useEffect(() => { testarEspiao(); }, [testarEspiao]);
 
@@ -1502,7 +1484,7 @@ export function SpedRepo({ API }) {
     try {
       const r = await API.post(`/contabilidade/sped/${a.id}/cruzar-espiao`);
       setEspiaoResult({ nome: a.nome, ...r.data });
-    } catch (e) { setMsg('⚠️ ' + await espiaoErroTexto(e, 'Espião: erro ao cruzar.')); }
+    } catch (e) { setMsg('⚠️ Espião: ' + (e.response && e.response.data && e.response.data.erro || 'erro ao cruzar.')); }
     finally { setCruzando(null); }
   };
   const [validando, setValidando] = useState(null);
@@ -1617,11 +1599,10 @@ export function SpedRepo({ API }) {
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
         {espiaoStatus && (
-          <div style={{ fontSize: 12, color: espiaoStatus.ok ? '#15803d' : '#a16207', flex: '1 1 320px', minWidth: 0, overflowWrap: 'anywhere' }}>
+          <div style={{ fontSize: 12, color: espiaoStatus.ok ? '#15803d' : '#a16207' }}>
             {espiaoStatus.ok ? '🟢 Espião NFe conectado — o botão 🔎 Espião cruza cada SPED Fiscal com a SEFAZ e aponta as NF não lançadas.'
-              : espiaoStatus.configurado ? `🟡 Espião NFe configurado, mas a chamada falhou — ${espiaoStatus.erro || 'sem detalhe'}`
-                : `⚪ ${espiaoStatus.erro || 'Espião NFe não configurado.'}`}
-            {espiaoStatus.detalhe && <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{espiaoTecnico(espiaoStatus.detalhe)}</div>}
+              : espiaoStatus.configurado ? `🟡 Espião NFe configurado, mas sem autorização (${espiaoStatus.erro || ''}) — libere o módulo API Cloud / faça o step-up do token do usuário na conta Espião.`
+                : '⚪ Espião NFe não configurado.'}
           </div>
         )}
         <button style={s.btn} onClick={testarEspiao} disabled={testandoEspiao}>{testandoEspiao ? 'testando…' : '🔌 testar conexão Espião'}</button>
@@ -1710,8 +1691,10 @@ const ST_ERRO = { aberto: { t: 'Aberto', bg: '#fef9c3', fg: '#a16207' }, corrigi
 function BancoCorrecao({ API, lojas, competencias }) {
   const [banco, setBanco] = useState({ categorias: [], total: {} });
   const [erros, setErros] = useState([]);
+  const [errosTotal, setErrosTotal] = useState(0);
   const [fComp, setFComp] = useState('');
   const [fStatus, setFStatus] = useState('aberto');
+  const [fCat, setFCat] = useState('');
   const [msg, setMsg] = useState('');
   // retorno form
   const [competencia, setCompetencia] = useState('');
@@ -1726,8 +1709,10 @@ function BancoCorrecao({ API, lojas, competencias }) {
     const p = new URLSearchParams();
     if (fComp) p.set('competencia', fComp);
     if (fStatus) p.set('status', fStatus);
-    API.get(`/contabilidade/sped/erros?${p.toString()}`).then(r => setErros(r.data.erros || [])).catch(() => {});
-  }, [API, fComp, fStatus]);
+    if (fCat) p.set('categoria', fCat);
+    p.set('limit', '500'); // a lista é paginada (um SPED gera dezenas de milhares de erros); refine pelos filtros
+    API.get(`/contabilidade/sped/erros?${p.toString()}`).then(r => { setErros(r.data.erros || []); setErrosTotal(r.data.total || 0); }).catch(() => {});
+  }, [API, fComp, fStatus, fCat]);
   useEffect(() => { carregar(); }, [carregar]);
 
   const escolherArq = e => {
@@ -1747,6 +1732,17 @@ function BancoCorrecao({ API, lojas, competencias }) {
   };
   const mudar = async (e, status) => { await API.patch(`/contabilidade/sped/erro/${e.id}`, { status }); carregar(); };
   const remover = async (e) => { if (window.confirm('Excluir esse erro?')) { await API.delete(`/contabilidade/sped/erro/${e.id}`); carregar(); } };
+  const limparLote = async () => {
+    if (!fComp && !fCat && !fStatus) { setMsg('⚠️ Escolha ao menos um filtro (competência, categoria ou status) para limpar em lote.'); return; }
+    const alvo = [fComp && `competência ${fComp}`, fCat && `categoria "${fCat}"`, fStatus && `status ${fStatus}`].filter(Boolean).join(', ');
+    if (!window.confirm(`Apagar DE VEZ ${errosTotal.toLocaleString('pt-BR')} erro(s) do filtro (${alvo})?\n\nIsso não pode ser desfeito. Use para limpar uma importação errada.`)) return;
+    const p = new URLSearchParams();
+    if (fComp) p.set('competencia', fComp);
+    if (fStatus) p.set('status', fStatus);
+    if (fCat) p.set('categoria', fCat);
+    try { const r = await API.delete(`/contabilidade/sped/erros?${p.toString()}`); setMsg(`✅ ${r.data.apagados} erro(s) apagado(s).`); carregar(); }
+    catch (e) { setMsg('⚠️ ' + (e.response && e.response.data && e.response.data.erro || 'erro ao apagar.')); }
+  };
 
   const t = banco.total || {};
   return (
@@ -1779,7 +1775,7 @@ function BancoCorrecao({ API, lojas, competencias }) {
             <thead><tr>{['Categoria', 'Registro', 'Total', 'Em aberto', 'Corrigidos', 'Competências', 'Período'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
             <tbody>
               {(banco.categorias || []).map((c, i) => (
-                <tr key={i}>
+                <tr key={i} onClick={() => setFCat(f => f === c.categoria ? '' : c.categoria)} style={{ cursor: 'pointer', background: fCat === c.categoria ? '#eef6f3' : undefined }} title="Clique para filtrar a lista abaixo por esta categoria">
                   <td style={s.td}><b>{c.categoria}</b></td>
                   <td style={s.td}>{c.registro || '—'}</td>
                   <td style={s.td}>{c.total}</td>
@@ -1798,6 +1794,18 @@ function BancoCorrecao({ API, lojas, competencias }) {
       <div style={s.filtros}>
         <div style={s.lab}>Competência<select style={s.inp} value={fComp} onChange={e => setFComp(e.target.value)}><option value="">Todas</option>{(competencias || []).map(c => <option key={c.competencia} value={c.competencia}>{c.competencia}</option>)}</select></div>
         <div style={s.lab}>Status<select style={s.inp} value={fStatus} onChange={e => setFStatus(e.target.value)}><option value="">Todos</option><option value="aberto">Em aberto</option><option value="corrigido">Corrigidos</option><option value="ignorado">Ignorados</option></select></div>
+        <div style={s.lab}>Categoria<select style={s.inp} value={fCat} onChange={e => setFCat(e.target.value)}><option value="">Todas</option>{[...new Set((banco.categorias || []).map(c => c.categoria))].map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '4px 0 8px' }}>
+        <div style={{ fontSize: 12, color: errosTotal > erros.length ? '#a16207' : '#64748b' }}>
+          {errosTotal > erros.length
+            ? <>Mostrando <b>{erros.length}</b> de <b>{errosTotal.toLocaleString('pt-BR')}</b> erros — refine por <b>competência</b>, <b>status</b> ou <b>categoria</b> para ver os demais.</>
+            : <>{erros.length.toLocaleString('pt-BR')} erro(s) com esse filtro.</>}
+        </div>
+        {errosTotal > 0 && (fComp || fCat || fStatus) && (
+          <button style={{ ...s.btn, color: '#b91c1c', borderColor: '#fca5a5' }} onClick={limparLote} title="Apaga de vez todos os erros do filtro atual (para limpar uma importação errada)">🗑️ Limpar {errosTotal.toLocaleString('pt-BR')} do filtro</button>
+        )}
       </div>
 
       <ScrollX>
@@ -1852,7 +1860,7 @@ function NfFaltantes({ API, lojas, espiaoStatus }) {
       a.href = url; a.download = (numero ? 'NF' + numero + '-' : '') + chave + '.xml';
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     } catch (e) {
-      alert(await espiaoErroTexto(e, 'Não foi possível baixar o XML dessa nota.'));
+      alert((e.response && e.response.data && e.response.data.erro) || 'Não foi possível baixar o XML dessa nota.');
     } finally { setBaixando(null); }
   };
 
@@ -1862,7 +1870,7 @@ function NfFaltantes({ API, lojas, espiaoStatus }) {
       const params = { competencia }; if (loja) params.loja = loja; if (diasMin) params.diasMin = diasMin;
       const r = await API.get('/contabilidade/sped/entradas-faltantes', { params });
       setRes(r.data);
-    } catch (e) { setErro(await espiaoErroTexto(e, 'erro ao conferir.')); }
+    } catch (e) { setErro(e.response && e.response.data && e.response.data.erro || 'erro ao conferir.'); }
     finally { setCarregando(false); }
   };
   const corDias = d => (d >= 15 ? '#b91c1c' : d >= 7 ? '#b45309' : '#64748b');
@@ -1872,8 +1880,7 @@ function NfFaltantes({ API, lojas, espiaoStatus }) {
       <p style={s.sub}>Cruza o que a <b>SEFAZ tem</b> (via Espião) com o que foi <b>lançado no Alpha</b> — aponta as <b>notas que faltam dar entrada</b>, ordenadas da <b>mais antiga</b> (mais urgente). Não precisa do SPED: direto, por loja e competência. O confronto não baixa nada; o <b>📥 XML</b> em cada linha é opcional, só se você quiser o arquivo.</p>
       {espiaoStatus && !espiaoStatus.ok && (
         <div style={{ fontSize: 12.5, marginBottom: 12, color: '#a16207', background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 8, padding: 10 }}>
-          🟡 O Espião não está respondendo, e sem ele este cruzamento não funciona — {espiaoStatus.erro || 'sem detalhe'}
-          {espiaoStatus.detalhe && <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>{espiaoTecnico(espiaoStatus.detalhe)}</div>}
+          🟡 A integração do Espião ainda não está autorizada ({espiaoStatus.erro || 'token'}). Libere o módulo API / faça o step-up do token do usuário na conta Espião pra este cruzamento funcionar.
         </div>
       )}
       <div style={s.filtros}>
