@@ -434,10 +434,16 @@ function Colaboradores({ API }) {
             <span style={{ fontSize: 11 }}>Informe a {msg.email}. No 1º acesso ele troca a senha.</span>
           </div>
         )}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button style={s.btn} onClick={salvar}>{editId ? 'Salvar alterações' : 'Cadastrar colaborador'}</button>
           <button style={{ ...s.btn, background: '#999' }} onClick={cancelarEdicao}>{editId ? 'Fechar' : 'Cancelar'}</button>
+          {editId && (lista.find(c => c.id === editId) || {}).ativo === 0 && (
+            <button style={{ ...s.btn, background: '#1E7E45', color: '#fff', borderColor: '#1E7E45' }} onClick={() => ativar({ id: editId, nome: form.nome })}>✅ Ativar colaborador</button>
+          )}
         </div>
+        {editId && (lista.find(c => c.id === editId) || {}).ativo === 0 && (
+          <div style={{ fontSize: 12, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 7, padding: '6px 10px', marginTop: 8 }}>Este colaborador está <b>inativo</b> — clique em <b>✅ Ativar colaborador</b> para ativá-lo. O acesso (login) você libera com <b>🔑 Senha</b> na lista.</div>
+        )}
       </div>
       )}
 
