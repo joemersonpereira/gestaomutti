@@ -83,9 +83,17 @@ async function prever(empresaId) {
 
 // Importa (cria) os colaboradores "a importar": INATIVOS (ativo=0) e sem login (senha aleatória).
 // O RH revisa loja/função e ativa depois. Idempotente (não recria quem já existe por CPF).
-async function importar(empresaId) {
+async function importar(empresaId, selecao) {
   const p = await prever(empresaId);
-  const lista = p.aImportar || [];
+  let lista = p.aImportar || [];
+  // Seleção opcional do RH: só importa os pessoaids escolhidos, com a loja/função que ele ajustou.
+  if (Array.isArray(selecao) && selecao.length) {
+    const byId = new Map(selecao.map(s => [String(s.pessoaid), s]));
+    lista = lista.filter(u => byId.has(String(u.pessoaid))).map(u => {
+      const s = byId.get(String(u.pessoaid));
+      return { ...u, loja_id: s.loja_id || u.loja_id, funcao_id: s.funcao_id || u.funcao_id };
+    });
+  }
   if (!lista.length) return { importados: 0, lista: [] };
   const bcrypt = require('bcryptjs');
   const senhaHash = bcrypt.hashSync(randomUUID(), 8); // aleatória: não logam até o RH resetar

@@ -55,14 +55,29 @@ export default function Cadastros({ modo = 'tudo' }) {
   );
 }
 
-function SyncAlpha({ API, onAplicado }) {
+function SyncAlpha({ API, onAplicado, lojas = [], funcoes = [] }) {
   const [aberto, setAberto] = useState(false);
   const [prev, setPrev] = useState(null);
   const [carregando, setCarregando] = useState(false);
   const [msg, setMsg] = useState('');
-  const conferir = () => { setCarregando(true); setMsg(''); API.get('/colaboradores/sync-alpha').then(r => { setPrev(r.data); setAberto(true); }).catch(e => setMsg(e.response?.data?.erro || 'Erro.')).finally(() => setCarregando(false)); };
+  const [sel, setSel] = useState({}); // pessoaid -> {loja_id, funcao_id, incluir} (edição da importação)
+  const conferir = () => {
+    setCarregando(true); setMsg('');
+    API.get('/colaboradores/sync-alpha').then(r => {
+      setPrev(r.data); setAberto(true);
+      const m = {}; (r.data.aImportar || []).forEach(u => { m[u.pessoaid] = { loja_id: u.loja_id, funcao_id: u.funcao_id, incluir: true }; });
+      setSel(m);
+    }).catch(e => setMsg(e.response?.data?.erro || 'Erro.')).finally(() => setCarregando(false));
+  };
   const aplicar = () => { if (!window.confirm(`Desativar ${prev.aDesativar.length} colaborador(es) que estão inativos no Alpha 7?`)) return; API.post('/colaboradores/sync-alpha/aplicar', { reativar: false }).then(r => { setMsg(`✅ ${r.data.desativados} desativado(s).`); setPrev(null); setAberto(false); onAplicado && onAplicado(); }).catch(e => setMsg(e.response?.data?.erro || 'Erro.')); };
-  const importar = () => { const n = (prev.aImportar || []).length; if (!window.confirm(`Importar ${n} pessoa(s) ativa(s) no Alpha que ainda não estão no app?\n\nElas entram INATIVAS e sem acesso (login), com loja da unidade do ERP (senão Escritório) e função "Operador de Loja". Depois o RH revisa e ativa.`)) return; API.post('/colaboradores/sync-alpha/importar').then(r => { setMsg(`✅ ${r.data.importados} importado(s) (inativos, para o RH revisar).`); setPrev(null); setAberto(false); onAplicado && onAplicado(); }).catch(e => setMsg(e.response?.data?.erro || 'Erro.')); };
+  const setRow = (pid, k, v) => setSel(s => ({ ...s, [pid]: { ...(s[pid] || {}), [k]: v } }));
+  const importar = () => {
+    const selecao = (prev.aImportar || []).filter(u => (sel[u.pessoaid] || {}).incluir !== false)
+      .map(u => ({ pessoaid: u.pessoaid, loja_id: (sel[u.pessoaid] || {}).loja_id || u.loja_id, funcao_id: (sel[u.pessoaid] || {}).funcao_id || u.funcao_id }));
+    if (!selecao.length) { setMsg('⚠️ Marque ao menos uma pessoa para importar.'); return; }
+    if (!window.confirm(`Importar ${selecao.length} pessoa(s)?\n\nEntram INATIVAS e sem acesso (login), com a loja e função que você escolheu. Depois é só ativar no cadastro.`)) return;
+    API.post('/colaboradores/sync-alpha/importar', { selecao }).then(r => { setMsg(`✅ ${r.data.importados} importado(s) (inativos, para revisar/ativar).`); setPrev(null); setAberto(false); onAplicado && onAplicado(); }).catch(e => setMsg(e.response?.data?.erro || 'Erro.'));
+  };
   return (
     <div style={{ ...s.card, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -82,9 +97,27 @@ function SyncAlpha({ API, onAplicado }) {
           </> : <div style={{ color: '#3B6D11', marginTop: 6 }}>✓ Tudo em dia — ninguém a desativar.</div>}
           {prev.aImportar && prev.aImportar.length ? <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #e2e8f0' }}>
             <div style={{ margin: '0 0 4px', color: '#1d4ed8', fontWeight: 600 }}>A importar — ativos no Alpha fora do app ({prev.aImportar.length}):</div>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>Entram <b>inativos e sem login</b>; loja = unidade do ERP (senão Escritório), função "Operador de Loja". O RH revisa e ativa.</div>
-            <div style={{ maxHeight: 180, overflowY: 'auto', fontSize: 12 }}>{prev.aImportar.map(c => <div key={c.pessoaid}>• {c.nome} <span style={{ color: '#94a3b8' }}>— {c.loja_nome}</span></div>)}</div>
-            <button style={{ ...s.btn, background: '#1d4ed8', color: '#fff', marginTop: 8 }} onClick={importar}>Importar {prev.aImportar.length} (inativos)</button>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>Entram <b>inativos e sem login</b>. Ajuste a <b>loja</b> e a <b>função</b> de cada um (vêm sugeridas do ERP) e marque quem importar. Depois é só ativar no cadastro.</div>
+            <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 6 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead><tr style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>{['✓', 'Nome', 'Loja', 'Função'].map(h => <th key={h} style={{ textAlign: 'left', padding: '5px 8px', borderBottom: '1px solid #e2e8f0', fontWeight: 600 }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {prev.aImportar.map(c => { const r = sel[c.pessoaid] || {}; const on = r.incluir !== false; return (
+                    <tr key={c.pessoaid} style={{ borderBottom: '1px solid #f1f5f9', opacity: on ? 1 : 0.5 }}>
+                      <td style={{ padding: '4px 8px' }}><input type="checkbox" checked={on} onChange={e => setRow(c.pessoaid, 'incluir', e.target.checked)} /></td>
+                      <td style={{ padding: '4px 8px' }}>{c.nome}</td>
+                      <td style={{ padding: '4px 8px' }}><select value={r.loja_id || ''} onChange={e => setRow(c.pessoaid, 'loja_id', e.target.value)} style={{ fontSize: 12, padding: '2px 4px', maxWidth: 160 }}>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></td>
+                      <td style={{ padding: '4px 8px' }}><select value={r.funcao_id || ''} onChange={e => setRow(c.pessoaid, 'funcao_id', e.target.value)} style={{ fontSize: 12, padding: '2px 4px', maxWidth: 160 }}>{funcoes.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></td>
+                    </tr>
+                  ); })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+              <button style={{ ...s.btn, background: '#1d4ed8', color: '#fff' }} onClick={importar}>Importar selecionados (inativos)</button>
+              <button style={{ ...s.btn, fontSize: 12 }} onClick={() => setSel(s => { const m = { ...s }; (prev.aImportar || []).forEach(u => { m[u.pessoaid] = { ...(m[u.pessoaid] || {}), incluir: true }; }); return m; })}>marcar todos</button>
+              <button style={{ ...s.btn, fontSize: 12 }} onClick={() => setSel(s => { const m = { ...s }; (prev.aImportar || []).forEach(u => { m[u.pessoaid] = { ...(m[u.pessoaid] || {}), incluir: false }; }); return m; })}>desmarcar todos</button>
+            </div>
           </div> : null}
         </div>
       )}
@@ -195,7 +228,7 @@ function Colaboradores({ API }) {
   return (
     <>
       <AutoCadastroRH />
-      <SyncAlpha API={API} onAplicado={carregar} />
+      <SyncAlpha API={API} onAplicado={carregar} lojas={lojas} funcoes={funcoes} />
 
       {/* Toolbar: novo + busca + filtro por loja */}
       <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 5 }}>

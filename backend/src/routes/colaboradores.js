@@ -84,7 +84,7 @@ router.post('/sync-alpha/aplicar', exigePerfil('Gestor Geral', 'Diretor Geral', 
 
 // POST /colaboradores/sync-alpha/importar — cria quem está ativo no ERP e não existe no app (INATIVO, sem login)
 router.post('/sync-alpha/importar', exigePerfil('Gestor Geral', 'Diretor Geral', 'RH'), async (req, res) => {
-  try { res.json(await syncErp.importar(req.usuario.empresa_id)); }
+  try { res.json(await syncErp.importar(req.usuario.empresa_id, req.body && req.body.selecao)); }
   catch (e) { res.status(503).json({ erro: 'ERP indisponível para a importação.', detalhe: String(e.message || e) }); }
 });
 
