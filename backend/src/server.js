@@ -262,6 +262,25 @@ function rodarTarefasFeira() {
 setTimeout(rodarTarefasFeira, 50000);
 setInterval(rodarTarefasFeira, 12 * 3600 * 1000);
 
+// Conciliação NF×XML (Fiscal): chama o Espião de hora em hora e guarda no cache, pra tela abrir já com o
+// resultado do mês atual (sem o usuário clicar "conferir" e esperar). Boot (3 min) + a cada 1h.
+function rodarConciliacaoFiscal() {
+  try {
+    const { habilitado } = require('./db/erp');
+    if (!habilitado()) return;
+    const contab = require('./routes/contabilidade');
+    if (typeof contab.atualizarCacheConciliacao !== 'function') return;
+    const db = require('./db/connection');
+    const competencia = new Date().toISOString().slice(0, 7);
+    const empresas = [...new Set(db.prepare('SELECT empresa_id FROM lojas').all().map(r => r.empresa_id))];
+    empresas.forEach(eid => Promise.resolve(contab.atualizarCacheConciliacao(eid, competencia))
+      .then(r => { if (r && r.ok) console.log(`[conciliacao-fiscal] ${eid} ${competencia}: ${r.totalFaltantes} nota(s) faltando em ${r.lojas} loja(s)` + (r.errosLojas ? `, ${r.errosLojas} loja(s) com erro no Espião` : '')); })
+      .catch(() => {}));
+  } catch { /* ignora */ }
+}
+setTimeout(rodarConciliacaoFiscal, 180000);            // no boot (após 3 min)
+setInterval(rodarConciliacaoFiscal, 60 * 60 * 1000);   // a cada 1h
+
 // Conversão Giro/E-commerce × ERP: 1x/dia no horário configurado (padrão 18:00) cruza os checkouts
 // pendentes com as vendas do A7 (cliente por telefone/nome + mesmo produto ou variação) e registra
 // as vendas na API do e-commerce. Checa a cada 5 min; se o servidor subir depois do horário, roda no mesmo dia.

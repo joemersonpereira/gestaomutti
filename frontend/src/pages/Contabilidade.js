@@ -1864,16 +1864,22 @@ function NfFaltantes({ API, lojas, espiaoStatus }) {
     } finally { setBaixando(null); }
   };
 
-  const conferir = async () => {
-    setCarregando(true); setErro(''); setRes(null);
+  // A conciliação roda sozinha de hora em hora e fica em cache. A tela ABRE lendo o cache (rápido, sem
+  // chamar o Espião). "Atualizar agora" (forcar) refaz na hora. somenteCache = leitura instantânea.
+  const buscar = useCallback(async ({ forcar = false, somenteCache = false } = {}) => {
+    setCarregando(true); setErro('');
     try {
       const params = { competencia }; if (loja) params.loja = loja; if (diasMin) params.diasMin = diasMin;
+      if (forcar) params.forcar = 1; if (somenteCache) params.somenteCache = 1;
       const r = await API.get('/contabilidade/sped/entradas-faltantes', { params });
       setRes(r.data);
     } catch (e) { setErro(e.response && e.response.data && e.response.data.erro || 'erro ao conferir.'); }
     finally { setCarregando(false); }
-  };
+  }, [API, competencia, loja, diasMin]);
+  // abre já com o que estiver em cache (e re-filtra quando muda competência/loja/dias)
+  useEffect(() => { buscar({ somenteCache: true }); }, [buscar]);
   const corDias = d => (d >= 15 ? '#b91c1c' : d >= 7 ? '#b45309' : '#64748b');
+  const horaBR = iso => { try { return new Date(String(iso).replace(' ', 'T') + 'Z').toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
 
   return (
     <>
@@ -1887,9 +1893,14 @@ function NfFaltantes({ API, lojas, espiaoStatus }) {
         <div style={s.lab}>Competência<input type="month" style={s.inp} value={competencia} onChange={e => setCompetencia(e.target.value)} /></div>
         <div style={s.lab}>Loja<select style={s.inp} value={loja} onChange={e => setLoja(e.target.value)}><option value="">🏬 Todas as lojas</option>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></div>
         <div style={s.lab}>Só com mais de<select style={s.inp} value={diasMin} onChange={e => setDiasMin(e.target.value)}><option value="">(todas)</option><option value="3">3 dias</option><option value="7">7 dias</option><option value="15">15 dias</option><option value="30">30 dias</option></select></div>
-        <button style={{ ...s.btn, background: '#0d6b5e', color: '#fff', borderColor: '#0d6b5e' }} onClick={conferir} disabled={carregando}>{carregando ? 'conferindo…' : '🔎 conferir SEFAZ × Alpha'}</button>
+        <button style={{ ...s.btn, background: '#0d6b5e', color: '#fff', borderColor: '#0d6b5e' }} onClick={() => buscar({ forcar: true })} disabled={carregando}>{carregando ? 'conferindo…' : '🔄 Atualizar agora'}</button>
+      </div>
+      <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 10 }}>
+        🤖 Roda sozinho de hora em hora — a tela abre com o último resultado.{' '}
+        {res && res.cache && res.cache.atualizado_em ? <>Atualizado em <b>{horaBR(res.cache.atualizado_em)}</b>{res.cache.deCache ? ' (do cache)' : ' (recém-calculado)'}.</> : ''}
       </div>
       {erro && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13 }}>⚠️ {erro}</div>}
+      {res && res.semCache && <div style={{ background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13 }}>Ainda não há um resultado calculado para <b>{competencia}</b> (o robô roda de hora em hora). Clique em <b>🔄 Atualizar agora</b> para conferir na hora.</div>}
       {res && (res.totalUrgentes > 0) && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: '9px 12px', marginBottom: 12, fontSize: 13, fontWeight: 700 }}>🚨 {res.totalUrgentes} nota(s) com <b>7 dias ou mais</b> sem dar entrada — priorize!</div>}
       {res && !!(res.errosLojas || []).length && <div style={{ background: '#fffbeb', color: '#92400e', border: '1px solid #fde68a', borderRadius: 8, padding: '9px 12px', marginBottom: 12, fontSize: 12.5 }}>
         ⚠️ Não deu pra conferir {res.errosLojas.length} loja(s) no Espião (as demais seguiram normalmente):

@@ -26,7 +26,9 @@ router.use(exigePerfil(...PERFIS));
 // Cache de ERP (Contabilidade + Fiscal + Fornecedores + Auditoria usam este router). Pula o BI de
 // tempo de entrada (lead-*) que já tem cache próprio com botão atualizar. Escrita invalida 'ctb:'.
 const { cacheMiddleware: _cacheMw, invalidarMiddleware: _invMw } = require('../lib/erpCache');
-router.use(_cacheMw('ctb', { skip: req => req.path.startsWith('/espiao/lead-') }));
+// /sped/entradas-faltantes tem cache PRÓPRIO (biCache + forcar/somenteCache) — fora do cache genérico,
+// senão o genérico guardaria a resposta "semCache" e a tela nunca sairia do "ainda não calculado".
+router.use(_cacheMw('ctb', { skip: req => req.path.startsWith('/espiao/lead-') || req.path === '/sped/entradas-faltantes' }));
 router.use(_invMw('ctb:'));
 
 // Centralizadores: agrupam credores pela descrição/nome (ex.: FAMPESA LIMPEZA) somando os títulos.
@@ -1208,69 +1210,97 @@ router.post('/sped/:id/validar', (req, res) => {
 
 // ── NF não lançada SEM precisar do SPED: cruza Espião (SEFAZ) × Alpha (notafiscal) direto ───────
 // Por loja: lista o que a SEFAZ tem recebido no período e marca o que NÃO está no Alpha (por chave).
+// Parte CARA (chama o Espião por loja + cruza com o Alpha): roda p/ TODAS as lojas, guarda TODAS as
+// notas faltantes (sem calcular "dias" nem filtrar) — é o que vai pro cache. Reusada pelo job de hora em hora.
+async function conciliarEntradas(empresaId, competencia) {
+  const cnpjMap = {}; db.prepare('SELECT id, cnpj FROM lojas WHERE empresa_id=?').all(empresaId).forEach(r => { cnpjMap[r.id] = r.cnpj; });
+  const candidatas = lojasEmpresa(empresaId).filter(l => l.erp_unidadenegocio_id != null);
+  const cnpjErp = {};
+  try {
+    const unis = candidatas.map(l => Number(l.erp_unidadenegocio_id));
+    if (unis.length) (await erpQuery(`SELECT un.id, regexp_replace(pf.cnpj,'[^0-9]','','g') cnpj FROM unidadenegocio un LEFT JOIN pessoa pf ON pf.id=un.pessoaid WHERE un.id = ANY($1::bigint[])`, [unis]))
+      .forEach(r => { if (r.cnpj && r.cnpj.length === 14) cnpjErp[Number(r.id)] = r.cnpj; });
+  } catch (e) { /* sem ERP: usa o cadastro do app */ }
+  const lojas = candidatas
+    .map(l => ({ ...l, cnpj: cnpjErp[Number(l.erp_unidadenegocio_id)] || soDigitos(cnpjMap[l.id] || '') }))
+    .filter(l => soDigitos(l.cnpj || '').length === 14);
+  const [ano, mes] = competencia.split('-').map(Number);
+  const ini = `${competencia}-01`, fim = `${competencia}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`;
+  const saida = []; const errosLojas = [];
+  for (const l of lojas) {
+    const cnpj = soDigitos(l.cnpj);
+    const sef = await espiao.nfeResumoPeriodo({ cnpjCpf: cnpj, dataInicial: ini, dataFinal: fim, emitidaRecebida: 0, modelo: 55 });
+    if (!sef.ok) {
+      const amigavel = sef.status === 404
+        ? 'o Espião não tem esse CNPJ nessa conta (ou sem notas no período). Verifique se a filial está cadastrada no Espião.'
+        : (sef.erro || 'erro ao consultar o Espião');
+      errosLojas.push({ loja: l.nome, loja_id: l.id, cnpj, status: sef.status || null, erro: amigavel });
+      continue;
+    }
+    const rows = await erpQuery(`SELECT DISTINCT regexp_replace(chaveacesso,'[^0-9]','','g') AS chave
+      FROM notafiscal WHERE unidadenegocioid = $1 AND chaveacesso IS NOT NULL
+        AND datahoraemissao >= ($2::date - interval '90 days') AND datahoraemissao < ($3::date + interval '40 days')`,
+      [Number(l.erp_unidadenegocio_id), ini, fim]);
+    const noAlpha = new Set(rows.map(r => r.chave));
+    const canc = s => /cancel/i.test(String(s || ''));
+    const vistas = new Set();
+    const faltantes = (sef.notas || []).filter(n => {
+      if (canc(n.situacao)) return false;
+      const ch = soDigitos(n.chaveAcesso);
+      if (!ch || noAlpha.has(ch) || vistas.has(ch)) return false;
+      vistas.add(ch); return true;
+    }).map(n => ({ chave: soDigitos(n.chaveAcesso), numero: n.numeroNfe, emitente: n.nomeEmitente, cnpjEmitente: n.cnpjCpfEmitente, data: n.dataEmissao, valor: n.valorTotal, situacao: n.situacao, possuiXml: n.possuiXml }));
+    saida.push({ loja: l.nome, loja_id: l.id, cnpj, sefaz: (sef.notas || []).length, noAlpha: noAlpha.size, faltantes });
+  }
+  return { competencia, lojas: saida, errosLojas };
+}
+
+// Aplica os filtros (loja / dias mínimos) + calcula "dias" e urgência em cima do resultado bruto (cacheado).
+function filtrarConciliacao(raw, { loja, diasMin }) {
+  const hoje = Date.now(); const dmin = Math.max(0, Number(diasMin) || 0);
+  const lojas = (raw.lojas || []).filter(L => !loja || L.loja_id === loja).map(L => {
+    let lista = (L.faltantes || []).map(n => {
+      const emi = n.data ? new Date(String(n.data).slice(0, 10)) : null;
+      const dias = emi ? Math.floor((hoje - emi.getTime()) / 86400000) : null;
+      return { ...n, dias };
+    }).sort((a, b) => (b.dias || 0) - (a.dias || 0));
+    if (dmin) lista = lista.filter(n => (n.dias || 0) >= dmin);
+    return { ...L, faltantes: lista, urgentes: lista.filter(n => (n.dias || 0) >= 7).length };
+  });
+  return { lojas, totalFaltantes: lojas.reduce((a, s) => a + s.faltantes.length, 0), totalUrgentes: lojas.reduce((a, s) => a + (s.urgentes || 0), 0), errosLojas: raw.errosLojas || [] };
+}
+
 router.get('/sped/entradas-faltantes', async (req, res) => {
   try {
     if (!espiao.habilitado()) return res.status(400).json({ erro: 'Integração Espião não configurada (.env).' });
     const { competencia } = req.query;
     if (!competencia || !/^\d{4}-\d{2}$/.test(competencia)) return res.status(400).json({ erro: 'Informe a competência (AAAA-MM).' });
-    const loja = req.query.loja;
-    const cnpjMap = {}; db.prepare('SELECT id, cnpj FROM lojas WHERE empresa_id=?').all(req.usuario.empresa_id).forEach(r => { cnpjMap[r.id] = r.cnpj; });
-    const candidatas = lojasEmpresa(req.usuario.empresa_id).filter(l => (!loja || l.id === loja) && l.erp_unidadenegocio_id != null);
-    // CNPJ do ERP é a fonte da verdade (o cadastro do app pode estar errado/desatualizado). Cai no app só se faltar no ERP.
-    const cnpjErp = {};
-    try {
-      const unis = candidatas.map(l => Number(l.erp_unidadenegocio_id));
-      if (unis.length) (await erpQuery(`SELECT un.id, regexp_replace(pf.cnpj,'[^0-9]','','g') cnpj FROM unidadenegocio un LEFT JOIN pessoa pf ON pf.id=un.pessoaid WHERE un.id = ANY($1::bigint[])`, [unis]))
-        .forEach(r => { if (r.cnpj && r.cnpj.length === 14) cnpjErp[Number(r.id)] = r.cnpj; });
-    } catch (e) { /* sem ERP: usa o cadastro do app */ }
-    const lojas = candidatas
-      .map(l => ({ ...l, cnpj: cnpjErp[Number(l.erp_unidadenegocio_id)] || soDigitos(cnpjMap[l.id] || '') }))
-      .filter(l => soDigitos(l.cnpj || '').length === 14);
-    if (!lojas.length) return res.status(400).json({ erro: 'Nenhuma loja com CNPJ válido (14 dígitos) no ERP/cadastro.' });
-    const [ano, mes] = competencia.split('-').map(Number);
-    const ini = `${competencia}-01`, fim = `${competencia}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`;
-    const saida = []; const errosLojas = [];
-    for (const l of lojas) {
-      const cnpj = soDigitos(l.cnpj);
-      const sef = await espiao.nfeResumoPeriodo({ cnpjCpf: cnpj, dataInicial: ini, dataFinal: fim, emitidaRecebida: 0, modelo: 55 });
-      // NÃO trava as outras lojas: 404 ("não localizado" = CNPJ sem dados/sem monitoramento no Espião) ou
-      // qualquer erro vira um aviso da loja e segue pras demais.
-      if (!sef.ok) {
-        const amigavel = sef.status === 404
-          ? 'o Espião não tem esse CNPJ nessa conta (ou sem notas no período). Verifique se a filial está cadastrada no Espião.'
-          : (sef.erro || 'erro ao consultar o Espião');
-        errosLojas.push({ loja: l.nome, loja_id: l.id, cnpj, status: sef.status || null, erro: amigavel });
-        continue;
-      }
-      // chaves já lançadas no Alpha pra essa unidade (janela ampla pra não acusar nota lançada noutro mês)
-      const rows = await erpQuery(`SELECT DISTINCT regexp_replace(chaveacesso,'[^0-9]','','g') AS chave
-        FROM notafiscal WHERE unidadenegocioid = $1 AND chaveacesso IS NOT NULL
-          AND datahoraemissao >= ($2::date - interval '90 days') AND datahoraemissao < ($3::date + interval '40 days')`,
-        [Number(l.erp_unidadenegocio_id), ini, fim]);
-      const noAlpha = new Set(rows.map(r => r.chave));
-      const canc = s => /cancel/i.test(String(s || ''));
-      const vistas = new Set();
-      const faltantes = (sef.notas || []).filter(n => {
-        if (canc(n.situacao)) return false;
-        const ch = soDigitos(n.chaveAcesso);
-        if (!ch || noAlpha.has(ch) || vistas.has(ch)) return false; // não lançada no Alpha e ainda não listada
-        vistas.add(ch); return true;
-      });
-      const hoje = Date.now();
-      const diasMin = Math.max(0, Number(req.query.diasMin) || 0); // filtro de urgência (só com mais de X dias)
-      let lista = faltantes.map(n => {
-        const emi = n.dataEmissao ? new Date(String(n.dataEmissao).slice(0, 10)) : null;
-        const dias = emi ? Math.floor((hoje - emi.getTime()) / 86400000) : null;
-        return { chave: soDigitos(n.chaveAcesso), numero: n.numeroNfe, emitente: n.nomeEmitente, cnpjEmitente: n.cnpjCpfEmitente, data: n.dataEmissao, valor: n.valorTotal, situacao: n.situacao, possuiXml: n.possuiXml, dias };
-      }).sort((a, b) => (b.dias || 0) - (a.dias || 0)); // mais antiga (mais urgente) primeiro
-      if (diasMin) lista = lista.filter(n => (n.dias || 0) >= diasMin);
-      saida.push({ loja: l.nome, loja_id: l.id, cnpj, sefaz: (sef.notas || []).length, noAlpha: noAlpha.size, faltantes: lista, urgentes: lista.filter(n => (n.dias || 0) >= 7).length });
+    const chave = `entradas-faltantes|${competencia}`;
+    // Abre do cache (rápido, sem chamar o Espião). O job de hora em hora mantém o cache quente; "atualizar
+    // agora" (?forcar=1) refaz na hora. Mês fechado fica cacheado pra sempre; mês atual vale por 1h (TTL do BI).
+    const cache = biCacheLer(req.usuario.empresa_id, chave, competencia, req.query.forcar === '1');
+    let raw, atualizado_em, deCache = false;
+    if (cache) { raw = cache.payload; atualizado_em = cache.atualizado_em; deCache = true; }
+    else if (req.query.somenteCache === '1') {
+      // abertura da tela: responde na hora. Se ainda não tem cache, avisa (sem chamar o Espião, que é lento).
+      return res.json({ ok: true, semCache: true, competencia });
+    } else {
+      raw = await conciliarEntradas(req.usuario.empresa_id, competencia);
+      atualizado_em = biCacheGravar(req.usuario.empresa_id, chave, competencia, raw);
     }
-    const totalFaltantes = saida.reduce((a, s) => a + s.faltantes.length, 0);
-    const totalUrgentes = saida.reduce((a, s) => a + (s.urgentes || 0), 0);
-    res.json({ ok: true, competencia, totalFaltantes, totalUrgentes, lojas: saida, errosLojas });
+    const f = filtrarConciliacao(raw, { loja: req.query.loja, diasMin: req.query.diasMin });
+    res.json({ ok: true, competencia, ...f, cache: { atualizado_em, deCache, ttlMin: BI_CACHE_TTL_MIN } });
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
+
+// Usado pelo job de hora em hora (server.js): refaz a conciliação do mês e grava no cache, pra tela abrir pronta.
+router.atualizarCacheConciliacao = async (empresaId, competencia) => {
+  if (!espiao.habilitado()) return { ok: false, motivo: 'espiao-off' };
+  const raw = await conciliarEntradas(empresaId, competencia);
+  biCacheGravar(empresaId, `entradas-faltantes|${competencia}`, competencia, raw);
+  const totalFaltantes = (raw.lojas || []).reduce((a, s) => a + (s.faltantes || []).length, 0);
+  return { ok: true, lojas: (raw.lojas || []).length, totalFaltantes, errosLojas: (raw.errosLojas || []).length };
+};
 
 // baixa o XML de uma nota (pela chave) direto do Espião — sob demanda, só quando o usuário pede
 router.get('/espiao/xml/:chave', async (req, res) => {
