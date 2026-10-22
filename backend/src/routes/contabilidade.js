@@ -1215,17 +1215,33 @@ router.get('/sped/entradas-faltantes', async (req, res) => {
     if (!competencia || !/^\d{4}-\d{2}$/.test(competencia)) return res.status(400).json({ erro: 'Informe a competência (AAAA-MM).' });
     const loja = req.query.loja;
     const cnpjMap = {}; db.prepare('SELECT id, cnpj FROM lojas WHERE empresa_id=?').all(req.usuario.empresa_id).forEach(r => { cnpjMap[r.id] = r.cnpj; });
-    const lojas = lojasEmpresa(req.usuario.empresa_id)
-      .map(l => ({ ...l, cnpj: cnpjMap[l.id] }))
-      .filter(l => (!loja || l.id === loja) && soDigitos(l.cnpj || '').length === 14 && l.erp_unidadenegocio_id != null);
-    if (!lojas.length) return res.status(400).json({ erro: 'Escolha uma loja com CNPJ cadastrado (14 dígitos).' });
+    const candidatas = lojasEmpresa(req.usuario.empresa_id).filter(l => (!loja || l.id === loja) && l.erp_unidadenegocio_id != null);
+    // CNPJ do ERP é a fonte da verdade (o cadastro do app pode estar errado/desatualizado). Cai no app só se faltar no ERP.
+    const cnpjErp = {};
+    try {
+      const unis = candidatas.map(l => Number(l.erp_unidadenegocio_id));
+      if (unis.length) (await erpQuery(`SELECT un.id, regexp_replace(pf.cnpj,'[^0-9]','','g') cnpj FROM unidadenegocio un LEFT JOIN pessoa pf ON pf.id=un.pessoaid WHERE un.id = ANY($1::bigint[])`, [unis]))
+        .forEach(r => { if (r.cnpj && r.cnpj.length === 14) cnpjErp[Number(r.id)] = r.cnpj; });
+    } catch (e) { /* sem ERP: usa o cadastro do app */ }
+    const lojas = candidatas
+      .map(l => ({ ...l, cnpj: cnpjErp[Number(l.erp_unidadenegocio_id)] || soDigitos(cnpjMap[l.id] || '') }))
+      .filter(l => soDigitos(l.cnpj || '').length === 14);
+    if (!lojas.length) return res.status(400).json({ erro: 'Nenhuma loja com CNPJ válido (14 dígitos) no ERP/cadastro.' });
     const [ano, mes] = competencia.split('-').map(Number);
     const ini = `${competencia}-01`, fim = `${competencia}-${String(new Date(ano, mes, 0).getDate()).padStart(2, '0')}`;
-    const saida = [];
+    const saida = []; const errosLojas = [];
     for (const l of lojas) {
       const cnpj = soDigitos(l.cnpj);
       const sef = await espiao.nfeResumoPeriodo({ cnpjCpf: cnpj, dataInicial: ini, dataFinal: fim, emitidaRecebida: 0, modelo: 55 });
-      if (!sef.ok) return res.status(502).json({ erro: `${l.nome} — ${sef.erro}`, status: sef.status, detalhe: sef.detalhe });
+      // NÃO trava as outras lojas: 404 ("não localizado" = CNPJ sem dados/sem monitoramento no Espião) ou
+      // qualquer erro vira um aviso da loja e segue pras demais.
+      if (!sef.ok) {
+        const amigavel = sef.status === 404
+          ? 'o Espião não tem esse CNPJ nessa conta (ou sem notas no período). Verifique se a filial está cadastrada no Espião.'
+          : (sef.erro || 'erro ao consultar o Espião');
+        errosLojas.push({ loja: l.nome, loja_id: l.id, cnpj, status: sef.status || null, erro: amigavel });
+        continue;
+      }
       // chaves já lançadas no Alpha pra essa unidade (janela ampla pra não acusar nota lançada noutro mês)
       const rows = await erpQuery(`SELECT DISTINCT regexp_replace(chaveacesso,'[^0-9]','','g') AS chave
         FROM notafiscal WHERE unidadenegocioid = $1 AND chaveacesso IS NOT NULL
@@ -1252,7 +1268,7 @@ router.get('/sped/entradas-faltantes', async (req, res) => {
     }
     const totalFaltantes = saida.reduce((a, s) => a + s.faltantes.length, 0);
     const totalUrgentes = saida.reduce((a, s) => a + (s.urgentes || 0), 0);
-    res.json({ ok: true, competencia, totalFaltantes, totalUrgentes, lojas: saida });
+    res.json({ ok: true, competencia, totalFaltantes, totalUrgentes, lojas: saida, errosLojas });
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 

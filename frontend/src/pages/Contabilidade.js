@@ -1891,6 +1891,10 @@ function NfFaltantes({ API, lojas, espiaoStatus }) {
       </div>
       {erro && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13 }}>⚠️ {erro}</div>}
       {res && (res.totalUrgentes > 0) && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: '9px 12px', marginBottom: 12, fontSize: 13, fontWeight: 700 }}>🚨 {res.totalUrgentes} nota(s) com <b>7 dias ou mais</b> sem dar entrada — priorize!</div>}
+      {res && !!(res.errosLojas || []).length && <div style={{ background: '#fffbeb', color: '#92400e', border: '1px solid #fde68a', borderRadius: 8, padding: '9px 12px', marginBottom: 12, fontSize: 12.5 }}>
+        ⚠️ Não deu pra conferir {res.errosLojas.length} loja(s) no Espião (as demais seguiram normalmente):
+        <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{res.errosLojas.map((e, i) => <li key={i}><b>{e.loja}</b> (CNPJ {e.cnpj}){e.status ? ' · HTTP ' + e.status : ''} — {e.erro}</li>)}</ul>
+      </div>}
       {res && (res.lojas || []).map((L, i) => (
         <div key={i} style={{ ...s.card, marginBottom: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{L.loja} {L.urgentes ? <span style={{ fontSize: 11, color: '#b91c1c' }}>· 🚨 {L.urgentes} urgente(s)</span> : null}</div>
