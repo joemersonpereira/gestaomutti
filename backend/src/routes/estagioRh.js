@@ -89,6 +89,11 @@ router.get('/ficha/:id/endereco-erp', exigePerfil(...PERFIS), async (req, res) =
   } catch (e) { res.json({ endereco: '', cep: '', erro: e.message }); }
 });
 
+// pagamentos de UMA ficha (todas as competências) — pro recibo de pagamento sair com os valores reais do mês
+router.get('/ficha/:id/pagamentos', exigePerfil(...PERFIS), (req, res) => {
+  res.json(db.prepare(`SELECT * FROM estagio_pagamento WHERE empresa_id=? AND ficha_id=? ORDER BY competencia DESC`).all(emp(req), req.params.id));
+});
+
 // ── Índice de aprovação de uma ficha ──
 router.get('/indice/:fichaId', exigePerfil(...PERFIS), (req, res) => res.json(indiceFicha(emp(req), req.params.fichaId)));
 

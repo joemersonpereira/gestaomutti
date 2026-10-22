@@ -556,6 +556,8 @@ export function Contrato({ API, colaboradorId, fichaId }) {
   const [docSt, setDocSt] = useState('pendente'); // controle de assinatura do documento
   const [ciencia, setCiencia] = useState(''); // termo de ciência do Guia do Colaborador (sai junto com o contrato)
   const [endErp, setEndErp] = useState(''); // endereço vindo do ERP (fallback quando a ficha/colaborador não tem)
+  const [feriasIni, setFeriasIni] = useState(''); const [feriasFim, setFeriasFim] = useState(''); // período do recesso (aviso/recibo de férias)
+  const [pagtos, setPagtos] = useState([]); const [recComp, setRecComp] = useState(''); // pagamentos da ficha + competência escolhida (recibo de pagamento)
   useEffect(() => {
     Promise.all(['supervisor_nome', 'supervisor_cargo', 'supervisor_email'].map(k => API.get('/estagio/config/' + k).then(r => r.data.valor || '').catch(() => '')))
       .then(([nome, cargo, email]) => setSup({ nome, cargo, email }));
@@ -573,6 +575,8 @@ export function Contrato({ API, colaboradorId, fichaId }) {
   useEffect(() => { if (fichaId) { setFid(fichaId); return; } if (colaboradorId && fichas.length) { const f = fichas.find(x => x.colaborador_id === colaboradorId); if (f) setFid(f.id); } }, [fichaId, colaboradorId, fichas]);
   // Busca o endereço do ERP (pessoa vinculada ao usuário) como último fallback do endereço do estagiário.
   useEffect(() => { setEndErp(''); if (fid) API.get('/estagio/ficha/' + fid + '/endereco-erp').then(r => setEndErp(r.data.endereco || '')).catch(() => {}); }, [API, fid]);
+  // Pagamentos da ficha (pro recibo de pagamento sair com os valores reais do mês).
+  useEffect(() => { setRecComp(''); if (fid) API.get('/estagio/ficha/' + fid + '/pagamentos').then(r => setPagtos(r.data || [])).catch(() => setPagtos([])); else setPagtos([]); }, [API, fid]);
   const nome = (arr, id, campo = 'nome') => (arr.find(x => x.id === id) || {})[campo] || '';
   // Para loja, o nome que vai no contrato é a RAZÃO SOCIAL (cai pro nome/apelido se não tiver).
   const nomeAtu = id => { const e = emp.find(x => x.id === id); if (e) return e.nome || ''; const l = lojas.find(x => x.id === id); return l ? (l.razao_social || l.nome || '') : ''; };
@@ -610,6 +614,15 @@ export function Contrato({ API, colaboradorId, fichaId }) {
     const addAno = iso => { if (!iso) return ''; const d = new Date(String(iso).slice(0, 10)); if (isNaN(d.getTime())) return ''; d.setFullYear(d.getFullYear() + 1); return d.toISOString().slice(0, 10); };
     const iniISO = f.data_inicio || (cl && (cl.admissao || cl.inicio_loja)) || '';   // início = admissão do colaborador se a ficha não tiver
     const fimISO = f.data_fim || (iniISO ? addAno(iniISO) : '');                      // fim previsto = início + 1 ano (padrão editável)
+    // Recibo de pagamento: se o RH escolheu uma competência, usa os valores REAIS daquele mês (bolsa,
+    // VT, desconto) e a competência certa — senão cai nos valores da ficha + mês corrente.
+    const pagSel = recComp ? pagtos.find(p => p.competencia === recComp) : null;
+    const compAtual = (() => { const d = new Date(); return String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); })();
+    const compRecibo = pagSel && pagSel.competencia ? pagSel.competencia.split('-').reverse().join('/') : compAtual;
+    const vBolsa = pagSel ? pagSel.bolsa : f.valor_bolsa;
+    const vVt = pagSel ? pagSel.vt : f.vale_transporte;
+    // Período do recesso (aviso/recibo de férias): o RH informa início/fim; dias = diferença (senão 30).
+    const feriasDias = (feriasIni && feriasFim) ? (() => { const n = Math.round((new Date(feriasFim) - new Date(feriasIni)) / 86400000) + 1; return n > 0 ? String(n) : '30 (trinta)'; })() : '30 (trinta)';
     const map = {
       nome: f.nome || '', cpf: f.cpf || (cl && cl.cpf) || '', rg: f.rg || '', nascimento: fmtD(f.nascimento || (cl && cl.nascimento)), endereco: f.endereco || endCol || endErp, telefone: f.telefone || (cl && cl.telefone) || '', email: f.email || (cl && cl.email) || '',
       escola: nome(esc, f.escola_id), curso: f.curso || '', serie: f.serie || '',
@@ -619,7 +632,7 @@ export function Contrato({ API, colaboradorId, fichaId }) {
       escola_cnpj: nome(esc, f.escola_id, 'cnpj'), escola_endereco: nome(esc, f.escola_id, 'endereco'), escola_representante: nome(esc, f.escola_id, 'representante') || '(representante da escola)',
       atividade: f.curso || 'Auxiliar no Atendimento ao Cliente',
       horario: f.horario || '(horário a combinar)', horas_dia: f.horas_dia || '', horas_semana: f.horas_semana || '',
-      valor_bolsa: brl(f.valor_bolsa), vale_transporte: brl(f.vale_transporte), beneficios: f.beneficios || '—',
+      valor_bolsa: brl(vBolsa), vale_transporte: brl(vVt), beneficios: f.beneficios || '—',
       seguro: seguroTxt, resp_nome: f.resp_nome || '', resp_cpf: f.resp_cpf || '', resp_parentesco: f.resp_parentesco || '',
       data_inicio: fmtD(iniISO), data_fim: fmtD(fimISO),
       socio_nome: assina ? assina.nome : (socio ? socio.nome : ''),
@@ -629,12 +642,13 @@ export function Contrato({ API, colaboradorId, fichaId }) {
       supervisor: superv ? superv.nome : (sup.nome || '(supervisor)'),
       // carga horária por extenso — usada no relatório
       horas: [f.horas_dia && (f.horas_dia + ' horas/dia'), f.horas_semana && (f.horas_semana + ' horas/semana')].filter(Boolean).join(' · ') || (f.horario || ''),
-      // competência do recibo: mês/ano corrente (o recibo com valores reais do mês sai na aba Pagamento)
-      competencia: (() => { const d = new Date(); return String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); })(),
+      // competência do recibo: a escolhida (valores reais do mês) ou o mês corrente
+      competencia: compRecibo,
+      desconto: pagSel ? brl(pagSel.desconto) : brl(0), liquido: pagSel ? brl(pagSel.liquido) : brl((Number(vBolsa) || 0) + (Number(vVt) || 0)),
       // rescisão: por padrão usa o fim previsto do estágio; o RH ajusta o texto se precisar
       data_rescisao: fmtD(f.data_fim || fimISO), obs_rescisao: '',
-      // aviso/recibo de férias-recesso: recesso legal de 30 dias; o período é definido pelo RH no texto
-      ferias_dias: '30 (trinta)', ferias_inicio: '', ferias_fim: '',
+      // aviso/recibo de férias-recesso: período informado pelo RH; dias = diferença (senão 30)
+      ferias_dias: feriasDias, ferias_inicio: feriasIni ? fmtD(feriasIni) : '', ferias_fim: feriasFim ? fmtD(feriasFim) : '',
       // bloco de assinatura do responsável — só aparece quando a ficha tem responsável (menor de 18)
       assinatura_responsavel: f.resp_nome ? ('\n_______________________________________\nRESPONSÁVEL LEGAL (assina pelo menor)\n' + f.resp_nome + (f.resp_cpf ? '    CPF: ' + f.resp_cpf : '') + (f.resp_parentesco ? '    (' + f.resp_parentesco + ')' : '')) : '',
       cidade_data: 'Entre Rios, ' + new Date().toLocaleDateString('pt-BR'),
@@ -660,6 +674,19 @@ export function Contrato({ API, colaboradorId, fichaId }) {
   const DOC_LABELS = [['pendente', '📝 Pendente'], ['enviado_loja', '📦 Enviado pra loja'], ['com_estagiario', '🧑‍🎓 Com o estagiário'], ['assinado', '✅ Assinado (devolvido)']];
   useEffect(() => { const fx = fichas.find(x => x.id === fid) || {}; setDocSt(fx.doc_status || 'pendente'); setAssinanteId(fx.assinante_empresa_id || ''); }, [fid, fichas]);
   const mudarStatus = (st) => API.put('/estagio/ficha/' + fid + '/doc-status', { status: st }).then(() => { setDocSt(st); setFichas(fs => fs.map(x => x.id === fid ? { ...x, doc_status: st } : x)); }).catch(() => {});
+  // campos extras por documento + aviso de dados faltando antes de imprimir
+  const ehRecibo = chave === 'modelo_recibo_pagamento';
+  const ehFerias = chave === 'modelo_aviso_ferias' || chave === 'modelo_recibo_recesso';
+  const mapAtual = fid ? montarMap() : null;
+  const faltando = [];
+  if (mapAtual) {
+    const vazio = v => !v || v === '—' || /^\(.*\)$/.test(String(v)); // trata '(horário a combinar)' etc. como vazio
+    if (!mapAtual.empresa_registro) faltando.push('empresa onde estagia');
+    if (vazio(mapAtual.data_inicio)) faltando.push('data de início');
+    if (vazio(mapAtual.data_fim)) faltando.push('data de fim');
+    if (!mapAtual.endereco) faltando.push('endereço');
+    if (ehFerias && (!feriasIni || !feriasFim)) faltando.push('período do recesso');
+  }
   return (
     <div>
       <div style={s.card}>
@@ -671,6 +698,24 @@ export function Contrato({ API, colaboradorId, fichaId }) {
           {fid && <button style={s.btnP} onClick={imprimir}>🖨️ Imprimir / PDF</button>}
           <button style={s.btn} onClick={() => window.open('/guia-colaborador.pdf', '_blank')} title="Guia do Colaborador (Código de Conduta + Regimento) — vai junto do contrato pro estagiário assinar">📘 Guia do Colaborador</button>
         </div>
+        {fid && ehRecibo && pagtos.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <label style={s.lab}>Competência do pagamento<select style={{ ...s.inp, minWidth: 260 }} value={recComp} onChange={e => setRecComp(e.target.value)}><option value="">— valores da ficha (mês atual) —</option>{pagtos.map(p => <option key={p.id} value={p.competencia}>{p.competencia} · líquido {brl(p.liquido)}</option>)}</select></label>
+            <span style={{ fontSize: 11.5, color: '#64748b', marginLeft: 8 }}>escolha o mês pra sair com bolsa, VT e desconto reais.</span>
+          </div>
+        )}
+        {fid && ehFerias && (
+          <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <label style={s.lab}>Início do recesso<input type="date" style={s.inp} value={feriasIni} onChange={e => setFeriasIni(e.target.value)} /></label>
+            <label style={s.lab}>Fim do recesso<input type="date" style={s.inp} value={feriasFim} onChange={e => setFeriasFim(e.target.value)} /></label>
+            {feriasIni && feriasFim && <span style={{ fontSize: 12, color: '#64748b' }}>{mapAtual ? mapAtual.ferias_dias : ''} dia(s)</span>}
+          </div>
+        )}
+        {fid && faltando.length > 0 && (
+          <div style={{ marginTop: 8, fontSize: 12.5, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 7, padding: '7px 10px' }}>
+            ⚠️ Faltam dados pra este documento: <b>{faltando.join(', ')}</b>. Preencha na ficha{ehFerias ? ' ou nos campos acima' : ''} antes de imprimir.
+          </div>
+        )}
         <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>Para alterar o texto do modelo, use <b>Estágios › 📄 Documentos</b>.</div>
         {msg && <div style={s.msg}>{msg}</div>}
       </div>
