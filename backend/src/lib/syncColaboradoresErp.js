@@ -99,14 +99,16 @@ async function importar(empresaId, selecao) {
   const senhaHash = bcrypt.hashSync(randomUUID(), 8); // aleatória: não logam até o RH resetar
   const jaCpf = db.prepare(`SELECT id FROM colaboradores WHERE cpf=? AND cpf IS NOT NULL AND cpf<>''`);
   const jaPessoa = db.prepare(`SELECT id FROM colaboradores WHERE erp_pessoa_id=?`);
+  // Entram ATIVOS (como estão no Alpha) — decisão do Joe. Sem login ainda (senha aleatória): o RH
+  // define a senha pela tela quando a pessoa for acessar. ativo=1, situacao='ativo'.
   const ins = db.prepare(`INSERT INTO colaboradores
     (id,empresa_id,loja_id,funcao_id,departamento,situacao,nome,cpf,email,salario,senha_hash,senha_provisoria,ativo,admissao,erp_pessoa_id,origem_erp,criado_em)
-    VALUES (?,?,?,?,?,?,?,?,?,0,?,1,0,'2020-01-01',?,1,datetime('now'))`);
+    VALUES (?,?,?,?,?,?,?,?,?,0,?,1,1,'2020-01-01',?,1,datetime('now'))`);
   let n = 0; const feitos = [];
   const tx = db.transaction(() => {
     for (const u of lista) {
       if ((u.cpf && jaCpf.get(u.cpf)) || jaPessoa.get(u.pessoaid)) continue;
-      ins.run(randomUUID(), empresaId, u.loja_id, u.funcao_id, 'Operação', 'inativo', u.nome, u.cpf || null,
+      ins.run(randomUUID(), empresaId, u.loja_id, u.funcao_id, 'Operação', 'ativo', u.nome, u.cpf || null,
         'erp-' + u.pessoaid + '@grupomutti.local', senhaHash, u.pessoaid);
       n++; feitos.push(u.nome);
     }

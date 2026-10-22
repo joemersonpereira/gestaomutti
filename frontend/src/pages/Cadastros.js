@@ -75,8 +75,8 @@ function SyncAlpha({ API, onAplicado, lojas = [], funcoes = [] }) {
     const selecao = (prev.aImportar || []).filter(u => (sel[u.pessoaid] || {}).incluir !== false)
       .map(u => ({ pessoaid: u.pessoaid, loja_id: (sel[u.pessoaid] || {}).loja_id || u.loja_id, funcao_id: (sel[u.pessoaid] || {}).funcao_id || u.funcao_id }));
     if (!selecao.length) { setMsg('⚠️ Marque ao menos uma pessoa para importar.'); return; }
-    if (!window.confirm(`Importar ${selecao.length} pessoa(s)?\n\nEntram INATIVAS e sem acesso (login), com a loja e função que você escolheu. Depois é só ativar no cadastro.`)) return;
-    API.post('/colaboradores/sync-alpha/importar', { selecao }).then(r => { setMsg(`✅ ${r.data.importados} importado(s) (inativos, para revisar/ativar).`); setPrev(null); setAberto(false); onAplicado && onAplicado(); }).catch(e => setMsg(e.response?.data?.erro || 'Erro.'));
+    if (!window.confirm(`Importar ${selecao.length} pessoa(s)?\n\nEntram ATIVAS (como no Alpha), com a loja e função que você escolheu. Ficam SEM senha (sem login) até o RH definir o acesso.`)) return;
+    API.post('/colaboradores/sync-alpha/importar', { selecao }).then(r => { setMsg(`✅ ${r.data.importados} importado(s) (ativos; defina o acesso quando for usar).`); setPrev(null); setAberto(false); onAplicado && onAplicado(); }).catch(e => setMsg(e.response?.data?.erro || 'Erro.'));
   };
   return (
     <div style={{ ...s.card, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -97,7 +97,7 @@ function SyncAlpha({ API, onAplicado, lojas = [], funcoes = [] }) {
           </> : <div style={{ color: '#3B6D11', marginTop: 6 }}>✓ Tudo em dia — ninguém a desativar.</div>}
           {prev.aImportar && prev.aImportar.length ? <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #e2e8f0' }}>
             <div style={{ margin: '0 0 4px', color: '#1d4ed8', fontWeight: 600 }}>A importar — ativos no Alpha fora do app ({prev.aImportar.length}):</div>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>Entram <b>inativos e sem login</b>. Ajuste a <b>loja</b> e a <b>função</b> de cada um (vêm sugeridas do ERP) e marque quem importar. Depois é só ativar no cadastro.</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>Entram <b>ativos</b> (como no Alpha), <b>sem senha</b> ainda (o RH define o acesso quando a pessoa for usar). Ajuste a <b>loja</b> e a <b>função</b> de cada um (vêm sugeridas do ERP) e marque quem importar.</div>
             <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 6 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead><tr style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>{['✓', 'Nome', 'Loja', 'Função'].map(h => <th key={h} style={{ textAlign: 'left', padding: '5px 8px', borderBottom: '1px solid #e2e8f0', fontWeight: 600 }}>{h}</th>)}</tr></thead>
@@ -168,6 +168,12 @@ function Colaboradores({ API }) {
     } catch (e) {
       window.alert(e.response?.data?.erro || 'Erro ao resetar senha.');
     }
+  }
+
+  async function ativar(c) {
+    if (!window.confirm(`Ativar ${c.nome} no sistema?`)) return;
+    try { await API.patch(`/colaboradores/${c.id}/ativar`, { ativo: 1 }); carregar(); }
+    catch (e) { window.alert(e.response?.data?.erro || 'Erro ao ativar.'); }
   }
 
   function editar(c) {
@@ -455,6 +461,7 @@ function Colaboradores({ API }) {
                 <div style={{ display: 'flex', gap: 10, marginTop: 5 }}>
                   <button onClick={() => editar(c)} style={s.acao}>✏️ Ficha</button>
                   <button onClick={() => resetarSenha(c)} style={s.acao}>🔑 Senha</button>
+                  {c.ativo === 0 && <button onClick={() => ativar(c)} style={{ ...s.acao, color: '#1E7E45', fontWeight: 600 }}>✅ Ativar</button>}
                   {c.ativo !== 0 && <button onClick={() => setDesligarAlvo({ id: c.id, nome: c.nome })} style={{ ...s.acao, color: '#993C1D' }}>🚪 Desligar</button>}
                 </div>
               </div>
