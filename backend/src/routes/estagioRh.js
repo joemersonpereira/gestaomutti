@@ -218,6 +218,72 @@ router.put('/pagamento/:id', exigePerfil(...PERFIS), (req, res) => {
   db.prepare(`UPDATE estagio_pagamento SET desconto=?, desconto_obs=?, liquido=? WHERE id=? AND empresa_id=?`).run(desconto, b.desconto_obs || null, liquido, req.params.id, e);
   res.json({ ok: true, liquido });
 });
+// ── Diferença de caixa → desconto automático (sobe a planilha, casa por nome, aplica no pagamento) ──
+const _norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+function _parseDiferencaCaixa(buf, aba) {
+  const XLSX = require('xlsx');
+  const wb = XLSX.read(buf, { type: 'buffer' });
+  const abas = wb.SheetNames;
+  const sheet = (aba && wb.Sheets[aba]) ? aba : abas[abas.length - 1];
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1, blankrows: false, defval: '' });
+  const itens = [];
+  for (const r of rows) {
+    const nome = String(r[0] || '').trim();
+    if (/caixa destaque/i.test(r.join(' '))) break; // começou a parte do ranking — para
+    if (!nome || nome === '-' || /diferen[çc]a de caixa|^nomes$/i.test(nome)) continue;
+    const v = Number(r[3]); // coluna D = valor (negativo = falta)
+    if (!isFinite(v) || v === 0) continue;
+    itens.push({ nome, valor: Math.round(Math.abs(v) * 100) / 100 });
+  }
+  return { abas, aba: sheet, itens };
+}
+// casa cada nome da planilha com uma ficha de estágio (por 1º nome), opcionalmente dentro de uma loja.
+function _casarDifCaixa(empresaId, itens, loja) {
+  const fichas = db.prepare(`SELECT id, nome, loja, empresa_atuacao_id, empresa_registro_id, status FROM estagio_ficha WHERE empresa_id=?`).all(empresaId);
+  const noEscopo = f => !loja || f.loja === loja || f.empresa_atuacao_id === loja || f.empresa_registro_id === loja;
+  return itens.map(it => {
+    const alvo = _norm(it.nome);
+    let cands = fichas.filter(f => noEscopo(f) && (_norm(f.nome).split(' ')[0] === alvo || _norm(f.nome).startsWith(alvo + ' ') || _norm(f.nome) === alvo));
+    if (!cands.length && loja) cands = fichas.filter(f => _norm(f.nome).split(' ')[0] === alvo || _norm(f.nome).startsWith(alvo + ' ')); // tenta fora da loja
+    const ativos = cands.filter(f => f.status === 'ativo');
+    const esc = ativos.length ? ativos : cands;
+    return { nome: it.nome, valor: it.valor, ficha_id: esc.length === 1 ? esc[0].id : null, ficha_nome: esc.length === 1 ? esc[0].nome : null, ambiguo: esc.length > 1, candidatos: esc.map(f => ({ id: f.id, nome: f.nome })) };
+  });
+}
+// prévia: sobe a planilha e mostra o que casou (sem aplicar)
+router.post('/pagamento/diferenca-caixa/preview', exigePerfil(...PERFIS), (req, res) => {
+  try {
+    const { conteudo, aba, loja } = req.body || {};
+    if (!conteudo) return res.status(400).json({ erro: 'Anexe a planilha de diferença de caixa.' });
+    const buf = Buffer.from(conteudo, 'base64');
+    const { abas, aba: usada, itens } = _parseDiferencaCaixa(buf, aba);
+    const casados = _casarDifCaixa(emp(req), itens, loja || null);
+    res.json({ ok: true, abas, aba: usada, itens: casados });
+  } catch (e) { res.status(400).json({ erro: 'Não consegui ler a planilha: ' + e.message }); }
+});
+// aplica os descontos escolhidos no pagamento da competência (desconto = diferença de caixa)
+router.post('/pagamento/diferenca-caixa/aplicar', exigePerfil(...PERFIS), (req, res) => {
+  const e = emp(req); const { competencia, aba, descontos } = req.body || {};
+  if (!competencia || !/^\d{4}-\d{2}$/.test(competencia)) return res.status(400).json({ erro: 'Informe a competência (AAAA-MM).' });
+  if (!Array.isArray(descontos) || !descontos.length) return res.status(400).json({ erro: 'Nada a aplicar.' });
+  const obs = 'Diferença de caixa' + (aba ? ' (' + aba + ')' : '');
+  let aplicados = 0; const semFolha = [], travados = [];
+  const tx = db.transaction(() => {
+    for (const d of descontos) {
+      if (!d.ficha_id) continue;
+      const p = db.prepare(`SELECT * FROM estagio_pagamento WHERE empresa_id=? AND ficha_id=? AND competencia=?`).get(e, d.ficha_id, competencia);
+      if (!p) { semFolha.push(d.ficha_id); continue; }
+      if (p.tes_ok) { travados.push(d.ficha_id); continue; } // desconto só até a Tesouraria validar
+      const desconto = Math.round((Number(d.valor) || 0) * 100) / 100;
+      const liquido = Math.round(((p.bolsa || 0) + (p.vt || 0) - desconto) * 100) / 100;
+      db.prepare(`UPDATE estagio_pagamento SET desconto=?, desconto_obs=?, liquido=? WHERE id=? AND empresa_id=?`).run(desconto, obs, liquido, p.id, e);
+      aplicados++;
+    }
+  });
+  tx();
+  res.json({ ok: true, aplicados, semFolha: semFolha.length, travados: travados.length });
+});
+
 // Resumo mensal do pagamento (modelo da planilha do Joe): totais + por tipo/conta/banco/loja.
 router.get('/pagamento/resumo/:competencia', exigePerfil(...PERFIS), (req, res) => {
   const e = emp(req); const comp = req.params.competencia;

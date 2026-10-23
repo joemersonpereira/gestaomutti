@@ -907,11 +907,35 @@ function Pagamento({ API }) {
   const [ed, setEd] = useState({});
   const [msg, setMsg] = useState('');
   const [resumo, setResumo] = useState(null);
+  const [lojas, setLojas] = useState([]);
+  // diferença de caixa (desconto por planilha)
+  const [difArq, setDifArq] = useState(null); // {nome, dados(base64)}
+  const [difLoja, setDifLoja] = useState('');
+  const [difPrev, setDifPrev] = useState(null); // {abas, aba, itens}
+  const [difBusy, setDifBusy] = useState(false);
   const carregar = useCallback(() => {
     API.get('/estagio/pagamentos?competencia=' + comp).then(r => { setRows(r.data); setEd({}); }).catch(() => {});
     API.get('/estagio/pagamento/resumo/' + comp).then(r => setResumo(r.data)).catch(() => setResumo(null));
   }, [API, comp]);
   useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => { API.get('/referencias/lojas').then(r => setLojas(r.data.lojas || [])).catch(() => {}); }, [API]);
+  // ── diferença de caixa: sobe a planilha, confere o que casou, aplica como desconto ──
+  const escolherDif = e => { const f = e.target.files && e.target.files[0]; if (!f) { setDifArq(null); return; } const fr = new FileReader(); fr.onload = () => { setDifArq({ nome: f.name, dados: String(fr.result).split(',')[1] }); setDifPrev(null); }; fr.readAsDataURL(f); };
+  const conferirDif = (aba) => {
+    if (!difArq) return setMsg('⚠️ Anexe a planilha de diferença de caixa.');
+    setDifBusy(true);
+    API.post('/estagio/pagamento/diferenca-caixa/preview', { conteudo: difArq.dados, aba, loja: difLoja || null })
+      .then(r => setDifPrev(r.data)).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'erro ao ler a planilha'))).finally(() => setDifBusy(false));
+  };
+  const aplicarDif = () => {
+    const descontos = (difPrev.itens || []).filter(i => i.ficha_id && i.valor > 0).map(i => ({ ficha_id: i.ficha_id, valor: i.valor }));
+    if (!descontos.length) return setMsg('⚠️ Nenhum desconto casado com estagiário para aplicar.');
+    if (!window.confirm(`Aplicar ${descontos.length} desconto(s) de diferença de caixa na folha de ${comp}?`)) return;
+    setDifBusy(true);
+    API.post('/estagio/pagamento/diferenca-caixa/aplicar', { competencia: comp, aba: difPrev.aba, descontos })
+      .then(r => { setMsg(`✅ ${r.data.aplicados} desconto(s) aplicado(s)${r.data.semFolha ? ` · ${r.data.semFolha} sem folha gerada` : ''}${r.data.travados ? ` · ${r.data.travados} já validado(s) pela Tesouraria (não mexi)` : ''}.`); setDifPrev(null); setDifArq(null); carregar(); })
+      .catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'erro'))).finally(() => setDifBusy(false));
+  };
   const gerar = () => API.post('/estagio/pagamento/gerar/' + comp).then(r => { setMsg(`✅ ${r.data.gerados} lançamento(s) gerado(s).`); carregar(); }).catch(() => setMsg('⚠️ erro'));
   const liberar = () => { if (window.confirm('Liberar a lista do mês para pagamento?')) API.post('/estagio/pagamento/liberar/' + comp).then(r => { setMsg(`✅ ${r.data.liberados} liberado(s).`); carregar(); }); };
   // Planilha (CSV/Excel) de todos os pagamentos do mês, pro Financeiro executar: quem, quanto e como pagar.
@@ -999,6 +1023,41 @@ function Pagamento({ API }) {
         </div>
         {msg && <div style={s.msg}>{msg}</div>}
       </div>
+
+      <div style={s.card}>
+        <div style={s.cardT}>📉 Diferença de caixa → desconto</div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>Suba a planilha de <b>Diferença de Caixa</b> da loja. O sistema casa cada nome com o estagiário e aplica a diferença como <b>desconto</b> na folha de <b>{comp}</b> (o valor negativo da planilha já é o desconto final). Confira antes de aplicar.</div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <label style={s.lab}>Loja (opcional)<select style={{ ...s.inp, minWidth: 200 }} value={difLoja} onChange={e => { setDifLoja(e.target.value); setDifPrev(null); }}><option value="">Todas / achar pelo nome</option>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></label>
+          <label style={s.lab}>Planilha<input type="file" accept=".xlsx,.xls" onChange={escolherDif} style={{ fontSize: 12 }} /></label>
+          <button style={s.btn} disabled={!difArq || difBusy} onClick={() => conferirDif()}>{difBusy ? 'lendo…' : '🔎 Conferir planilha'}</button>
+          {difArq && <span style={{ fontSize: 12, color: '#0d6b5e' }}>📎 {difArq.nome}</span>}
+        </div>
+        {difPrev && <div style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+            <label style={s.lab}>Período (aba)<select style={{ ...s.inp, minWidth: 180 }} value={difPrev.aba} onChange={e => conferirDif(e.target.value)}>{(difPrev.abas || []).map(a => <option key={a} value={a}>{a}</option>)}</select></label>
+            <span style={{ fontSize: 12, color: '#64748b' }}>{(difPrev.itens || []).filter(i => i.ficha_id).length} casado(s) · {(difPrev.itens || []).filter(i => !i.ficha_id).length} não encontrado(s)</span>
+          </div>
+          <div style={{ overflowX: 'auto', maxHeight: 280 }}>
+            <table style={s.tbl}>
+              <thead><tr>{['Nome na planilha', 'Estagiário', 'Desconto', 'Situação'].map(c => <th key={c} style={s.th}>{c}</th>)}</tr></thead>
+              <tbody>
+                {(difPrev.itens || []).map((i, k) => (
+                  <tr key={k} style={{ borderTop: '1px solid #eee', background: i.ficha_id ? undefined : '#fff7ed' }}>
+                    <td style={s.td}>{i.nome}</td>
+                    <td style={s.td}>{i.ficha_nome || (i.ambiguo ? <span style={{ color: '#b45309' }}>vários: {i.candidatos.map(c => c.nome).join(', ')}</span> : <span style={{ color: '#b91c1c' }}>não encontrado</span>)}</td>
+                    <td style={{ ...s.td, fontWeight: 700, color: '#b91c1c' }}>- {brl(i.valor)}</td>
+                    <td style={s.td}>{i.ficha_id ? '✅ vai aplicar' : '⚠️ ignorado'}</td>
+                  </tr>
+                ))}
+                {!(difPrev.itens || []).length && <tr><td style={s.td} colSpan={4}>Nenhuma diferença de caixa nessa aba.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <button style={{ ...s.btnP, marginTop: 8 }} disabled={difBusy} onClick={aplicarDif}>✅ Aplicar descontos na folha de {comp}</button>
+        </div>}
+      </div>
+
       {resumo && <ResumoMes r={resumo} comp={comp} />}
       <div style={s.card}>
         <div style={s.cardT}>Pagamentos de {comp} ({rows.length})</div>
