@@ -390,9 +390,9 @@ function lerArquivo(buffer, { nomeArquivo = '' } = {}) {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: false, defval: '' });
     const det = detectar(rows);
     if (!det) continue;
-    // Banese/Mulvi RESUMIDO (totais por modalidade, coluna "Quantidade_Vendas", sem NSU) não dá p/
-    // conciliar venda a venda — avisa p/ exportar o DETALHADO/Analítico (que traz NSU/autorização/valor).
-    if (det.layout === 'MULVI' && (rows[det.headerIdx] || []).map(chave).join('|').includes('quantidade')) {
+    // Banese/Mulvi RESUMIDO (totais por modalidade, sem NSU) não dá p/ conciliar venda a venda —
+    // avisa p/ exportar o DETALHADO/Analítico (que tem a coluna Nsu). O detalhado tem 'nsu' no cabeçalho.
+    if (det.layout === 'MULVI' && !(rows[det.headerIdx] || []).map(chave).join('|').includes('nsu')) {
       return { ok: false, erro: 'Esse é o relatório RESUMIDO da Banese/Mulvi (totais por modalidade, sem NSU). Para conciliar venda a venda, exporte o DETALHADO/Analítico no portal (Minhas vendas ▸ Vendas realizadas ▸ DETALHADO ▸ Excel) — ele traz NSU, autorização e valor de cada venda.' };
     }
     const linhas = PARSERS[det.layout](rows, det.headerIdx);
