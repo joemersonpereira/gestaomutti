@@ -356,6 +356,17 @@ function remanejarLoja(empresaId, { ref, tipo, valor, lojaId, lojaNome, refPar, 
   return { ok: true };
 }
 
+// Liga VÁRIAS pontas de uma vez (SO_OPERADORA ↔ SO_ERP) — usado pela sugestão de casamento por
+// diferença de dias, que o usuário revisa e AUTORIZA (nada é ligado sozinho). Cada par traz a ação
+// ('ligar' mesma loja / 'remanejar' outra loja) já decidida na tela.
+function ligarEmLote(empresaId, { pares = [], usuarioId } = {}) {
+  if (!Array.isArray(pares) || !pares.length) return { ok: false, erro: 'Nenhuma ligação selecionada.' };
+  let n = 0;
+  const tx = db.transaction(() => { for (const p of pares) { remanejarLoja(empresaId, { ...p, usuarioId }); n++; } });
+  tx();
+  return { ok: true, ligadas: n };
+}
+
 // ── Fonte A: os arquivos que o próprio ERP já importa (sem upload) ─────────
 // Cobre as credenciadoras com EDI ligado (hoje Rede, Brasilcard/Bolt, Brasil Convênios).
 async function edi(empresaId, { ini, fim, lojaId, conferirTaxa, grupo } = {}) {
@@ -1132,5 +1143,5 @@ async function recebimentosFuturosItens(empresaId, { lojaId, dias, ini, fim } = 
 module.exports = {
   depara, salvarDepara, deparaOperadora, salvarDeparaOperadora, modalidadesErp,
   edi, importar, confrontarArquivo, confrontarPeriodo, painel, pendentesPorOperadora, semOperadoraIdentificada, correcoes, lotes, apagarLote,
-  marcarTratativa, remanejarLoja, taxasCobradas, biTaxaCombinada, recebimentosFuturos, recebimentosFuturosItens, custoMaquinas, GRUPOS, ROTULO_GRUPO, TIPOS, lojasTexto, salvarLojaTexto,
+  marcarTratativa, remanejarLoja, ligarEmLote, taxasCobradas, biTaxaCombinada, recebimentosFuturos, recebimentosFuturosItens, custoMaquinas, GRUPOS, ROTULO_GRUPO, TIPOS, lojasTexto, salvarLojaTexto,
 };

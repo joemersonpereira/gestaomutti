@@ -675,6 +675,9 @@ function Divergencias({ API, f, tipoIni }) {
   const [buscaNsu, setBuscaNsu] = useState('');
   const [valorMin, setValorMin] = useState('');
   const [valorMax, setValorMax] = useState('');
+  const [janela, setJanela] = useState(3);        // janela de dias p/ sugerir casamento
+  const [sugSel, setSugSel] = useState(null);      // Set de chaves de sugestão marcadas (null = todas)
+  const [ligando, setLigando] = useState(false);
   const url = f.fonte === 'erp' ? '/conciliacao-cartao/edi' : '/conciliacao-cartao/divergencias';
   const [d, carreg, recarregar] = useDados(API, url, { ini: f.ini, fim: f.fim, loja: f.loja, grupo: f.grupo }, [API, f.ini, f.fim, f.loja, f.fonte, f.grupo]);
   if (carreg || !d) return <div style={s.vazio}>carregando… (conferindo transação por transação com o ERP)</div>;
@@ -694,6 +697,50 @@ function Divergencias({ API, f, tipoIni }) {
   const lista = todas.filter(x => (!tipo || x.tipo === tipo) && passaStatus(x) && passaFiltros(x));
   // contagem por tipo que RESPEITA o filtro (em aberto / já tratadas / todas): só numera o que há naquele filtro
   const cntTipo = t => todas.filter(x => x.tipo === t && passaStatus(x) && passaFiltros(x)).length;
+
+  // ── Sugestão de casamento por DIFERENÇA DE DIAS (o Joe autoriza; nada liga sozinho) ──────────
+  // Pareia "operadora pagou, ERP não tem" (SO_OPERADORA) com "ERP tem, operadora não pagou" (SO_ERP)
+  // de MESMO valor cuja data difere até N dias — caso clássico: venda passou num dia e o caixa deu
+  // baixa no dia seguinte. Só sugere quando é 1↔1 inequívoco (mesmo valor, uma ponta de cada lado na
+  // janela), pra não casar errado. A ligação em si só acontece quando o usuário marca e confirma.
+  const centsV = v => Math.round((Number(v) || 0) * 100);
+  const difDias = (a, b) => Math.round((Date.parse(String(a) + 'T12:00:00') - Date.parse(String(b) + 'T12:00:00')) / 864e5);
+  const sugestoes = (() => {
+    const ab = x => x.status === 'aberta' || x.status === 'procede';
+    const ops = todas.filter(x => x.tipo === 'SO_OPERADORA' && ab(x));
+    const erps = todas.filter(x => x.tipo === 'SO_ERP' && ab(x));
+    const porVal = new Map();
+    for (const e of erps) { const k = centsV(e.valor); if (!porVal.has(k)) porVal.set(k, []); porVal.get(k).push(e); }
+    const porValOp = new Map();
+    for (const o of ops) { const k = centsV(o.valor); if (!porValOp.has(k)) porValOp.set(k, []); porValOp.get(k).push(o); }
+    const out = [];
+    for (const o of ops) {
+      const k = centsV(o.valor);
+      const cand = (porVal.get(k) || []).filter(e => { const d = difDias(o.data, e.data); return d !== 0 && Math.abs(d) <= janela; });
+      if (cand.length !== 1) continue;                               // ambíguo → não sugere
+      const e = cand[0];
+      const back = (porValOp.get(k) || []).filter(o2 => { const d = difDias(o2.data, e.data); return d !== 0 && Math.abs(d) <= janela; });
+      if (back.length !== 1) continue;                               // esse ERP serve a mais de uma transação → ambíguo
+      out.push({ chave: o.ref + '|' + e.ref, op: o, erp: e, dias: difDias(o.data, e.data), mesma: String(o.uni) === String(e.uni) });
+    }
+    return out;
+  })();
+  const sugMarcada = s => sugSel === null ? true : sugSel.has(s.chave);   // null = todas marcadas
+  const toggleSug = ch => { const base = sugSel === null ? new Set(sugestoes.map(s => s.chave)) : new Set(sugSel); base.has(ch) ? base.delete(ch) : base.add(ch); setSugSel(base); };
+  const nSelecionadas = sugestoes.filter(sugMarcada).length;
+  const ligarSelecionadas = async () => {
+    const sel = sugestoes.filter(sugMarcada);
+    if (!sel.length) return;
+    if (!window.confirm(`Ligar ${sel.length} venda(s) com diferença de até ${janela} dia(s)? As duas pontas de cada uma saem da pendência.`)) return;
+    setLigando(true);
+    try {
+      const pares = sel.map(s => ({ ref: s.op.ref, tipo: 'SO_OPERADORA', valor: s.op.valor,
+        refPar: s.erp.ref, refParValor: s.erp.valor, lojaId: s.erp.uni, lojaNome: s.erp.loja,
+        acao: s.mesma ? 'ligar' : 'remanejar' }));
+      await API.post('/conciliacao-cartao/ligar-lote', { pares });
+      setSugSel(null); recarregar();
+    } catch (e) { alert(e.response?.data?.erro || 'Erro ao ligar.'); } finally { setLigando(false); }
+  };
   const limparFiltros = () => { setFiltroOp(''); setFiltroMod(''); setBuscaOperador(''); setBuscaNsu(''); setValorMin(''); setValorMax(''); };
   const exportar = () => baixarCSV('divergencias', [
     { h: 'O que houve', f: x => x.rotulo }, { h: 'Loja', f: x => x.loja }, { h: 'Data', f: x => dBR(x.data) }, { h: 'Hora', f: x => (x.hora || '').slice(0, 5) },
@@ -742,6 +789,37 @@ function Divergencias({ API, f, tipoIni }) {
         <button onClick={limparFiltros} style={s.chip}>limpar filtros</button>
         <button onClick={exportar} disabled={!lista.length} style={{ ...s.chip, ...s.chipOn, marginLeft: 'auto' }}>⬇️ Excel detalhado</button>
       </div>
+      {sugestoes.length > 0 && (
+        <div style={{ ...s.card, border: '1px solid #BFE0D6', background: '#F2FAF7' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0d6b5e' }}>🔗 Casamento por diferença de dias — {sugestoes.length} sugestão(ões)</div>
+            <label style={{ fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 6 }}>até
+              <select value={janela} onChange={e => { setJanela(Number(e.target.value)); setSugSel(null); }} style={{ ...s.inp, padding: '4px 8px' }}>
+                {[1, 2, 3, 5, 7, 15].map(n => <option key={n} value={n}>{n} dia(s)</option>)}
+              </select></label>
+            <button onClick={ligarSelecionadas} disabled={ligando || !nSelecionadas}
+              style={{ ...s.chip, ...s.chipOn, marginLeft: 'auto', opacity: (ligando || !nSelecionadas) ? 0.5 : 1 }}>
+              {ligando ? 'ligando…' : `🔗 Ligar selecionadas (${nSelecionadas})`}</button>
+          </div>
+          <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 8 }}>
+            Mesma venda com mesmo valor que passou num dia e o caixa baixou noutro. Reveja e marque as que quer ligar — <b>nada é ligado sem você autorizar</b>.
+          </div>
+          <div style={{ display: 'grid', gap: 5, maxHeight: 280, overflowY: 'auto' }}>
+            {sugestoes.map(sg => (
+              <label key={sg.chave} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, padding: '6px 8px', background: '#fff', border: '1px solid #e2eeea', borderRadius: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={sugMarcada(sg)} onChange={() => toggleSug(sg.chave)} />
+                <span style={{ fontWeight: 700, color: '#0d6b5e', minWidth: 92, fontVariantNumeric: 'tabular-nums' }}>{brl(sg.op.valor)}</span>
+                <span style={{ fontSize: 10.5, padding: '1px 6px', borderRadius: 10, background: sg.mesma ? '#E6F3F0' : '#EEF2FB', color: sg.mesma ? '#0d6b5e' : '#2E5C9E', fontWeight: 700 }}>{sg.mesma ? 'mesma loja' : 'outra loja'}</span>
+                <span style={{ flex: 1 }}>
+                  <b>{sg.op.operadora || sg.op.tipoOperadora}</b> {dBR(sg.op.data)} ({sg.op.loja}) <span style={{ color: '#bbb' }}>↔</span> ERP {dBR(sg.erp.data)} {sg.erp.modalidadeErp ? '· ' + sg.erp.modalidadeErp : ''} ({sg.erp.loja})
+                </span>
+                <span style={{ color: '#C87A1E', fontWeight: 600, whiteSpace: 'nowrap' }}>{Math.abs(sg.dias)} dia(s) {sg.dias > 0 ? 'depois' : 'antes'}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       <ListaDivergencias itens={lista} todas={todas} API={API} onMudar={recarregar} />
     </>
   );
