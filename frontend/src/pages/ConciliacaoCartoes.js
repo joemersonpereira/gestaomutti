@@ -84,7 +84,7 @@ export default function ConciliacaoCartoes() {
         {[['painel', '📊 Painel do mês'], ['importar', '📥 Importar relatório'], ['diverg', '⚠️ Divergências'],
           ['pendentes', '⏳ Vendas a conferir'], ['recebimentos', '💵 Recebimentos futuros'], ['sem-operadora', '🏷️ Sem operadora'],
           ['taxas', '🏧 Taxas de máquina'], ['combinado', '📑 Taxas combinadas'], ['maquinas', '🖥️ Aluguel de máquinas'],
-          ['repasses', '💰 Repasses'], ['correcoes', '🔧 Correções no ERP'], ['ajustes', '⚙️ Ajustes']].map(([v, l]) =>
+          ['repasses', '💰 Repasses'], ['deposbanco', '🏦 Depósitos que não fecham'], ['correcoes', '🔧 Correções no ERP'], ['ajustes', '⚙️ Ajustes']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
       </div>
       <Blindagem key={aba + '|' + loja + '|' + fonte + '|' + grupo + '|' + per.ini + '|' + per.fim}>
@@ -98,6 +98,7 @@ export default function ConciliacaoCartoes() {
         {aba === 'combinado' && <TaxasCombinadas API={API} f={filtros} lojas={lojas} />}
         {aba === 'maquinas' && <AluguelMaquinas API={API} f={filtros} />}
         {aba === 'repasses' && <Repasses API={API} f={filtros} lojas={lojas} />}
+        {aba === 'deposbanco' && <ConferirBanco API={API} f={filtros} />}
         {aba === 'correcoes' && <Correcoes API={API} f={filtros} />}
         {aba === 'ajustes' && <Ajustes API={API} />}
       </Blindagem>
@@ -1033,7 +1034,7 @@ function Repasses({ API, f }) {
           {d.resumo.porDia.length > 1 && <Barras titulo="Por dia de crédito" itens={d.resumo.porDia} cor="#7A4FB0" />}
         </div>
 
-        <ConferirBanco API={API} f={f} />
+        <div style={{ ...s.nota, background: '#F2FAF7', border: '1px solid #BFE0D6' }}>🏦 A conferência de cada lote com o <b>extrato bancário</b> agora fica na aba <b>Depósitos que não fecham</b>.</div>
 
         <Vencimentos API={API} f={f} />
 
@@ -1195,7 +1196,28 @@ function ConferirBanco({ API, f }) {
             <Stat n={`${r.lotesCaiu}/${r.lotes}`} l="lotes validados" sub="automático + à mão" />
             <Stat n={r.pendentes || 0} l="pendentes de validação" cor={r.pendentes ? '#C0392B' : '#1E874B'}
               bg={r.pendentes ? '#FBEAEA' : '#EAF6EF'} sub={brlK(r.valorPendente || 0)} />
+            {r.outraData > 0 && <Stat n={r.outraData} l="achou, mas em outra data" cor="#C87A1E" bg="#FDF6E7" sub={brlK(r.valorOutraData || 0)} />}
           </div>
+          {!!(r.porBandeira || []).length && (
+            <div style={{ ...s.card, margin: '0 0 10px', background: '#FAFBFC' }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Por bandeira <span style={{ color: '#94a3b8', fontWeight: 400 }}>(valor do lote × o que caiu no banco)</span></div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead><tr>{['Bandeira', 'Lotes', 'Valor', 'Caiu', 'Não achou', 'Em outra data'].map((h, i) =>
+                    <th key={i} style={{ ...s.th, textAlign: i ? 'right' : 'left' }}>{h}</th>)}</tr></thead>
+                  <tbody>{r.porBandeira.map((b, i) => (
+                    <tr key={i} style={{ borderTop: '1px solid #f2f2f2' }}>
+                      <td style={{ ...s.td, fontWeight: 600 }}>{b.nome}</td>
+                      <td style={{ ...s.td, textAlign: 'right' }}>{b.n}</td>
+                      <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{brl(b.valor)}</td>
+                      <td style={{ ...s.td, textAlign: 'right', color: '#1E874B' }}>{brl(b.valorCaiu)}</td>
+                      <td style={{ ...s.td, textAlign: 'right', color: b.valorNaoAchado ? '#C0392B' : '#999' }}>{b.valorNaoAchado ? brl(b.valorNaoAchado) : '—'}</td>
+                      <td style={{ ...s.td, textAlign: 'right', color: b.outraData ? '#C87A1E' : '#999' }}>{b.outraData || '—'}</td>
+                    </tr>))}</tbody>
+                </table>
+              </div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
             <button onClick={() => setFiltro('todos')} style={{ ...s.chip, ...(filtro === 'todos' ? s.chipOn : {}) }}>Todos os lotes</button>
             <button onClick={() => setFiltro('pendente')} style={{ ...s.chip, ...(filtro === 'pendente' ? s.chipOn : {}) }}>⏳ Pendentes ({r.pendentes || 0})</button>
@@ -1222,7 +1244,9 @@ function ConferirBanco({ API, f }) {
                     <tr key={i} style={{ borderTop: '1px solid #f2f2f2', opacity: l.status === 'ignorado' ? 0.55 : 1 }}>
                       <td style={s.td}>{dBR(l.data)}</td>
                       <td style={{ ...s.td, fontWeight: 600 }}>{l.loja}</td>
-                      <td style={s.td}>{l.operadora}<div style={{ fontSize: 10.5, color: '#aaa' }}>{l.caiuLinhas}/{l.linhas} linhas no banco</div></td>
+                      <td style={s.td}>{l.operadora}{l.bandeira && l.bandeira !== l.operadora ? ' · ' + l.bandeira : ''}
+                        <div style={{ fontSize: 10.5, color: '#aaa' }}>{l.caiuLinhas}/{l.linhas} linhas no banco
+                          {l.outraDataLinhas > 0 && <span style={{ color: '#C87A1E', fontWeight: 600 }}> · {l.outraDataLinhas} em outra data</span>}</div></td>
                       <td style={{ ...s.td, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{brl(l.valor)}</td>
                       <td style={{ ...s.td, textAlign: 'right', color: '#888' }}>{l.caiuLinhas}/{l.linhas}</td>
                       <td style={{ ...s.td, textAlign: 'right', fontWeight: 700, color: m.cor }}>{m.rot}</td>

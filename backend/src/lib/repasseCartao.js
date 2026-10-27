@@ -827,16 +827,18 @@ async function conferirNoBanco(empresaId, { ini, fim, lojaId } = {}) {
     const cands = pool.filter(casa).sort((a, b) => diffDias(a.data, d.data) - diffDias(b.data, d.data));
     const hit = cands[0];
     if (hit) hit.usado = true;
+    // "achou porém em outra data": o crédito caiu no banco, mas num dia diferente do previsto no lote
+    const emOutraData = !!hit && hit.data !== d.data;
     return { id: d.id, data: d.data, loja_id: d.loja_id, loja: nomeLoja(d.loja_id) || (estab ? 'estab. ' + estab : '— sem loja'),
       operadora: d.operadora, bandeira: d.bandeira, modalidade: d.modalidade, estabelecimento: d.estabelecimento,
-      valor: round(Number(d.valor)), caiu: !!hit, banco_data: hit ? hit.data : null };
+      valor: round(Number(d.valor)), caiu: !!hit, banco_data: hit ? hit.data : null, emOutraData };
   });
   // agrega em lotes: data | loja | operadora
   const lotesMap = {};
   linhas.forEach(x => {
     const k = x.data + '|' + (x.loja_id || '') + '|' + (x.operadora || '');
-    const L = lotesMap[k] || (lotesMap[k] = { data: x.data, loja: x.loja, loja_id: x.loja_id, operadora: x.operadora, valor: 0, linhas: 0, caiuLinhas: 0, valorCaiu: 0 });
-    L.valor += x.valor; L.linhas++; if (x.caiu) { L.caiuLinhas++; L.valorCaiu += x.valor; }
+    const L = lotesMap[k] || (lotesMap[k] = { data: x.data, loja: x.loja, loja_id: x.loja_id, operadora: x.operadora, bandeira: x.bandeira, valor: 0, linhas: 0, caiuLinhas: 0, valorCaiu: 0, outraDataLinhas: 0 });
+    L.valor += x.valor; L.linhas++; if (x.caiu) { L.caiuLinhas++; L.valorCaiu += x.valor; if (x.emOutraData) L.outraDataLinhas++; }
   });
   // tratativas manuais (validação humana) salvas pela Tesouraria
   const trat = {};
@@ -863,12 +865,24 @@ async function conferirNoBanco(empresaId, { ini, fim, lojaId } = {}) {
   const caiu = linhas.filter(x => x.caiu);
   const pendentes = lotes.filter(l => l.status === 'pendente');
   const okLotes = lotes.filter(l => l.status === 'caiu' || l.status === 'confirmado');
+  // por BANDEIRA (pedido do Joe no #16): quanto de cada bandeira caiu / não achou no banco
+  const bmap = new Map();
+  for (const x of linhas) {
+    const k = x.bandeira || x.operadora || '—';
+    const b = bmap.get(k) || { nome: k, n: 0, valor: 0, caiu: 0, valorCaiu: 0, naoAchado: 0, valorNaoAchado: 0, outraData: 0 };
+    b.n++; b.valor = round(b.valor + x.valor);
+    if (x.caiu) { b.caiu++; b.valorCaiu = round(b.valorCaiu + x.valor); if (x.emOutraData) b.outraData++; }
+    else { b.naoAchado++; b.valorNaoAchado = round(b.valorNaoAchado + x.valor); }
+    bmap.set(k, b);
+  }
   const resumo = {
     total: linhas.length, valorTotal: round(linhas.reduce((s, x) => s + x.valor, 0)),
     caiu: caiu.length, valorCaiu: round(caiu.reduce((s, x) => s + x.valor, 0)),
     naoAchado: linhas.length - caiu.length, valorNaoAchado: round(linhas.filter(x => !x.caiu).reduce((s, x) => s + x.valor, 0)),
+    outraData: linhas.filter(x => x.emOutraData).length, valorOutraData: round(linhas.filter(x => x.emOutraData).reduce((s, x) => s + x.valor, 0)),
     lotes: lotes.length, lotesCaiu: okLotes.length,
     pendentes: pendentes.length, valorPendente: round(pendentes.reduce((s, l) => s + l.valor, 0)),
+    porBandeira: [...bmap.values()].sort((a, b) => b.valor - a.valor),
   };
   return { ok: true, lotes, linhas, resumo };
 }
