@@ -1143,6 +1143,7 @@ function ConferirBanco({ API, f }) {
   const [carreg, setCarreg] = useState(false);
   const [erro, setErro] = useState(null);
   const [filtro, setFiltro] = useState('todos'); // todos | pendente | problema
+  const [visao, setVisao] = useState('lote');    // lote (por operadora) | bandeira (depósito a depósito)
   const [regras, setRegras] = useState([]);
   const recarregar = useCallback(() => {
     setCarreg(true); setErro(null);
@@ -1222,6 +1223,9 @@ function ConferirBanco({ API, f }) {
             <button onClick={() => setFiltro('todos')} style={{ ...s.chip, ...(filtro === 'todos' ? s.chipOn : {}) }}>Todos os lotes</button>
             <button onClick={() => setFiltro('pendente')} style={{ ...s.chip, ...(filtro === 'pendente' ? s.chipOn : {}) }}>⏳ Pendentes ({r.pendentes || 0})</button>
             <button onClick={() => setFiltro('problema')} style={{ ...s.chip, ...(filtro === 'problema' ? s.chipOn : {}) }}>Tudo que não caiu sozinho</button>
+            <span style={{ width: 1, background: '#ddd', margin: '0 4px' }} />
+            <button onClick={() => setVisao('lote')} style={{ ...s.chip, ...(visao === 'lote' ? s.chipOn : {}) }}>Por lote (operadora)</button>
+            <button onClick={() => setVisao('bandeira')} style={{ ...s.chip, ...(visao === 'bandeira' ? s.chipOn : {}) }}>Por bandeira (depósito a depósito)</button>
           </div>
           {!!regras.length && (
             <div style={{ fontSize: 11.5, color: '#888', marginBottom: 8 }}>
@@ -1233,7 +1237,32 @@ function ConferirBanco({ API, f }) {
               ))}
             </div>
           )}
-          <div style={{ overflowX: 'auto' }}>
+          {visao === 'bandeira' && (() => {
+            const linhas = ((d && d.linhas) || []).filter(x => filtro === 'todos' ? true : !x.caiu);
+            return (
+              <div style={{ overflowX: 'auto' }}>
+                <div style={{ fontSize: 11.5, color: '#888', marginBottom: 6 }}>Cada depósito (bandeira/modalidade) confrontado com o crédito no extrato bancário do ERP, pelo código do estabelecimento + valor + data.</div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                  <thead><tr>{['Data', 'Loja', 'Operadora', 'Bandeira / modalidade', 'Valor', 'No banco'].map((h, i) =>
+                    <th key={i} style={{ ...s.th, textAlign: i >= 4 ? 'right' : 'left' }}>{h}</th>)}</tr></thead>
+                  <tbody>{linhas.slice(0, 500).map((x, i) => (
+                    <tr key={i} style={{ borderTop: '1px solid #f2f2f2' }}>
+                      <td style={s.td}>{dBR(x.data)}</td>
+                      <td style={{ ...s.td, fontWeight: 600 }}>{x.loja}</td>
+                      <td style={s.td}>{x.operadora}</td>
+                      <td style={s.td}>{x.bandeira} {x.modalidade}</td>
+                      <td style={{ ...s.td, textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{brl(x.valor)}</td>
+                      <td style={{ ...s.td, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600,
+                        color: !x.caiu ? '#C0392B' : x.emOutraData ? '#C87A1E' : '#1E874B' }}>
+                        {!x.caiu ? '⏳ não achou' : x.emOutraData ? `⚠️ caiu ${dBR(x.banco_data)}` : `✅ caiu ${dBR(x.banco_data)}`}</td>
+                    </tr>))}</tbody>
+                </table>
+                {linhas.length > 500 && <div style={s.nota}>mostrando 500 de {linhas.length} — baixe o Excel pro detalhe completo</div>}
+                {!linhas.length && <div style={s.vazio}>{filtro !== 'todos' ? '🎉 todos os depósitos caíram no banco.' : 'Nenhum depósito no período.'}</div>}
+              </div>
+            );
+          })()}
+          {visao === 'lote' && <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead><tr>{['Data', 'Loja', 'Operadora', 'Lote', 'Linhas', 'Situação', ''].map((h, i) =>
                 <th key={i} style={['Data', 'Loja', 'Operadora'].includes(h) ? s.th : { ...s.th, textAlign: h ? 'right' : 'left' }}>{h}</th>)}</tr></thead>
@@ -1265,9 +1294,9 @@ function ConferirBanco({ API, f }) {
                 })}
               </tbody>
             </table>
-          </div>
-          {mostrar.length > 400 && <div style={s.nota}>mostrando 400 de {mostrar.length} lotes — baixe o Excel pro detalhe completo</div>}
-          {!mostrar.length && <div style={s.vazio}>{filtro !== 'todos' ? '🎉 nada pendente — tudo validado.' : 'Nenhum lote de repasse no período.'}</div>}
+          </div>}
+          {visao === 'lote' && mostrar.length > 400 && <div style={s.nota}>mostrando 400 de {mostrar.length} lotes — baixe o Excel pro detalhe completo</div>}
+          {visao === 'lote' && !mostrar.length && <div style={s.vazio}>{filtro !== 'todos' ? '🎉 nada pendente — tudo validado.' : 'Nenhum lote de repasse no período.'}</div>}
         </>
       )}
     </div>
