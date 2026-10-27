@@ -938,6 +938,28 @@ function Pagamento({ API }) {
   };
   const gerar = () => API.post('/estagio/pagamento/gerar/' + comp).then(r => { setMsg(`✅ ${r.data.gerados} lançamento(s) gerado(s).`); carregar(); }).catch(() => setMsg('⚠️ erro'));
   const liberar = () => { if (window.confirm('Liberar a lista do mês para pagamento?')) API.post('/estagio/pagamento/liberar/' + comp).then(r => { setMsg(`✅ ${r.data.liberados} liberado(s).`); carregar(); }); };
+  // Sobe a "Relação de Titulares" preenchida → atualiza nascimento/sexo das fichas (casa por CPF).
+  const atualizarTitulares = (ev) => {
+    const f = ev.target.files && ev.target.files[0]; ev.target.value = '';
+    if (!f) return;
+    const fr = new FileReader();
+    fr.onload = () => {
+      setMsg('⏳ atualizando fichas pela planilha…');
+      API.post('/estagio/seguro/importar-titulares', { conteudo: String(fr.result).split(',')[1] })
+        .then(r => { setMsg(`✅ ${r.data.atualizados} ficha(s) atualizada(s)${(r.data.naoEncontrados || []).length ? ` · ${r.data.naoEncontrados.length} não estão no sistema (${r.data.naoEncontrados.join(', ')})` : ''}.`); carregar(); })
+        .catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'erro ao atualizar')));
+    };
+    fr.readAsDataURL(f);
+  };
+  // Export p/ seguradora: baixa a "Relação de Titulares" das vidas ativas (sexo/nascimento do ERP).
+  const exportarSeguro = () => {
+    setMsg('⏳ gerando planilha do seguro…');
+    API.get('/estagio/seguro/vidas-ativas.xlsx', { responseType: 'blob' }).then(r => {
+      const url = URL.createObjectURL(new Blob([r.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const a = document.createElement('a'); a.href = url; a.download = 'seguro-vidas-ativas-' + comp + '.xlsx'; a.click(); URL.revokeObjectURL(url);
+      setMsg('✅ Planilha do seguro (vidas ativas) baixada.');
+    }).catch(() => setMsg('⚠️ erro ao gerar a planilha do seguro'));
+  };
   // Planilha (CSV/Excel) de todos os pagamentos do mês, pro Financeiro executar: quem, quanto e como pagar.
   const planilhaFinanceiro = () => {
     if (!rows.length) return setMsg('⚠️ Nada gerado. Clique em "Gerar folha do mês" primeiro.');
@@ -1020,6 +1042,8 @@ function Pagamento({ API }) {
           <button style={s.btn} onClick={gerar}>Gerar folha do mês</button>
           <button style={s.btnP} onClick={liberar}>Liberar lista p/ pagamento</button>
           <button style={s.btn} onClick={planilhaFinanceiro} title="Baixa a planilha (Excel) com todos os pagamentos do mês — nome, CPF, forma de pagamento, dados bancários/PIX e valor líquido — pro Financeiro executar">📊 Planilha p/ Financeiro</button>
+          <button style={s.btn} onClick={exportarSeguro} title="Gera a 'Relação de Titulares' das vidas ativas (Nome, CPF, Sexo, Nascimento, Plano 01, Opção 1, Capital R$ 10.000) pra enviar à seguradora. Sexo/nascimento vêm do ERP; tira quem está inativo no ERP.">🛡️ Exportar p/ seguradora</button>
+          <label style={{ ...s.btn, cursor: 'pointer' }} title="Sobe a Relação de Titulares preenchida e atualiza nascimento/sexo das fichas (casa por CPF).">📥 Atualizar fichas pela planilha<input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={atualizarTitulares} /></label>
         </div>
         {msg && <div style={s.msg}>{msg}</div>}
       </div>

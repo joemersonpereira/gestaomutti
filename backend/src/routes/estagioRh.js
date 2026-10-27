@@ -94,6 +94,108 @@ router.get('/ficha/:id/pagamentos', exigePerfil(...PERFIS), (req, res) => {
   res.json(db.prepare(`SELECT * FROM estagio_pagamento WHERE empresa_id=? AND ficha_id=? ORDER BY competencia DESC`).all(emp(req), req.params.id));
 });
 
+// ── Export p/ SEGURADORA: "Relação de Titulares" das VIDAS ATIVAS (mensal) ──
+// Lista os estagiários ativos, puxa sexo/nascimento do ERP (por CPF) e tira quem está INATIVO no ERP.
+// Formato pedido pela seguradora: Nome, CPF (11 díg), Sexo, Nascimento, Plano 01, Opção 1, Capital.
+router.get('/seguro/vidas-ativas.xlsx', exigePerfil(...PERFIS), async (req, res) => {
+  try {
+    const e = emp(req);
+    const dig = s => String(s || '').replace(/\D/g, '');
+    const fmtBR = iso => { const s = String(iso || '').slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s.split('-').reverse().join('/') : ''; };
+    const fichas = db.prepare(`SELECT nome, cpf, nascimento, sexo FROM estagio_ficha WHERE empresa_id=? AND status='ativo' ORDER BY nome`).all(e)
+      .filter(f => dig(f.cpf)); // precisa de CPF (o seguro exige)
+    // ERP: sexo, nascimento e status (ativo) por CPF
+    const erpByCpf = {};
+    try {
+      const { erpQuery, habilitado } = require('../db/erp');
+      if (habilitado && habilitado()) {
+        const cpfs = [...new Set(fichas.map(f => dig(f.cpf)))];
+        const rows = await erpQuery(`SELECT regexp_replace(pf.cpf,'[^0-9]','','g') cpf,
+            to_char(pf.datanascimento,'DD/MM/YYYY') nasc, pf.sexo,
+            max(CASE WHEN u.status='A' THEN 1 ELSE 0 END) ativo
+          FROM pessoa pf LEFT JOIN usuario u ON u.pessoaid=pf.id
+          WHERE regexp_replace(pf.cpf,'[^0-9]','','g') = ANY($1) GROUP BY 1,2,3`, [cpfs]);
+        rows.forEach(r => { if (r.cpf) erpByCpf[r.cpf] = r; });
+      }
+    } catch (err) { /* sem ERP: exporta só com o que tem */ }
+    // tira quem o ERP diz INATIVO (mantém quem é ativo ou não tem registro no ERP)
+    const vidas = fichas.filter(f => { const x = erpByCpf[dig(f.cpf)]; return !x || x.ativo === 1 || x.ativo === '1'; });
+    const XLSX = require('xlsx');
+    const H = [
+      ['Relação de Titulares de Seguro de Acidentes Pessoais Coletivos'],
+      [],
+      ['Observação: CPF completo com 11 dígitos (Sem pontos e traços)'],
+      ['Nome Estagiário', 'CPF', 'Sexo', 'Data de Nascimento', 'Plano', 'Opção', 'Capital Segurado'],
+    ];
+    const linhas = vidas.map(f => {
+      const x = erpByCpf[dig(f.cpf)] || {};
+      // ERP primeiro; se não tiver, usa o que o RH preencheu na ficha (pela planilha da seguradora)
+      let sexo = (x.sexo === 'M' || x.sexo === 'F') ? x.sexo : (f.sexo === 'M' || f.sexo === 'F' ? f.sexo : '');
+      const nasc = x.nasc || fmtBR(f.nascimento);
+      return [f.nome, dig(f.cpf).padStart(11, '0'), sexo, nasc, '01', 1, 10000];
+    });
+    const ws = XLSX.utils.aoa_to_sheet([...H, ...linhas]);
+    ws['!cols'] = [{ wch: 36 }, { wch: 14 }, { wch: 6 }, { wch: 16 }, { wch: 7 }, { wch: 7 }, { wch: 16 }];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Planilha1');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const hoje = new Date().toISOString().slice(0, 7);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="seguro-vidas-ativas-${hoje}.xlsx"`);
+    res.send(buf);
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+// Atualiza as fichas com os dados da "Relação de Titulares" preenchida (casa por CPF): nascimento + sexo.
+// É o "sobe a planilha e o sistema se atualiza" — cobre os que o ERP não tem. Reporta quem não está no sistema.
+router.post('/seguro/importar-titulares', exigePerfil(...PERFIS), (req, res) => {
+  try {
+    const e = emp(req); const { conteudo } = req.body || {};
+    if (!conteudo) return res.status(400).json({ erro: 'Anexe a planilha preenchida.' });
+    const XLSX = require('xlsx');
+    const wb = XLSX.read(Buffer.from(conteudo, 'base64'), { type: 'buffer', cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: '' });
+    const h = rows.findIndex(r => String(r[0]).trim().toLowerCase().startsWith('nome'));
+    const iso = v => { if (v instanceof Date) { const z = new Date(v.getTime() - v.getTimezoneOffset() * 60000); return z.toISOString().slice(0, 10); } const s = String(v || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : (/^\d{2}\/\d{2}\/\d{4}$/.test(s) ? s.split('/').reverse().join('-') : ''); };
+    const dig = s => String(s || '').replace(/\D/g, '');
+    const itens = rows.slice(h + 1).filter(r => String(r[0] || '').trim()).map(r => ({ nome: String(r[0]).trim(), cpf: dig(r[1]), sexo: String(r[2] || '').trim().toUpperCase(), nasc: iso(r[3]) }));
+    const fichas = db.prepare(`SELECT id, cpf, colaborador_id FROM estagio_ficha WHERE empresa_id=?`).all(e);
+    const byCpf = {}; fichas.forEach(f => { const c = dig(f.cpf); if (c) byCpf[c] = f; });
+    const updF = db.prepare(`UPDATE estagio_ficha SET nascimento=COALESCE(NULLIF(?,''), nascimento), sexo=COALESCE(NULLIF(?,''), sexo) WHERE id=?`);
+    const updC = db.prepare(`UPDATE colaboradores SET nascimento=COALESCE(NULLIF(?,''), nascimento) WHERE id=?`);
+    let atualizados = 0; const naoEncontrados = [];
+    const tx = db.transaction(() => {
+      for (const it of itens) {
+        const f = it.cpf && byCpf[it.cpf];
+        if (!f) { naoEncontrados.push(it.nome); continue; }
+        const sexo = (it.sexo === 'M' || it.sexo === 'F') ? it.sexo : '';
+        updF.run(it.nasc || '', sexo, f.id);
+        if (f.colaborador_id && it.nasc) updC.run(it.nasc, f.colaborador_id);
+        atualizados++;
+      }
+    });
+    tx();
+    res.json({ ok: true, atualizados, naoEncontrados });
+  } catch (e) { res.status(400).json({ erro: 'Não consegui ler a planilha: ' + e.message }); }
+});
+// prévia (contagem) das vidas ativas, pro botão mostrar quantas vão
+router.get('/seguro/vidas-ativas', exigePerfil(...PERFIS), async (req, res) => {
+  try {
+    const e = emp(req); const dig = s => String(s || '').replace(/\D/g, '');
+    const fichas = db.prepare(`SELECT nome, cpf FROM estagio_ficha WHERE empresa_id=? AND status='ativo'`).all(e).filter(f => dig(f.cpf));
+    let inativosErp = 0, semCpf = db.prepare(`SELECT COUNT(*) n FROM estagio_ficha WHERE empresa_id=? AND status='ativo' AND (cpf IS NULL OR cpf='')`).get(e).n;
+    try {
+      const { erpQuery, habilitado } = require('../db/erp');
+      if (habilitado && habilitado()) {
+        const cpfs = [...new Set(fichas.map(f => dig(f.cpf)))];
+        const rows = await erpQuery(`SELECT regexp_replace(pf.cpf,'[^0-9]','','g') cpf, max(CASE WHEN u.status='A' THEN 1 ELSE 0 END) ativo FROM pessoa pf LEFT JOIN usuario u ON u.pessoaid=pf.id WHERE regexp_replace(pf.cpf,'[^0-9]','','g') = ANY($1) GROUP BY 1`, [cpfs]);
+        const st = {}; rows.forEach(r => st[r.cpf] = r.ativo === 1 || r.ativo === '1');
+        inativosErp = fichas.filter(f => (dig(f.cpf) in st) && !st[dig(f.cpf)]).length;
+      }
+    } catch (err) { /* ignora */ }
+    res.json({ ok: true, vidas: fichas.length - inativosErp, ativosFicha: fichas.length, inativosErp, semCpf });
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+
 // ── Índice de aprovação de uma ficha ──
 router.get('/indice/:fichaId', exigePerfil(...PERFIS), (req, res) => res.json(indiceFicha(emp(req), req.params.fichaId)));
 
