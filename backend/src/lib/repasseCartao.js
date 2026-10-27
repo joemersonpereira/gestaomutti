@@ -406,6 +406,9 @@ async function importar(empresaId, { conteudoBase64, nomeArquivo, usuarioId, loj
   // pra confirmar sozinho. Não falha a importação se o ERP estiver fora do ar.
   const auto = await autoConferirLotes(empresaId, { ini: datas[0], fim: datas[datas.length - 1] }).catch(() => ({ ok: false }));
   if (auto.ok && auto.conferidos) avisos.push(`${auto.conferidos} dia(s)-loja conferido(s) automaticamente pelo extrato bancário do ERP.`);
+  // match por estabelecimento (mais preciso): marca conferido todo depósito que caiu no banco, pra
+  // o lote que bateu já aparecer "conferido" no Repasse sem precisar abrir a aba de depósitos.
+  await conferirNoBanco(empresaId, { ini: datas[0], fim: datas[datas.length - 1] }).catch(() => null);
 
   const conf = conferir(empresaId, { ini: datas[0], fim: datas[datas.length - 1] });
   return { ok: true, arquivoId, operadora: lido.operadora, periodo: { ini: datas[0], fim: datas[datas.length - 1] },
@@ -912,6 +915,17 @@ async function conferirNoBanco(empresaId, { ini, fim, lojaId } = {}) {
       operadora: d.operadora, bandeira: d.bandeira, modalidade: d.modalidade, estabelecimento: d.estabelecimento,
       valor: round(Number(d.valor)), caiu: !!hit, banco_data: hit ? hit.data : null, emOutraData };
   });
+  // Unifica com o "conferir" do Repasse: depósito que CAIU no banco já conta como CONFERIDO — o
+  // Financeiro não precisa clicar "conferir" num lote que a plataforma já confirmou que caiu. (Usa
+  // o match por estabelecimento daqui, mais preciso que o autoConferirLotes por valor.)
+  const jaConf = mapaConferencia(empresaId);
+  for (const x of linhas) {
+    if (x.caiu && (jaConf.get('dep:' + x.id) || {}).status !== 'conferido') {
+      marcarConferencia(empresaId, { ref: 'dep:' + x.id, status: 'conferido', valor: x.valor,
+        obs: 'Caiu no banco (extrato do ERP) — conferido automaticamente.', usuarioId: 'auto-banco' });
+    }
+  }
+
   // agrega em lotes: data | loja | operadora
   const lotesMap = {};
   linhas.forEach(x => {
