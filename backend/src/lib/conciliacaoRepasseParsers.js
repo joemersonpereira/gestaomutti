@@ -391,7 +391,47 @@ function lotesBracov(wb) {
       valor: num(r[i.liquido]), valorBruto: bruto, taxa: pct(r[i.taxa]),
       estabelecimento: soDigitos(r[i.cred]), estabelecimentoNome: txt(r[i.nome]),
       cnpj: soDigitos(r[i.cnpj]), status: 'PAGO',
+      // período do lote + quantidade de vendas que ele diz conter → o import usa isso para
+      // COMPOR o lote a partir das vendas já importadas (o arquivo não lista venda a venda).
+      lote: txt(r[i.lote]), periodoIni: dataCurta(r[i.ini]), periodoFim: dataCurta(r[i.fim]),
+      quant: Math.round(num(r[i.quant])),
       observacao: `lote ${txt(r[i.lote])} · ${txt(r[i.ini])} a ${txt(r[i.fim])} · ${txt(r[i.quant])} venda(s) · taxa fixa R$ ${txt(r[i.valtaxa])}`,
+    });
+  }
+  return out;
+}
+
+// ── Multi Mais / Uze: "Pagamentos efetuados / previsão" (planilha) ──────────
+// Layout posicional, agrupado por loja: um cabeçalho com nome+CNPJ e, abaixo, uma linha por
+// REPASSE — col2 Data do Crédito · col3 Vencimento Repasse · col5 Compras (bruto) · col6 Comissão ·
+// col22 Valor pago (líquido) · col23 Status ("Confirmado (R)"). As parcelas detalhadas abaixo não
+// trazem NSU, então aqui dá para conferir o LOTE (valor/data), não venda a venda.
+// IMPORTANTE (regra do Joe): "Confirmado" é a operadora dizendo que PAGOU — isso é PREVISÃO; só o
+// extrato do banco (ERP) confirma que o dinheiro CAIU. Por isso o reconhecimento é lote × extrato.
+function dataBR(v) { const m = /(\d{2})\/(\d{2})\/(\d{4})/.exec(txt(v)); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; }
+function previsaoUze(wb) {
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+  const topo = rows.slice(0, 8).map(r => (r || []).map(txt).join(' ')).join(' ').toLowerCase();
+  if (!/uze|multmais|multi ?mais/.test(topo)) return [];
+  const out = [];
+  let cnpj = '', nome = '';
+  for (const r of rows) {
+    const c24 = txt(r[24]);
+    if (/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/.test(c24)) { cnpj = soDigitos(c24); nome = txt(r[22]) || nome; }
+    if (!/\d{2}\/\d{2}\/\d{4}\s*::/.test(txt(r[2]))) continue;   // só as linhas de crédito (repasse)
+    const dc = dataBR(r[2]);
+    if (!dc) continue;
+    const bruto = num(r[5]), comissao = num(r[6]), liquido = num(r[22]);
+    if (!liquido && !bruto) continue;
+    const status = txt(r[23]);
+    const confirmado = /confirm/i.test(status);
+    out.push({
+      data: dc, dataFechamento: dataBR(r[3]) || dc,
+      bandeira: 'Multi Mais / Uze', modalidade: 'Convênio', grupo: 'CREDIARIO', banco: '',
+      valor: liquido, valorBruto: bruto, taxa: bruto ? Math.round(comissao / bruto * 10000) / 100 : 0,
+      estabelecimento: cnpj, estabelecimentoNome: nome, cnpj,
+      status: confirmado ? 'PAGO' : (status || 'PREVISTO').toUpperCase(),
+      observacao: `repasse Uze · crédito ${txt(r[2]).replace('::', '').trim()} · venc. ${txt(r[3])} · ${status}`,
     });
   }
   return out;
@@ -576,6 +616,17 @@ function lerRepasse(buffer, { nomeArquivo = '' } = {}) {
   try { wb = XLSX.read(buffer, { cellDates: true, raw: false }); }
   catch (e) { return { ok: false, erro: 'Não consegui abrir o arquivo (' + e.message + ').' }; }
 
+  // MULTI MAIS / UZE: "Pagamentos efetuados / previsão" — só o total do lote por crédito.
+  // Previsão não é dinheiro que caiu: o reconhecimento é o LOTE × EXTRATO do banco (auto-conferência).
+  const prevUze = previsaoUze(wb);
+  if (prevUze.length) {
+    const previstos = prevUze.filter(d => d.status !== 'PAGO').length;
+    const avisos = ['Esta é a PREVISÃO de repasse da Uze/Multi Mais — a operadora confirma o pagamento, mas só o extrato do banco diz que caiu. Vou tentar reconhecer cada lote no extrato do ERP; o que não bater fica como "a conferir".'];
+    if (previstos) avisos.push(`${previstos} lote(s) ainda não confirmados pela operadora (previstos).`);
+    return { ok: true, operadora: 'Multi Mais / Uze', layout: 'UZE_PREVISAO', arquivo: nomeArquivo,
+      avisos, parcelas: [], depositos: prevUze, futuros: [], ajustes: [], semDetalhe: true };
+  }
+
   // ALELO: abas "Recebimentos" + "Outras Transações" (o arquivo do portal Meu Estabelecimento)
   const ehAlelo = wb.SheetNames.some(s => chave(s) === 'recebimentos')
     && wb.SheetNames.some(s => chave(s) === 'outras transacoes');
@@ -618,8 +669,8 @@ function lerRepasse(buffer, { nomeArquivo = '' } = {}) {
   const lotesBrac = lotesBracov(wb);
   if (lotesBrac.length) {
     return { ok: true, operadora: 'Bracov', layout: 'BRACOV_LOTES', arquivo: nomeArquivo,
-      avisos: ['O Bracov entrega só o total do lote — dá para conferir valor, taxa e data de pagamento, mas não venda a venda.'],
-      parcelas: [], depositos: lotesBrac, futuros: [], ajustes: [], semDetalhe: true };
+      avisos: ['O Bracov fecha o lote do pagamento (período + total). Casei as vendas desse período já importadas para mostrar quais compõem o lote — suba o relatório de VENDAS do Bracov do mesmo período para o lote fechar venda a venda.'],
+      parcelas: [], depositos: lotesBrac, futuros: [], ajustes: [], semDetalhe: true, comporPorPeriodo: true };
   }
 
   // BRASIL CARD: "Relatorio de vendas completos" (parcela a parcela, com vencimento e autorização)

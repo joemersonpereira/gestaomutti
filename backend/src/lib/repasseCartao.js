@@ -250,15 +250,19 @@ async function importar(empresaId, { conteudoBase64, nomeArquivo, usuarioId, loj
 
   // Alguns relatórios (Alelo) trazem o CNPJ junto da transação — é o caminho mais direto para a
   // filial. Aprende o de-para do estabelecimento a partir dele, sem ninguém cadastrar nada.
-  const cnpjs = [...new Set(lido.parcelas.map(p => p.cnpj).filter(Boolean))];
+  // cobre parcelas (Alelo) E depósitos (Bracov/Uze trazem o CNPJ no lote). Normaliza os dois lados
+  // em dígitos — o ERP guarda o CNPJ sem pontuação.
+  const soDigitos = v => String(v == null ? '' : v).replace(/\D/g, '');
+  const comCnpj = [...lido.parcelas, ...lido.depositos];
+  const cnpjs = [...new Set(comCnpj.map(p => soDigitos(p.cnpj)).filter(Boolean))];
   if (cnpjs.length) {
     try {
       const { erpQuery, habilitado } = require('../db/erp');
       if (habilitado()) {
         const unis = await erpQuery('SELECT id, cnpj FROM unidadenegocio WHERE cnpj = ANY($1::text[])', [cnpjs]);
-        const uniPorCnpj = new Map(unis.map(u => [String(u.cnpj), Number(u.id)]));
+        const uniPorCnpj = new Map(unis.map(u => [soDigitos(u.cnpj), Number(u.id)]));
         const vistos = new Map();
-        for (const p of lido.parcelas) if (p.cnpj && p.estabelecimento) vistos.set(p.estabelecimento, p.cnpj);
+        for (const p of comCnpj) if (p.cnpj && p.estabelecimento) vistos.set(String(p.estabelecimento), soDigitos(p.cnpj));
         for (const [estab, cnpj] of vistos) {
           const uni = uniPorCnpj.get(cnpj);
           if (uni) salvarEstabelecimento(empresaId, { operadora: lido.operadora, estabelecimento: estab,
@@ -284,7 +288,7 @@ async function importar(empresaId, { conteudoBase64, nomeArquivo, usuarioId, loj
   const valorTotal = round(lido.depositos.reduce((s, d) => s + d.valor, 0));
   const jaTem = db.prepare('SELECT id FROM conc_repasse_arquivo WHERE empresa_id=? AND hash=?').get(empresaId, hash);
 
-  let arquivoId;
+  let arquivoId, compostas = 0, lotesComp = 0;
   const tx = db.transaction(() => {
     if (jaTem) {
       arquivoId = jaTem.id;
@@ -304,11 +308,17 @@ async function importar(empresaId, { conteudoBase64, nomeArquivo, usuarioId, loj
       banco, agencia, conta, bandeira, modalidade, grupo, valor, valor_bruto, taxa, status, tipo)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     const idDeposito = new Map();
+    const comporLotes = [];   // lotes que trazem só o total → compor pelas vendas do período (Bracov)
     for (const d of lido.depositos) {
       const { uni, lojaId } = resolveLoja(d.estabelecimento);
       const id = insDep.run(arquivoId, empresaId, lido.operadora, d.data, d.estabelecimento, uni, lojaId,
-        d.banco || '', '', '', d.bandeira, d.modalidade, d.grupo, round(d.valor), 0, 0, d.status, 'recebido').lastInsertRowid;
+        d.banco || '', '', '', d.bandeira, d.modalidade, d.grupo, round(d.valor), round(d.valorBruto || 0), d.taxa || 0, d.status, 'recebido').lastInsertRowid;
       idDeposito.set([d.data, d.estabelecimento, d.bandeira, d.grupo].join('|'), id);
+      if (lido.comporPorPeriodo && d.periodoIni && d.periodoFim && uni) {
+        comporLotes.push({ id, uni, lojaId, ini: d.periodoIni, fim: d.periodoFim, taxa: d.taxa || 0,
+          lote: d.lote || '', estabelecimento: d.estabelecimento, bandeira: d.bandeira,
+          modalidade: d.modalidade, grupo: d.grupo, data: d.data, quant: d.quant || 0 });
+      }
     }
     // a agenda (o que ainda vai cair) entra na mesma tabela, marcada como a_receber
     const futAgrup = new Map();
@@ -346,6 +356,30 @@ async function importar(empresaId, { conteudoBase64, nomeArquivo, usuarioId, loj
         p.status, venda ? venda.id : null);
     }
 
+    // ── lote fechado (Bracov): compor pelas vendas do período ────────────────
+    // O arquivo traz só o total do lote (período + valor líquido), não lista venda a venda. As vendas
+    // que o formam são as que EU já importei do relatório de VENDAS: mesma loja (uni), data dentro do
+    // período do lote. Sintetizo uma parcela por venda encontrada, ligada à venda conferida (item_id)
+    // e ao depósito do lote. Assim o lote passa a fechar venda a venda — e, se eu tiver menos vendas
+    // do que o lote diz conter, o depósito "não fecha" e a divergência aparece sozinha.
+    if (lido.comporPorPeriodo && comporLotes.length) {
+      const selVendas = db.prepare(`SELECT id, nsu, autorizacao, data, valor, parcelas FROM conc_item
+        WHERE empresa_id=? AND operadora=? AND uni_erp=? AND data BETWEEN ? AND ?`);
+      for (const lt of comporLotes) {
+        const vendas = selVendas.all(empresaId, lido.operadora, lt.uni, lt.ini, lt.fim);
+        for (const v of vendas) {
+          const bruto = round(v.valor);
+          const valorTaxa = round(bruto * (lt.taxa || 0) / 100);
+          insParc.run(arquivoId, lt.id, empresaId, lido.operadora, lt.data, v.data, lt.data,
+            v.nsu || '', v.autorizacao || '', lt.lote, lt.estabelecimento, lt.uni, lt.lojaId,
+            lt.bandeira, lt.modalidade, lt.grupo, v.parcelas || 1, 1, bruto, lt.taxa || 0, valorTaxa,
+            round(bruto - valorTaxa), 'PAGO', v.id);
+          compostas++;
+        }
+        lotesComp++;
+      }
+    }
+
     const insAj = db.prepare(`INSERT INTO conc_repasse_ajuste (arquivo_id, empresa_id, operadora, tipo, data, data_venda,
       nsu, estabelecimento, uni_erp, loja_id, bandeira, motivo, descricao, valor, credito, pendente)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
@@ -359,6 +393,11 @@ async function importar(empresaId, { conteudoBase64, nomeArquivo, usuarioId, loj
   tx();
 
   const avisos = [...(lido.avisos || [])];
+  if (lido.comporPorPeriodo) {
+    avisos.push(compostas
+      ? `Casei ${compostas} venda(s) do período a ${lotesComp} lote(s) — o lote fecha venda a venda. Onde faltar venda, o lote fica "não fecha".`
+      : 'Nenhuma venda desse período estava importada ainda — suba o relatório de VENDAS do Bracov do mesmo período para o lote compor venda a venda.');
+  }
   if (jaTem) avisos.push('Esse relatório já tinha sido importado — reprocessei por cima (sem duplicar).');
   const semLoja = db.prepare(`SELECT DISTINCT estabelecimento FROM conc_repasse WHERE arquivo_id=? AND (loja_id IS NULL OR loja_id='')`).all(arquivoId);
   if (semLoja.length) avisos.push(`Estabelecimento(s) sem loja definida: ${semLoja.map(s => s.estabelecimento).join(', ')} — suba um relatório de VENDAS dessa loja (ele traz o CNPJ) ou defina em Ajustes.`);
@@ -692,11 +731,16 @@ async function autoConferirLotes(empresaId, { ini, fim, lojaId } = {}) {
   // marcar no mesmo nível, senão a tela continua mostrando "conferir" mesmo depois de rodar isso.
   let conferidos = 0;
   for (const d of conf.depositos) {
-    if (d.conferencia || !d.fecha) continue;
+    // Lote que traz só o total (previsão Uze, Bracov/Nutricash/BrasilCard sintético): não tem parcela
+    // para "fechar" — o único reconhecimento possível é o próprio valor contra o extrato. É exatamente
+    // o "reconhecimento de lote entre a previsão e o extrato do banco" que o Financeiro precisa.
+    const loteTotal = !d.parcelas;
+    if (d.conferencia || (!d.fecha && !loteTotal)) continue;
     const uni = uniDaLoja(d.lojaId);
     if (!uni || !porValor.has(uni + '|' + round(d.valor))) continue;
     marcarConferencia(empresaId, { ref: 'dep:' + d.id, status: 'conferido', valor: d.valor,
-      obs: 'Conferido automaticamente: valor bate com o extrato bancário do ERP.', usuarioId: 'auto-extrato' });
+      obs: loteTotal ? 'Lote reconhecido no extrato bancário do ERP (previsão × extrato bate).'
+        : 'Conferido automaticamente: valor bate com o extrato bancário do ERP.', usuarioId: 'auto-extrato' });
     conferidos++;
   }
   return { ok: true, conferidos, total: conf.depositos.length };
