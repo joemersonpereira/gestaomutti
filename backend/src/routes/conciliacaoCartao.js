@@ -131,6 +131,9 @@ router.get('/repasses/taxas-erp', wrap(req => rp.taxasDoErp(req.usuario.empresa_
 
 // Valida os depósitos de repasse contra o banco (extratobancario do Alpha): "caiu o lote?".
 router.get('/repasses/conferir-banco', wrap(req => rp.conferirNoBanco(req.usuario.empresa_id, { ...periodo(req), lojaId: req.query.loja || null })));
+// #17 Conciliação de Recebimento: títulos a receber do ERP (Efetuar Recebimento) × o que a operadora pagou
+router.get('/conciliacao-recebimento', wrapCache('cc-conc-receb')(req => rp.conciliacaoRecebimento(req.usuario.empresa_id, {
+  ...periodo(req), conf: req.query.conf || 'nao', valorMin: req.query.valorMin || null, valorMax: req.query.valorMax || null })));
 // Validação humana de um lote que não cruzou com o banco (confirmar que caiu / ignorar / reabrir)
 router.post('/repasses/banco-tratativa', wrap(req => rp.tratarLoteBanco(req.usuario.empresa_id, { ...req.body, usuarioId: req.usuario.id })));
 // Regra por operadora: factoring/antecipação que não cai no banco → ignora sozinho

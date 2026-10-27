@@ -84,7 +84,7 @@ export default function ConciliacaoCartoes() {
         {[['painel', '📊 Painel do mês'], ['importar', '📥 Importar relatório'], ['diverg', '⚠️ Divergências'],
           ['pendentes', '⏳ Vendas a conferir'], ['recebimentos', '💵 Recebimentos futuros'], ['sem-operadora', '🏷️ Sem operadora'],
           ['taxas', '🏧 Taxas de máquina'], ['combinado', '📑 Taxas combinadas'], ['maquinas', '🖥️ Aluguel de máquinas'],
-          ['repasses', '💰 Repasses'], ['deposbanco', '🏦 Depósitos que não fecham'], ['correcoes', '🔧 Correções no ERP'], ['ajustes', '⚙️ Ajustes']].map(([v, l]) =>
+          ['repasses', '💰 Repasses'], ['deposbanco', '🏦 Depósitos que não fecham'], ['concreceb', '🧾 Conciliação de Recebimento'], ['correcoes', '🔧 Correções no ERP'], ['ajustes', '⚙️ Ajustes']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
       </div>
       <Blindagem key={aba + '|' + loja + '|' + fonte + '|' + grupo + '|' + per.ini + '|' + per.fim}>
@@ -99,6 +99,7 @@ export default function ConciliacaoCartoes() {
         {aba === 'maquinas' && <AluguelMaquinas API={API} f={filtros} />}
         {aba === 'repasses' && <Repasses API={API} f={filtros} lojas={lojas} />}
         {aba === 'deposbanco' && <ConferirBanco API={API} f={filtros} />}
+        {aba === 'concreceb' && <ConciliacaoRecebimento API={API} f={filtros} />}
         {aba === 'correcoes' && <Correcoes API={API} f={filtros} />}
         {aba === 'ajustes' && <Ajustes API={API} />}
       </Blindagem>
@@ -400,6 +401,95 @@ function AguardandoRelatorio({ API, f }) {
               <td style={{ ...s.td, textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{brl(p.valor)}</td>
             </tr>))}</tbody>
         </table>}
+      </div>
+    </>
+  );
+}
+
+// ── #17 Conciliação de Recebimento ──────────────────────────────────────────
+// Os títulos A RECEBER do ERP (Financeiro ▸ Cartões ▸ Efetuar Recebimento) × o que a operadora já
+// pagou (parcelas dos relatórios de repasse importados). Conciliado = caiu no meio dos lotes; mostra
+// de qual operadora/lote. O que não conciliou fica pendente. Igual à "Vendas a conferir", mas pelo
+// lado do recebimento (vencimento). Filtro conciliou/não é server-side (conf); o resto é na tela.
+function ConciliacaoRecebimento({ API, f }) {
+  const [conf, setConf] = useState('nao');   // nao = pendente (padrão) · sim = conciliadas · todas
+  const [d, carreg] = useDados(API, '/conciliacao-cartao/conciliacao-recebimento', { ...f, conf }, [API, f.ini, f.fim, f.loja, f.grupo, conf]);
+  const [filtroOp, setFiltroOp] = useState('');
+  const [filtroMod, setFiltroMod] = useState('');
+  const [buscaNsu, setBuscaNsu] = useState('');
+  const [valorMin, setValorMin] = useState('');
+  const [valorMax, setValorMax] = useState('');
+  if (carreg || !d) return <div style={s.vazio}>carregando… (trazendo os títulos a receber do ERP)</div>;
+  if (d.erro) return <div style={s.erroBox}>⚠️ {d.erro}</div>;
+  const todas = d.itens || [];
+  const modalidades = [...new Set(todas.map(p => p.modalidade))].sort();
+  const lista = todas.filter(p => (!filtroOp || (p.operadora || p.modalidade) === filtroOp)
+    && (!filtroMod || p.modalidade === filtroMod)
+    && (!buscaNsu || String(p.nsu || p.autorizacao || '').includes(buscaNsu))
+    && (!valorMin || p.valor >= Number(valorMin))
+    && (!valorMax || p.valor <= Number(valorMax)));
+  const chipsOp = (() => { const m = new Map();
+    for (const p of todas) { const k = p.operadora || p.modalidade || '—'; const a = m.get(k) || { nome: k, n: 0, valor: 0 }; a.n++; a.valor += p.valor; m.set(k, a); }
+    return [...m.values()].sort((a, b) => b.valor - a.valor); })();
+  const limpar = () => { setFiltroOp(''); setFiltroMod(''); setBuscaNsu(''); setValorMin(''); setValorMax(''); };
+  const exportar = () => baixarCSV('conciliacao-recebimento', [
+    { h: 'Conciliado', f: p => p.conciliado ? 'sim' : 'não' }, { h: 'Caiu com', f: p => p.ligadoA || '' },
+    { h: 'Operadora', f: p => p.operadora || '' }, { h: 'Modalidade', f: p => p.modalidade }, { h: 'Loja', f: p => p.loja },
+    { h: 'Emissão', f: p => dBR(p.emissao) }, { h: 'Vencimento', f: p => dBR(p.vencimento) },
+    { h: 'Parcela', f: p => `${p.parcela}/${p.totalParcela}` }, { h: 'NSU', f: p => p.nsu || '' },
+    { h: 'Autorização', f: p => p.autorizacao || '' }, { h: 'Operador', f: p => p.operador || '' }, { h: 'Valor', f: p => num(p.valor) },
+  ], lista);
+  return (
+    <>
+      <div style={s.nota}>
+        🧾 Títulos de cartão <b>a receber</b> do ERP (Financeiro ▸ Cartões ▸ Efetuar Recebimento) confrontados com o que a operadora
+        <b> já pagou</b> nos relatórios de repasse que você importou. Os <b>conciliados</b> mostram <b>com o que caíram</b> (operadora/lote);
+        os <b>pendentes</b> ainda não caíram no meio dos lotes. Suba os relatórios em <b>Importar relatório ▸ Repasse/recebimentos</b>.
+      </div>
+      <div style={{ ...s.card, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Stat n={d.resumo?.total ?? 0} l="A conciliar (não caiu ainda)" cor={d.resumo?.total ? '#C87A1E' : '#1E874B'} bg={d.resumo?.total ? '#FDF6E7' : '#EAF6EF'} />
+        <Stat n={brlK(d.resumo?.valor || 0)} l="Valor a conciliar" cor="#C87A1E" />
+        <Stat n={d.resumo?.conciliados ?? 0} l="Já conciliados" cor="#1E874B" bg="#EAF6EF" sub={brlK(d.resumo?.valorConciliados || 0)} />
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          {[['nao', 'A conciliar'], ['sim', 'Já conciliadas'], ['todas', 'Todas']].map(([v, l]) =>
+            <button key={v} onClick={() => { setConf(v); setFiltroOp(''); }} style={{ ...s.chip, ...(conf === v ? s.chipOn : {}) }}>{l}</button>)}
+        </div>
+      </div>
+      {!!chipsOp.length && (
+        <div style={{ ...s.card, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setFiltroOp('')} style={{ ...s.chip, ...(!filtroOp ? s.chipOn : {}) }}>todas</button>
+          {chipsOp.map(o => <button key={o.nome} onClick={() => setFiltroOp(o.nome)} style={{ ...s.chip, ...(filtroOp === o.nome ? s.chipOn : {}) }}>{o.nome} · {o.n} · {brl(o.valor)}</button>)}
+        </div>
+      )}
+      <div style={{ ...s.card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <label style={s.fld}>Modalidade<select value={filtroMod} onChange={e => setFiltroMod(e.target.value)} style={s.inp}>
+          <option value="">Todas</option>{modalidades.map(m => <option key={m} value={m}>{m}</option>)}</select></label>
+        <label style={s.fld}>NSU<input value={buscaNsu} onChange={e => setBuscaNsu(e.target.value)} placeholder="número…" style={s.inp} /></label>
+        <label style={s.fld}>Valor de<input type="number" value={valorMin} onChange={e => setValorMin(e.target.value)} placeholder="0" style={{ ...s.inp, width: 90 }} /></label>
+        <label style={s.fld}>até<input type="number" value={valorMax} onChange={e => setValorMax(e.target.value)} placeholder="—" style={{ ...s.inp, width: 90 }} /></label>
+        <button onClick={limpar} style={s.chip}>limpar filtros</button>
+        <button onClick={exportar} disabled={!lista.length} style={{ ...s.chip, ...s.chipOn, marginLeft: 'auto' }}>⬇️ Excel detalhado</button>
+      </div>
+      <div style={{ ...s.card, overflowX: 'auto' }}>
+        {d.truncado && <div style={s.aviso}>⚠️ Muitos títulos nesse modo ({d.totalSubconjunto?.toLocaleString('pt-BR')}) — trouxe os primeiros 10.000. Refine por <b>loja</b>, <b>período (vencimento)</b> ou <b>valor</b>.</div>}
+        {!lista.length && <div style={s.vazio}>{conf === 'nao' ? 'nada a conciliar no período 🎉' : conf === 'sim' ? 'nenhum recebimento conciliado com esses filtros' : 'nenhum título no período com esses filtros'}</div>}
+        {!!lista.length && <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+          <thead><tr>{['Conciliação', 'Operadora / modalidade', 'Loja', 'Emissão', 'Vencimento', 'Parcela', 'NSU', 'Valor'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+          <tbody>{lista.slice(0, LIMITE_TABELA).map((p, i) => (
+            <tr key={i} style={{ borderTop: '1px solid #f2f2f2' }}>
+              <td style={s.td}>{p.conciliado
+                ? <span title={p.ligadoA} style={{ color: '#1E874B', fontWeight: 600 }}>✓ caiu com {p.ligadoA || 'repasse'}</span>
+                : <span style={{ color: '#C87A1E', fontWeight: 600 }}>⏳ a conciliar</span>}</td>
+              <td style={{ ...s.td, fontWeight: 600 }}>{p.operadora || '—'}<div style={{ fontSize: 10.5, color: '#aaa', fontWeight: 400 }}>{p.modalidade}</div></td>
+              <td style={s.td}>{p.loja}</td>
+              <td style={s.td}>{dBR(p.emissao)}</td>
+              <td style={s.td}>{dBR(p.vencimento)}</td>
+              <td style={{ ...s.td, textAlign: 'center' }}>{p.parcela}/{p.totalParcela}</td>
+              <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11.5 }}>{p.nsu || p.autorizacao || '—'}</td>
+              <td style={{ ...s.td, textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{brl(p.valor)}</td>
+            </tr>))}</tbody>
+        </table>}
+        {lista.length > LIMITE_TABELA && <div style={s.nota}>mostrando {LIMITE_TABELA} de {lista.length} — refine os filtros ou baixe o Excel.</div>}
       </div>
     </>
   );

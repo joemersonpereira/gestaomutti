@@ -692,6 +692,85 @@ async function conferirVencimentos(empresaId, { ini, fim, lojaId, apenasDivergen
   };
 }
 
+// ── Conciliação de Recebimento (#17) ────────────────────────────────────────
+// A tela "Financeiro ▸ Cartões ▸ Efetuar Recebimento" do ERP lista os títulos de cartão A RECEBER
+// (cartaoreceber ainda sem recebimento: recebimentocartaoid IS NULL), por vencimento. Aqui cada
+// título é confrontado com o que a operadora JÁ PAGOU (conc_repasse_parcela, dos relatórios de
+// repasse/recebimento importados): casou por NSU/autorização + loja = recebido (mostra de qual
+// operadora/lote caiu); não casou = pendente (não caiu no meio dos lotes). Serve para TODAS as
+// operadoras (Rede, Cielo, Brasil Card, Bracov, Multi Mais, Le Card, Nutricash, VR, Alelo, Banese…).
+// Filtros: loja, vencimento (período), valor de–até, e conciliou/não (conf).
+async function conciliacaoRecebimento(empresaId, { ini, fim, lojaId, valorMin, valorMax, conf = 'nao' } = {}) {
+  const { erpQuery, habilitado } = require('../db/erp');
+  if (!habilitado()) return { ok: false, erro: 'ERP indisponível.' };
+  const unis = unisEmpresa(empresaId, lojaId);
+  if (!unis.length) return { ok: false, erro: 'Sem lojas mapeadas no ERP.' };
+  const lojas = lojasEmpresa(empresaId);
+  const nomeUni = uni => (lojas.find(l => Number(l.erp_unidadenegocio_id) === Number(uni)) || {}).nome || ('unidade ' + uni);
+
+  const LIMITE_ERP = 60000;   // trava de segurança no volume do ERP (a tela sempre filtra por vencimento)
+  const titulos = await erpQuery(`
+    SELECT cr.id, cr.unidadenegocioid uni, mc.nome modalidade, cr.valor::float8 valor,
+           to_char(cr.dataemissao,'YYYY-MM-DD') emissao, to_char(cr.datavencimento,'YYYY-MM-DD') vencimento,
+           cr.numeroautorizacao aut, cr.numerotransacao nsu, cr.numeroparcela parcela, cr.totalparcela,
+           cr.taxa::float8 taxa, cr.origem, COALESCE(p.nome,'') operador
+      FROM cartaoreceber cr
+      LEFT JOIN modalidadecartao mc ON mc.id = cr.modalidadecartaoid
+      LEFT JOIN usuario us ON us.id = cr.usuarioid
+      LEFT JOIN pessoa p ON p.id = us.pessoaid
+     WHERE cr.unidadenegocioid = ANY($1::bigint[])
+       AND cr.datavencimento >= $2::date AND cr.datavencimento <= $3::date
+       AND cr.recebimentocartaoid IS NULL
+       AND cr.status <> 'C'
+       AND NOT EXISTS (SELECT 1 FROM correcaocartaoreceberincorreto ci WHERE ci.cartaoreceberid = cr.id)
+     ORDER BY cr.datavencimento LIMIT ${LIMITE_ERP + 1}`, [unis, ini, fim]);
+  const ultrapassou = titulos.length > LIMITE_ERP;
+
+  // o que a operadora já pagou (parcelas dos relatórios de repasse importados)
+  const parcelas = db.prepare(`SELECT uni_erp, nsu, autorizacao, operadora, data_recebimento, lote FROM conc_repasse_parcela WHERE empresa_id=?`).all(empresaId);
+  const porNsu = new Map(), porAut = new Map();
+  for (const p of parcelas) {
+    if (norm(p.nsu)) { const k = p.uni_erp + '|' + norm(p.nsu); if (!porNsu.has(k)) porNsu.set(k, p); }
+    if (norm(p.autorizacao)) { const k = p.uni_erp + '|' + norm(p.autorizacao); if (!porAut.has(k)) porAut.set(k, p); }
+  }
+  const vMin = valorMin !== '' && valorMin != null ? Number(valorMin) : null;
+  const vMax = valorMax !== '' && valorMax != null ? Number(valorMax) : null;
+
+  const todos = [];
+  for (const t of titulos.slice(0, LIMITE_ERP)) {
+    if (vMin != null && t.valor < vMin) continue;
+    if (vMax != null && t.valor > vMax) continue;
+    const m = (norm(t.nsu) && porNsu.get(t.uni + '|' + norm(t.nsu))) || (norm(t.aut) && porAut.get(t.uni + '|' + norm(t.aut))) || null;
+    const conciliado = !!m;
+    todos.push({
+      crId: t.id, loja: nomeUni(t.uni), uni: t.uni, modalidade: t.modalidade, valor: round(t.valor),
+      emissao: t.emissao, vencimento: t.vencimento, nsu: t.nsu, autorizacao: t.aut,
+      parcela: t.parcela, totalParcela: t.totalparcela, taxa: t.taxa, origem: t.origem, operador: t.operador,
+      conciliado, operadora: m ? m.operadora : '',
+      ligadoA: m ? `${m.operadora} · caiu ${m.data_recebimento || '?'}${m.lote ? ' · lote ' + m.lote : ''}` : '',
+    });
+  }
+  todos.sort((a, b) => Number(a.conciliado) - Number(b.conciliado) || String(a.vencimento).localeCompare(String(b.vencimento)));
+
+  const conciliados = todos.filter(x => x.conciliado);
+  const pendentes = todos.filter(x => !x.conciliado);
+  // por operadora (das pendentes, que são o que precisa de ação)
+  const porOp = new Map();
+  for (const p of pendentes) { const k = p.operadora || p.modalidade || '—'; const a = porOp.get(k) || { operadora: k, n: 0, valor: 0 }; a.n++; a.valor = round(a.valor + p.valor); porOp.set(k, a); }
+
+  const LIMITE = 10000;
+  const base = conf === 'todas' ? todos : conf === 'sim' ? conciliados : pendentes;
+  return {
+    ok: true, conf, itens: base.slice(0, LIMITE), truncado: base.length > LIMITE || ultrapassou, totalSubconjunto: base.length,
+    resumo: {
+      total: pendentes.length, valor: round(pendentes.reduce((s, x) => s + x.valor, 0)),
+      conciliados: conciliados.length, valorConciliados: round(conciliados.reduce((s, x) => s + x.valor, 0)),
+      totalGeral: todos.length, valorGeral: round(todos.reduce((s, x) => s + x.valor, 0)),
+      porOperadora: [...porOp.values()].sort((a, b) => b.valor - a.valor),
+    },
+  };
+}
+
 // parcelas de um depósito (para abrir na tela)
 function detalheDeposito(empresaId, id) {
   const dep = db.prepare('SELECT * FROM conc_repasse WHERE id=? AND empresa_id=?').get(id, empresaId);
@@ -921,7 +1000,7 @@ function tratarLoteBanco(empresaId, { chave, status, valor, obs, usuarioId } = {
 module.exports = {
   importar, conferir, conferirVencimentos, detalheDeposito, lotes, apagarLote, marcarConferencia, autoConferirLotes,
   estabelecimentos, salvarEstabelecimento, aprenderEstabelecimentos, credenciadoras,
-  taxasContratadas, salvarTaxa, excluirTaxa, replicarTaxas, taxaEsperada, taxasDoErp, importarTaxasDoErp, conferirNoBanco, tratarLoteBanco,
+  taxasContratadas, salvarTaxa, excluirTaxa, replicarTaxas, taxaEsperada, taxasDoErp, importarTaxasDoErp, conferirNoBanco, tratarLoteBanco, conciliacaoRecebimento,
   regrasBancoOperadora, salvarRegraBancoOperadora,
   contratosTaxa, salvarContratoTaxa, getContratoTaxa, excluirContratoTaxa,
 };
