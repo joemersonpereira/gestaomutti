@@ -147,6 +147,8 @@ async function titulosErp(unis, ini, fim, dias) {
      WHERE cr.unidadenegocioid = ANY($1::bigint[])
        AND cr.dataemissao >= $2::date AND cr.dataemissao < ($3::date + 1)
        ${dias && dias.length ? 'AND cr.dataemissao::date = ANY($4::date[])' : ''}
+       -- venda CANCELADA no ERP não entra na conciliação (status 'C' = origemcancelamento preenchida)
+       AND cr.status <> 'C'
        -- títulos que a Tesouraria JÁ corrigiu no ERP saem da conta (o certo é o substituto)
        AND NOT EXISTS (SELECT 1 FROM correcaocartaoreceberincorreto ci WHERE ci.cartaoreceberid = cr.id)`,
     dias && dias.length ? [unis, ini, fim, dias] : [unis, ini, fim]);

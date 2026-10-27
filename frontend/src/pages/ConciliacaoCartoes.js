@@ -82,7 +82,7 @@ export default function ConciliacaoCartoes() {
       </div>
       <div style={{ display: 'flex', gap: 6, margin: '4px 0 14px', flexWrap: 'wrap' }}>
         {[['painel', '📊 Painel do mês'], ['importar', '📥 Importar relatório'], ['diverg', '⚠️ Divergências'],
-          ['pendentes', '⏳ Vendas a conciliar'], ['recebimentos', '💵 Recebimentos futuros'], ['sem-operadora', '🏷️ Sem operadora'],
+          ['pendentes', '⏳ Vendas a conferir'], ['recebimentos', '💵 Recebimentos futuros'], ['sem-operadora', '🏷️ Sem operadora'],
           ['taxas', '🏧 Taxas de máquina'], ['combinado', '📑 Taxas combinadas'], ['maquinas', '🖥️ Aluguel de máquinas'],
           ['repasses', '💰 Repasses'], ['correcoes', '🔧 Correções no ERP'], ['ajustes', '⚙️ Ajustes']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
@@ -317,7 +317,7 @@ function AguardandoRelatorio({ API, f }) {
     && (!valorMin || p.valor >= Number(valorMin))
     && (!valorMax || p.valor <= Number(valorMax)));
   const limparFiltros = () => { setFiltroOp(''); setFiltroMod(''); setBuscaOperador(''); setBuscaNsu(''); setValorMin(''); setValorMax(''); };
-  const exportar = () => baixarCSV('vendas-a-conciliar', [
+  const exportar = () => baixarCSV('vendas-a-conferir', [
     { h: 'Operadora', f: p => p.operadora }, { h: 'Data', f: p => dBR(p.data) }, { h: 'Hora', f: p => (p.hora || '').slice(0, 5) },
     { h: 'Loja', f: p => p.loja }, { h: 'Modalidade', f: p => p.modalidade }, { h: 'NSU', f: p => p.nsu || p.autorizacao || '' },
     { h: 'Operador', f: p => p.operador || '' }, { h: 'Valor', f: p => num(p.valor) },
@@ -660,14 +660,17 @@ function Divergencias({ API, f, tipoIni }) {
   const todas = d.divergencias || [];
   const operadoras = d.operadoras || [...new Set(todas.map(x => x.operadora).filter(Boolean))];
   const modalidades = [...new Set(todas.map(x => x.modalidadeErp).filter(Boolean))].sort();
-  const lista = todas.filter(x => (!tipo || x.tipo === tipo))
-    .filter(x => status === 'todas' || (status === 'abertas' ? (x.status === 'aberta' || x.status === 'procede') : x.status !== 'aberta'))
-    .filter(x => (!filtroOp || x.operadora === filtroOp)
-      && (!filtroMod || x.modalidadeErp === filtroMod)
-      && (!buscaOperador || (x.operador || '').toLowerCase().includes(buscaOperador.toLowerCase()))
-      && (!buscaNsu || String(x.nsu || x.autorizacao || '').includes(buscaNsu))
-      && (!valorMin || x.valor >= Number(valorMin))
-      && (!valorMax || x.valor <= Number(valorMax)));
+  // filtro de status + demais (SEM o tipo) — usado pra contar por tipo respeitando o filtro escolhido
+  const passaStatus = x => status === 'todas' || (status === 'abertas' ? (x.status === 'aberta' || x.status === 'procede') : x.status !== 'aberta');
+  const passaFiltros = x => (!filtroOp || x.operadora === filtroOp)
+    && (!filtroMod || x.modalidadeErp === filtroMod)
+    && (!buscaOperador || (x.operador || '').toLowerCase().includes(buscaOperador.toLowerCase()))
+    && (!buscaNsu || String(x.nsu || x.autorizacao || '').includes(buscaNsu))
+    && (!valorMin || x.valor >= Number(valorMin))
+    && (!valorMax || x.valor <= Number(valorMax));
+  const lista = todas.filter(x => (!tipo || x.tipo === tipo) && passaStatus(x) && passaFiltros(x));
+  // contagem por tipo que RESPEITA o filtro (em aberto / já tratadas / todas): só numera o que há naquele filtro
+  const cntTipo = t => todas.filter(x => x.tipo === t && passaStatus(x) && passaFiltros(x)).length;
   const limparFiltros = () => { setFiltroOp(''); setFiltroMod(''); setBuscaOperador(''); setBuscaNsu(''); setValorMin(''); setValorMax(''); };
   const exportar = () => baixarCSV('divergencias', [
     { h: 'O que houve', f: x => x.rotulo }, { h: 'Loja', f: x => x.loja }, { h: 'Data', f: x => dBR(x.data) }, { h: 'Hora', f: x => (x.hora || '').slice(0, 5) },
@@ -678,21 +681,22 @@ function Divergencias({ API, f, tipoIni }) {
   return (
     <>
       {/* Resumo + tipos de erro como chips clicáveis (mais claro que o dropdown) */}
-      {(() => { const porTipo = d.resumo?.porTipo || []; const totAb = porTipo.reduce((a, t) => a + (t.abertas ?? t.n ?? 0), 0); const totVal = porTipo.reduce((a, t) => a + (t.valor || 0), 0);
+      {(() => { const noFiltro = todas.filter(passaStatus); const totF = noFiltro.length; const totVal = noFiltro.reduce((a, x) => a + (x.valor || 0), 0);
+        const rot = status === 'abertas' ? 'em aberto' : status === 'tratadas' ? 'já tratadas' : '(todas)';
         return (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
-            <div style={{ ...s.card, margin: 0, borderLeft: '4px solid #C0392B' }}><div style={{ fontSize: 11.5, color: '#64748b', textTransform: 'uppercase', letterSpacing: .3 }}>Divergências em aberto</div><div style={{ fontSize: 24, fontWeight: 800, color: '#C0392B', fontVariantNumeric: 'tabular-nums' }}>{totAb.toLocaleString('pt-BR')}</div></div>
+            <div style={{ ...s.card, margin: 0, borderLeft: '4px solid #C0392B' }}><div style={{ fontSize: 11.5, color: '#64748b', textTransform: 'uppercase', letterSpacing: .3 }}>Divergências {rot}</div><div style={{ fontSize: 24, fontWeight: 800, color: '#C0392B', fontVariantNumeric: 'tabular-nums' }}>{totF.toLocaleString('pt-BR')}</div></div>
             <div style={{ ...s.card, margin: 0, borderLeft: '4px solid #C0392B' }}><div style={{ fontSize: 11.5, color: '#64748b', textTransform: 'uppercase', letterSpacing: .3 }}>Valor envolvido</div><div style={{ fontSize: 24, fontWeight: 800, color: '#C0392B', fontVariantNumeric: 'tabular-nums' }}>{brl(totVal)}</div></div>
           </div>
         ); })()}
       <div style={{ ...s.card }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
           <button onClick={() => setTipo('')} style={{ ...s.chip, ...(!tipo ? s.chipOn : {}) }}>Todos</button>
-          {(d.resumo?.porTipo || []).map(t => (
+          {(d.resumo?.porTipo || []).map(t => { const c = cntTipo(t.tipo); return (
             <button key={t.tipo} onClick={() => setTipo(tipo === t.tipo ? '' : t.tipo)}
               style={{ ...s.chip, ...(tipo === t.tipo ? { background: t.cor, color: '#fff', borderColor: t.cor } : { borderColor: t.cor + '55', color: t.cor }) }}>
-              {t.rotulo} · {t.n}
-            </button>))}
+              {t.rotulo}{c ? ' · ' + c : ''}
+            </button>); })}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <select value={status} onChange={e => setStatus(e.target.value)} style={s.inp}>
