@@ -49,19 +49,30 @@ const ASSINATURAS = [
   // "Relatório de vendas completos": 1 linha por PARCELA (com vencimento dela), não por venda —
   // formato diferente do BRASILCARD de cima (que já vem com a venda inteira numa linha só).
   { layout: 'BRASILCARD_DET', operadora: 'Brasil Card', tem: ['numero autorizacao', 'valor bruto', 'data de vencimento'] },
+  // Multi Mais / Uze usa a MESMA plataforma (Algorix) do Le Card — cabeçalho igual (autoriz + compr.).
+  // Distingue pelo CONTEÚDO ("Uze"/"Multmais" no topo e na coluna Rede). Vem ANTES do Le Card.
+  { layout: 'MULTIMAIS', operadora: 'Multi Mais / Uze', tem: ['autoriz', 'compr.'], conteudo: /uze|multmais|multi ?mais/ },
   { layout: 'LECARD', operadora: 'Le Card', tem: ['autoriz', 'compr.'] },
   { layout: 'BRACOV', operadora: 'Bracov', tem: ['credenciado', 'valor_trans'] },
   { layout: 'NUTRICASH', operadora: 'Nutricash', tem: ['cod. autorizacao', 'portador'] },
   { layout: 'MULVI', operadora: 'Banese / Mulvi', tem: ['data_transacao', 'valor_bruto'] },
+  // Cielo: "Detalhado de vendas Cielo" (CSV, ';'); cabeçalho lá embaixo (linha ~23) e CNPJ no preâmbulo.
+  { layout: 'CIELO', operadora: 'Cielo', tem: ['nsu/doc', 'forma de pagamento'] },
 ];
 
 // tira acento e baixa a caixa — os relatórios variam em acentuação/encoding
 const chave = v => txt(v).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ');
 
 function detectar(rows) {
-  for (let i = 0; i < Math.min(rows.length, 12); i++) {
+  // alguns relatórios (Cielo) têm um preâmbulo longo antes do cabeçalho — varre mais fundo.
+  const limite = Math.min(rows.length, 30);
+  // "impressão digital" do topo do arquivo, p/ assinaturas que dependem do conteúdo (ex.: Multi Mais × Le Card)
+  const blob = rows.slice(0, limite).map(r => (r || []).map(chave).join(' ')).join(' | ');
+  for (let i = 0; i < limite; i++) {
     const linha = (rows[i] || []).map(chave).join('|');
-    for (const a of ASSINATURAS) if (a.tem.every(t => linha.includes(t))) return { ...a, headerIdx: i };
+    for (const a of ASSINATURAS) {
+      if (a.tem.every(t => linha.includes(t)) && (!a.conteudo || a.conteudo.test(blob))) return { ...a, headerIdx: i };
+    }
   }
   return null;
 }
@@ -180,8 +191,9 @@ function parseBrasilCardDetalhado(rows, hi) {
   }));
 }
 
-// LE CARD: relatório "de tela" (linhas em branco e seções); a linha válida é a que tem data.
-function parseLeCard(rows, hi) {
+// LE CARD / MULTI MAIS (mesma plataforma Algorix): relatório "de tela" (linhas em branco e seções);
+// a linha válida é a que tem data. `label` separa Le Card de Multi Mais (vêm com cabeçalho igual).
+function parseLeCard(rows, hi, label = 'Le Card') {
   const c = mapaColunas(rows[hi]);
   const iData = c('data'), iCli = c('cliente'), iCart = c('numero do cartao'), iVal = c('valor'),
     iParc = c('parc.'), iAut = c('autoriz'), iComp = c('compr.'), iLoja = c('loja');
@@ -192,7 +204,7 @@ function parseLeCard(rows, hi) {
     const parcelas = Math.max(1, Number(soDigitos(r[iParc])) || 1);
     out.push({
       data: dh.data, hora: dh.hora, nsu: vazio(r[iComp]) ? '' : txt(r[iComp]), autorizacao: txt(r[iAut]), cnpj: '',
-      valor: num(r[iVal]), valorLiquido: 0, taxa: 0, parcelas, grupo: null, bandeira: 'Le Card',
+      valor: num(r[iVal]), valorLiquido: 0, taxa: 0, parcelas, grupo: null, bandeira: label,
       status: 'OK', cliente: txt(r[iCli]), cartao: txt(r[iCart]), lojaArquivo: txt(r[iLoja]),
       tipoOperadora: 'beneficio',
     });
@@ -311,7 +323,49 @@ function parseAlelo(rows) {
   return out;
 }
 
-const PARSERS = { REDE: parseRede, BRASILCARD: parseBrasilCard, BRASILCARD_DET: parseBrasilCardDetalhado, LECARD: parseLeCard, BRACOV: parseBracov, NUTRICASH: parseNutricash, MULVI: parseMulvi };
+// CIELO: "Detalhado de vendas Cielo" (CSV ';'). O CNPJ vem do preâmbulo (acha a filial sozinho);
+// 1 linha por venda, com NSU/DOC + Código de autorização (é o que liga com o ERP).
+function parseCielo(rows, hi) {
+  let cnpj = '';
+  for (let i = 0; i < hi; i++) {
+    const linha = (rows[i] || []).map(txt).join(' ');
+    const m = linha.match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/);
+    if (/cnpj/i.test(linha) && m) { cnpj = soDigitos(m[0]); break; }
+  }
+  const c = mapaColunas(rows[hi]);
+  const iData = c('data da venda'), iHora = c('hora da venda'), iForma = c('forma de pagamento'),
+    iBand = c('bandeira'), iVal = c('valor bruto'), iLiq = c('valor liquido'),
+    iTaxa = c('total de taxas'), iSt = c('status da venda'), iAut = c('codigo de autorizacao'),
+    iNsu = c('nsu/doc'), iCart = c('numero do cartao'), iParc = c('parcelado cliente'), iVenc = c('data prevista do pagamento');
+  const out = [];
+  for (const r of rows.slice(hi + 1)) {
+    if (vazio(r[iData]) || /total/i.test(txt(r[0]))) continue;
+    const dh = dataHora(r[iData]); if (!dh.data) continue;
+    const forma = chave(r[iForma]);
+    let grupo = 'OUTRO';
+    if (forma.includes('pix')) grupo = 'PIX';
+    else if (forma.includes('deb')) grupo = 'DEBITO';
+    else if (forma.includes('cred')) grupo = forma.includes('parcelad') ? 'PARCELADO' : 'CREDITO';
+    else if (forma.includes('voucher') || forma.includes('aliment') || forma.includes('refei')) grupo = 'VOUCHER';
+    const parcN = Number(soDigitos(r[iParc]));
+    const parcelas = grupo === 'PARCELADO' ? Math.max(2, parcN || 2) : Math.max(1, parcN || 1);
+    const st = chave(r[iSt]);
+    out.push({
+      data: dh.data, hora: vazio(r[iHora]) ? dh.hora : txt(r[iHora]),
+      nsu: vazio(r[iNsu]) ? '' : txt(r[iNsu]), autorizacao: vazio(r[iAut]) ? '' : txt(r[iAut]), cnpj,
+      valor: num(r[iVal]), valorLiquido: num(r[iLiq]), taxa: pct(r[iTaxa]), parcelas, grupo,
+      bandeira: vazio(r[iBand]) ? '' : txt(r[iBand]),
+      status: (st === 'aprovada' || st === 'pago' || st === 'aprovado') ? 'OK' : st.toUpperCase(),
+      cliente: '', cartao: vazio(r[iCart]) ? '' : txt(r[iCart]), tipoOperadora: forma,
+      prazo: dataHora(r[iVenc]).data || '',
+    });
+  }
+  return out;
+}
+
+const PARSERS = { REDE: parseRede, BRASILCARD: parseBrasilCard, BRASILCARD_DET: parseBrasilCardDetalhado,
+  MULTIMAIS: (rows, hi) => parseLeCard(rows, hi, 'Multi Mais'), LECARD: parseLeCard,
+  BRACOV: parseBracov, NUTRICASH: parseNutricash, MULVI: parseMulvi, CIELO: parseCielo };
 
 // ── entrada única ──────────────────────────────────────────────────────────
 // buffer = conteúdo do arquivo (xlsx/xls/csv). Devolve { ok, layout, operadora, linhas[], descartadas[] }.
@@ -336,6 +390,11 @@ function lerArquivo(buffer, { nomeArquivo = '' } = {}) {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: false, defval: '' });
     const det = detectar(rows);
     if (!det) continue;
+    // Banese/Mulvi RESUMIDO (totais por modalidade, coluna "Quantidade_Vendas", sem NSU) não dá p/
+    // conciliar venda a venda — avisa p/ exportar o DETALHADO/Analítico (que traz NSU/autorização/valor).
+    if (det.layout === 'MULVI' && (rows[det.headerIdx] || []).map(chave).join('|').includes('quantidade')) {
+      return { ok: false, erro: 'Esse é o relatório RESUMIDO da Banese/Mulvi (totais por modalidade, sem NSU). Para conciliar venda a venda, exporte o DETALHADO/Analítico no portal (Minhas vendas ▸ Vendas realizadas ▸ DETALHADO ▸ Excel) — ele traz NSU, autorização e valor de cada venda.' };
+    }
     const linhas = PARSERS[det.layout](rows, det.headerIdx);
     const avisos = [];
     const fora = linhas.filter(l => l.status !== 'OK');
