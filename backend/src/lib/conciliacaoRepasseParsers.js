@@ -610,8 +610,68 @@ function lotesBrasilCard(wb) {
   return out;
 }
 
+// ── Cielo: "Recebíveis Detalhado - Lançamentos" (CSV de repasse/recebíveis) ──
+// CSV (latin1, com preâmbulo: estabelecimento + CNPJ). Cada linha é um lançamento PAGO pela Cielo:
+// data pagamento, data venda, forma, bandeira, bruto/taxa/líquido, status, NSU e autorização — dá
+// pra casar venda a venda (e com o "Efetuar Recebimento" do ERP) e abrir o depósito por dia/bandeira.
+function grupoFormaCielo(tipo, forma) {
+  const f = chave(forma), t = chave(tipo);
+  const mParc = /(\d+)\/(\d+)/.exec(forma || '');
+  if (f.startsWith('pix') || t.includes('pix')) return { grupo: 'PIX', parcela: 1, totalParcela: 1 };
+  if (f.startsWith('deb') || t.includes('debito')) return { grupo: 'DEBITO', parcela: 1, totalParcela: 1 };
+  if (mParc) return { grupo: 'PARCELADO', parcela: Number(mParc[1]) || 1, totalParcela: Number(mParc[2]) || 1 };
+  if (f.includes('credito') || t.includes('credito')) return { grupo: 'CREDITO', parcela: 1, totalParcela: 1 };
+  return { grupo: 'OUTRO', parcela: 1, totalParcela: 1 };
+}
+function parseCieloRecebiveis(raw) {
+  const lines = raw.split(/\r?\n/);
+  let cnpj = '', estabPre = '';
+  for (const l of lines.slice(0, 20)) {
+    const mc = /cpf\/cnpj:\s*([\d.\/-]{14,})/i.exec(l); if (mc && !cnpj) cnpj = soDigitos(mc[1]);
+    const me = /estabelecimento:\s*(\d{6,})/i.exec(l); if (me && !estabPre) estabPre = me[1];
+  }
+  const hi = lines.findIndex(l => /data de pagamento/i.test(l) && /nsu\/doc/i.test(l));
+  if (hi < 0) return null;
+  const parcelas = [], depMap = new Map();
+  for (const line of lines.slice(hi + 1)) {
+    if (!line.trim()) continue;
+    const f = line.split(';');
+    if (f.length < 15) continue;
+    const dataPg = dataBR(f[0]); if (!dataPg) continue;            // ignora o totalizador e linhas soltas
+    if (!/pago/i.test(txt(f[10]))) continue;                        // só o que realmente caiu (ignora rejeitado)
+    const bruto = num(f[7]), liquido = num(f[9]), valorTaxa = Math.abs(num(f[8]));
+    const forma = txt(f[5]), bandeira = txt(f[6]);
+    const g = grupoFormaCielo(f[4], forma);
+    const estab = soDigitos(f[3]) || '';
+    // o CNPJ do preâmbulo só vale para o estabelecimento do preâmbulo (relatório "raiz de CNPJ" pode
+    // misturar estabelecimentos); para os demais, a loja sai pelo de-para aprendido das vendas.
+    const cnpjLinha = (!estabPre || estab === soDigitos(estabPre)) ? cnpj : '';
+    const p = {
+      dataRecebimento: dataPg, dataVenda: dataBR(f[12]) || dataBR(f[1]), dataVencimento: dataBR(f[2]) || dataPg,
+      nsu: txt(f[14]), autorizacao: txt(f[13]), lote: '', estabelecimento: estab, cnpj: cnpjLinha,
+      bandeira, modalidade: forma, grupo: g.grupo, parcelas: g.totalParcela, parcela: g.parcela,
+      valorBruto: bruto, taxa: bruto ? round2(valorTaxa / bruto * 100) : 0, valorTaxa, valorLiquido: liquido, status: 'PAGO',
+    };
+    parcelas.push(p);
+    const gk = p.grupo === 'PARCELADO' ? 'CREDITO' : p.grupo;
+    const k = [dataPg, estab, bandeira, gk].join('|');
+    const dep = depMap.get(k) || { data: dataPg, estabelecimento: estab, cnpj: cnpjLinha, bandeira, modalidade: forma, grupo: gk, valor: 0, valorBruto: 0, taxa: 0, status: 'PAGO' };
+    dep.valor = round2(dep.valor + liquido); dep.valorBruto = round2(dep.valorBruto + bruto); depMap.set(k, dep);
+  }
+  return { parcelas, depositos: [...depMap.values()] };
+}
+
 // ── entrada única ──────────────────────────────────────────────────────────
 function lerRepasse(buffer, { nomeArquivo = '' } = {}) {
+  // Cielo "Recebíveis Detalhado" é CSV (latin1, com preâmbulo) — parseia direto do texto, antes do XLSX
+  const rawTxt = buffer.toString('latin1');
+  if (/data de pagamento/i.test(rawTxt) && /nsu\/doc/i.test(rawTxt) && /forma de pagamento/i.test(rawTxt)) {
+    const c = parseCieloRecebiveis(rawTxt);
+    if (c && c.parcelas.length) {
+      return { ok: true, operadora: 'Cielo', layout: 'CIELO_RECEBIVEIS', arquivo: nomeArquivo,
+        avisos: [], parcelas: c.parcelas, depositos: c.depositos, futuros: [], ajustes: [] };
+    }
+  }
   let wb;
   try { wb = XLSX.read(buffer, { cellDates: true, raw: false }); }
   catch (e) { return { ok: false, erro: 'Não consegui abrir o arquivo (' + e.message + ').' }; }

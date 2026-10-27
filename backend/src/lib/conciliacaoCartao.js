@@ -632,7 +632,12 @@ async function importar(empresaId, { conteudoBase64, nomeArquivo, lojaId, usuari
     if (!uni || !unisDaEmpresa.has(uni)) { semLoja.push(l); return null; }
     return { ...l, uni };
   }).filter(Boolean);
-  if (!linhas.length && !naoMapeadas.size) return { ok: false, erro: 'Não consegui identificar a loja das transações. Escolha a loja no upload (o arquivo não traz o CNPJ) ou confira se o CNPJ do arquivo é de uma loja cadastrada.' };
+  if (!linhas.length && !naoMapeadas.size) {
+    const dicaBC = /brasil ?card/i.test(lido.operadora || '')
+      ? ' No Brasil Card, o relatório OFICIAL é o "Relatório de vendas completos" com INCLUIR FILIAIS marcado — ele traz PDV + CNPJ por linha e a loja sai sozinha (sem precisar escolher no upload).'
+      : '';
+    return { ok: false, erro: 'Não consegui identificar a loja das transações. Escolha a loja no upload (o arquivo não traz o CNPJ) ou confira se o CNPJ do arquivo é de uma loja cadastrada.' + dicaBC };
+  }
   if (!linhas.length) return { ok: false, erro: 'Faltou mapear a loja de todas as linhas — veja abaixo.',
     lojasParaMapear: [...naoMapeadas.entries()].map(([texto, n]) => ({ operadora: lido.operadora, texto, n })) };
 
