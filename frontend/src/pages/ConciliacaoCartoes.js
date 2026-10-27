@@ -299,7 +299,8 @@ function RankingOperadores({ itens }) {
 const LIMITE_TABELA = 1000;
 
 function AguardandoRelatorio({ API, f }) {
-  const [d, carreg] = useDados(API, '/conciliacao-cartao/pendentes', f, [API, f.ini, f.fim, f.loja, f.grupo]);
+  const [conf, setConf] = useState('nao');   // 'nao' = a conferir (padrão) · 'sim' = já conferidas · 'todas'
+  const [d, carreg] = useDados(API, '/conciliacao-cartao/pendentes', { ...f, conf }, [API, f.ini, f.fim, f.loja, f.grupo, conf]);
   const [filtroOp, setFiltroOp] = useState('');
   const [filtroMod, setFiltroMod] = useState('');
   const [buscaOperador, setBuscaOperador] = useState('');
@@ -310,7 +311,7 @@ function AguardandoRelatorio({ API, f }) {
   const [vencFim, setVencFim] = useState('');
   if (carreg || !d) return <div style={s.vazio}>carregando…</div>;
   if (d.erro) return <div style={s.erroBox}>⚠️ {d.erro}</div>;
-  const todas = d.pendentes || [];
+  const todas = d.itens || [];   // já vem filtrado pelo servidor conforme "conf" (a conferir / já conferidas / todas)
   const modalidades = [...new Set(todas.map(p => p.modalidade))].sort();
   const lista = todas.filter(p => (!filtroOp || p.operadora === filtroOp)
     && (!filtroMod || p.modalidade === filtroMod)
@@ -320,8 +321,13 @@ function AguardandoRelatorio({ API, f }) {
     && (!valorMax || p.valor <= Number(valorMax))
     && (!vencIni || (p.vencimento && p.vencimento >= vencIni))
     && (!vencFim || (p.vencimento && p.vencimento <= vencFim)));
+  // chips de operadora a partir do que está sendo mostrado (sempre batem com a tabela)
+  const chipsOp = (() => { const m = new Map();
+    for (const p of todas) { const a = m.get(p.operadora) || { operadora: p.operadora, n: 0, valor: 0 }; a.n++; a.valor += p.valor; m.set(p.operadora, a); }
+    return [...m.values()].sort((a, b) => b.valor - a.valor); })();
   const limparFiltros = () => { setFiltroOp(''); setFiltroMod(''); setBuscaOperador(''); setBuscaNsu(''); setValorMin(''); setValorMax(''); setVencIni(''); setVencFim(''); };
   const exportar = () => baixarCSV('vendas-a-conferir', [
+    { h: 'Conferida', f: p => p.conferida ? 'sim' : 'não' }, { h: 'Ligou com', f: p => p.ligadoA || '' },
     { h: 'Operadora', f: p => p.operadora }, { h: 'Data', f: p => dBR(p.data) }, { h: 'Hora', f: p => (p.hora || '').slice(0, 5) },
     { h: 'Vencimento', f: p => dBR(p.vencimento) }, { h: 'Loja', f: p => p.loja }, { h: 'Modalidade', f: p => p.modalidade },
     { h: 'NSU', f: p => p.nsu || p.autorizacao || '' }, { h: 'Operador', f: p => p.operador || '' }, { h: 'Valor', f: p => num(p.valor) },
@@ -329,21 +335,27 @@ function AguardandoRelatorio({ API, f }) {
   return (
     <>
       <div style={s.nota}>
-        ⏳ Vendas de cartão que já estão no ERP mas ainda não cruzaram com nenhum relatório de operadora nem com o EDI automático —
-        pode estar tudo certo, só falta subir o arquivo (ou chegar o EDI) pra confirmar. Suba em <b>Importar relatório</b>.
+        Todas as vendas de cartão do período. As <b>a conferir</b> ainda não cruzaram com nenhum relatório nem com o EDI —
+        pode estar tudo certo, só falta subir o arquivo (ou chegar o EDI). As <b>já conferidas</b> mostram <b>com o que ligou</b>
+        (qual relatório/operadora casou). Use o botão à direita pra alternar. Suba relatórios em <b>Importar relatório</b>.
       </div>
 
       {(d.avisos || []).map((a, i) => <div key={i} style={s.aviso}>💡 {a}</div>)}
 
-      <div style={{ ...s.card, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <Stat n={d.resumo?.total ?? 0} l="Vendas aguardando relatório" cor={d.resumo?.total ? '#C87A1E' : '#1E874B'} bg={d.resumo?.total ? '#FDF6E7' : '#EAF6EF'} />
-        <Stat n={brlK(d.resumo?.valor || 0)} l="Valor envolvido" cor="#C87A1E" />
+      <div style={{ ...s.card, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Stat n={d.resumo?.total ?? 0} l="A conferir (sem relatório)" cor={d.resumo?.total ? '#C87A1E' : '#1E874B'} bg={d.resumo?.total ? '#FDF6E7' : '#EAF6EF'} />
+        <Stat n={brlK(d.resumo?.valor || 0)} l="Valor a conferir" cor="#C87A1E" />
+        <Stat n={d.resumo?.conferidas ?? 0} l="Já conferidas" cor="#1E874B" bg="#EAF6EF" sub={brlK(d.resumo?.valorConferidas || 0)} />
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          {[['nao', 'A conferir'], ['sim', 'Já conferidas'], ['todas', 'Todas']].map(([v, l]) =>
+            <button key={v} onClick={() => { setConf(v); setFiltroOp(''); }} style={{ ...s.chip, ...(conf === v ? s.chipOn : {}) }}>{l}</button>)}
+        </div>
       </div>
 
-      {!!(d.resumo?.porOperadora || []).length && (
+      {!!chipsOp.length && (
         <div style={{ ...s.card, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button onClick={() => setFiltroOp('')} style={{ ...s.chip, ...(!filtroOp ? s.chipOn : {}) }}>todas</button>
-          {d.resumo.porOperadora.map(o => (
+          {chipsOp.map(o => (
             <button key={o.operadora} onClick={() => setFiltroOp(o.operadora)}
               style={{ ...s.chip, ...(filtroOp === o.operadora ? s.chipOn : {}) }}>
               {o.operadora} · {o.n} · {brl(o.valor)}
@@ -366,12 +378,16 @@ function AguardandoRelatorio({ API, f }) {
       </div>
 
       <div style={{ ...s.card, overflowX: 'auto' }}>
-        {!lista.length && <div style={s.vazio}>nada aguardando relatório no período 🎉</div>}
+        {d.truncado && <div style={s.aviso}>⚠️ Muitas vendas nesse modo ({d.totalSubconjunto?.toLocaleString('pt-BR')}) — trouxe as primeiras 10.000. Refine por <b>loja</b>, <b>período</b> ou <b>operadora</b> pra ver/exportar o resto.</div>}
+        {!lista.length && <div style={s.vazio}>{conf === 'nao' ? 'nada aguardando relatório no período 🎉' : conf === 'sim' ? 'nenhuma venda conferida no período com esses filtros' : 'nenhuma venda no período com esses filtros'}</div>}
         {lista.length > LIMITE_TABELA && <div style={s.aviso}>⚠️ Mostrando {LIMITE_TABELA} de {lista.length} registros — refine os filtros acima pra ver o resto.</div>}
         {!!lista.length && <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-          <thead><tr>{['Operadora', 'Data', 'Hora', 'Vencimento', 'Loja', 'Modalidade', 'NSU', 'Operador', 'Valor'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{['Conferência', 'Operadora', 'Data', 'Hora', 'Vencimento', 'Loja', 'Modalidade', 'NSU', 'Operador', 'Valor'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
           <tbody>{lista.slice(0, LIMITE_TABELA).map((p, i) => (
             <tr key={i} style={{ borderTop: '1px solid #f2f2f2' }}>
+              <td style={s.td}>{p.conferida
+                ? <span title={p.ligadoA} style={{ color: '#1E874B', fontWeight: 600 }}>✓ ligou com {p.ligadoA || 'relatório'}</span>
+                : <span style={{ color: '#C87A1E', fontWeight: 600 }}>⏳ a conferir</span>}</td>
               <td style={{ ...s.td, fontWeight: 600 }}>{p.operadora}</td>
               <td style={s.td}>{dBR(p.data)}</td>
               <td style={s.td}>{(p.hora || '').slice(0, 5)}</td>

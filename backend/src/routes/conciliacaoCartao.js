@@ -38,7 +38,7 @@ router.get('/divergencias', wrapCache('cc-divergencias')(req => cc.confrontarPer
 // confronto usando os arquivos que o próprio ERP já importa (não depende de upload)
 router.get('/edi', wrapCache('cc-edi')(req => cc.edi(req.usuario.empresa_id, periodo(req))));
 // toda venda de cartão do ERP sem nenhum cruzamento de relatório ainda (manual ou EDI automático)
-router.get('/pendentes', wrapCache('cc-pendentes')(req => cc.pendentesPorOperadora(req.usuario.empresa_id, periodo(req))));
+router.get('/pendentes', wrapCache('cc-pendentes')(req => cc.pendentesPorOperadora(req.usuario.empresa_id, { ...periodo(req), conf: req.query.conf || 'nao' })));
 // vendas de cartão cuja modalidade não bate em nenhuma operadora conhecida (falta mapear em Ajustes)
 router.get('/sem-operadora', wrapCache('cc-sem-operadora')(req => cc.semOperadoraIdentificada(req.usuario.empresa_id, periodo(req))));
 

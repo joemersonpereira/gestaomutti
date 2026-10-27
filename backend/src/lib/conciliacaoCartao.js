@@ -420,7 +420,7 @@ function palpiteOperadora(modalidadeNome) {
   return null;
 }
 
-async function pendentesPorOperadora(empresaId, { ini, fim, lojaId, grupo } = {}) {
+async function pendentesPorOperadora(empresaId, { ini, fim, lojaId, grupo, conf = 'nao' } = {}) {
   const unis = unisEmpresa(empresaId, lojaId);
   if (!unis.length || !habilitado()) return { ok: false, erro: 'Sem lojas mapeadas no ERP.' };
   const dp = await depara(empresaId);
@@ -439,7 +439,11 @@ async function pendentesPorOperadora(empresaId, { ini, fim, lojaId, grupo } = {}
     valor: i.valor, valorLiquido: i.valor_liquido, taxa: i.taxa, parcelas: i.parcelas, grupo: i.grupo,
     bandeira: i.bandeira, tipoOperadora: i.tipo_operadora, cliente: i.cliente, operadora: i.operadora,
   }));
-  if (linhasManual.length) casar(linhasManual, titulos, grupoDe);   // marca t.casado=true nos títulos que bateram
+  // guarda COM O QUE cada título casou (pra mostrar na tela "já conferida · ligou com X")
+  const casamento = linhasManual.length ? casar(linhasManual, titulos, grupoDe) : { pares: [] };
+  for (const par of casamento.pares) {
+    par.erp.ligadoA = { operadora: par.op.operadora, nsu: par.op.nsu || par.op.autorizacao || '', via: par.via };
+  }
 
   // lado B: já cruzou pelo EDI automático que o próprio ERP recebe (Rede, Brasil Card)
   const cobertosEdi = new Set((await erpQuery(`
@@ -457,27 +461,44 @@ async function pendentesPorOperadora(empresaId, { ini, fim, lojaId, grupo } = {}
   const modsDeOperadora = new Set(db.prepare('SELECT DISTINCT modalidade_id FROM conc_operadora_modalidade WHERE empresa_id=?')
     .all(empresaId).map(r => String(r.modalidade_id)));
 
-  const pendentes = [];
+  // Agora lista TODAS as vendas de cartão do período, cada uma com o selo "já conferida?" e COM O
+  // QUE ligou (relatório que casou, ou EDI automático). O filtro "conferida/não" é feito na tela.
+  const itens = [];
   for (const t of titulos) {
     if (conciliarPor.get(String(t.modId)) === false) continue;             // modalidade marcada p/ não conciliar
     if (grupo && grupoDe(t.modId) !== grupo) continue;                     // filtro por forma de pagamento
     if (grupoDe(t.modId) === 'PIX' && !modsDeOperadora.has(String(t.modId))) continue;   // Pix do banco, não da maquininha
-    if (t.casado) continue;                                                // já cruzou com relatório manual
-    if (t.ids.some(id => cobertosEdi.has(id))) continue;                   // já cruzou com o EDI automático
-    const operadora = palpiteOperadora(t.modalidade) || t.modalidade;      // nome conhecido, ou a própria modalidade se for bandeira nova
-    pendentes.push({ operadora, loja: nomeLoja(t.uni), uni: t.uni, data: t.data, hora: t.hora,
-      vencimento: t.vencimento, conferidoErp: t.conferido, modalidade: t.modalidade, valor: t.valor,
-      nsu: t.nsu, autorizacao: t.aut, operador: t.operador, crIds: t.ids });
+    const porEdi = t.ids.some(id => cobertosEdi.has(id));                   // cruzou com o EDI automático (Rede/Brasil Card)
+    const conferida = !!t.casado || porEdi;
+    const ligadoA = t.ligadoA ? `${t.ligadoA.operadora} · ${t.ligadoA.nsu || 's/ NSU'} (via ${t.ligadoA.via})`
+      : porEdi ? 'EDI automático (o ERP já recebe)' : '';
+    const operadora = (t.ligadoA && t.ligadoA.operadora) || palpiteOperadora(t.modalidade) || t.modalidade;
+    itens.push({ operadora, loja: nomeLoja(t.uni), uni: t.uni, data: t.data, hora: t.hora,
+      vencimento: t.vencimento, conferidoErp: t.conferido, conferida, ligadoA,
+      modalidade: t.modalidade, valor: t.valor, nsu: t.nsu, autorizacao: t.aut, operador: t.operador, crIds: t.ids });
   }
-  pendentes.sort((a, b) => a.operadora.localeCompare(b.operadora) || String(b.data).localeCompare(String(a.data)));
+  itens.sort((a, b) => Number(a.conferida) - Number(b.conferida)   // não conferidas primeiro (o que precisa de ação)
+    || a.operadora.localeCompare(b.operadora) || String(b.data).localeCompare(String(a.data)));
+  const pendentes = itens.filter(i => !i.conferida);               // compat + base dos chips/KPI de "aguardando"
 
   const porOperadora = new Map();
   for (const p of pendentes) {
     const a = porOperadora.get(p.operadora) || { operadora: p.operadora, n: 0, valor: 0 };
     a.n++; a.valor = round(a.valor + p.valor); porOperadora.set(p.operadora, a);
   }
-  return { ok: true, pendentes, resumo: { total: pendentes.length, valor: round(pendentes.reduce((s, p) => s + p.valor, 0)),
-    porOperadora: [...porOperadora.values()].sort((a, b) => b.valor - a.valor) } };
+  const conferidas = itens.filter(i => i.conferida);
+  // só manda pela rede o subconjunto pedido (o mês inteiro são ~33k linhas / ~11MB; o padrão "a
+  // conferir" é ~0,3MB). O resumo traz as contagens dos dois lados pra tela saber o total sem baixar tudo.
+  const LIMITE = 10000;   // teto de payload (mês inteiro conferido são ~33k linhas / ~11MB)
+  const itensFull = conf === 'todas' ? itens : conf === 'sim' ? conferidas : pendentes;
+  const itensOut = itensFull.slice(0, LIMITE);
+  return { ok: true, itens: itensOut, conf, truncado: itensFull.length > LIMITE, totalSubconjunto: itensFull.length,
+    resumo: {
+      total: pendentes.length, valor: round(pendentes.reduce((s, p) => s + p.valor, 0)),
+      conferidas: conferidas.length, valorConferidas: round(conferidas.reduce((s, p) => s + p.valor, 0)),
+      totalGeral: itens.length, valorGeral: round(itens.reduce((s, p) => s + p.valor, 0)),
+      porOperadora: [...porOperadora.values()].sort((a, b) => b.valor - a.valor),
+    } };
 }
 
 // ── Modalidades do ERP sem NENHUMA operadora conhecida ──────────────────────
