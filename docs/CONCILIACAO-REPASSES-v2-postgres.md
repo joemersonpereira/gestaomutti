@@ -246,3 +246,58 @@ aba **💰 Repasses** em `pages/ConciliacaoCartoes.js`.
 15. **No repasse da Rede, débito e crédito à vista vêm com `numero_parcelas = 0`, não 1.** Uma
     faixa cadastrada como 1..1 não casa e 21 mil parcelas ficam sem taxa de referência, em
     silêncio. A faixa desses grupos tem que ser 0/0 ("não se aplica").
+
+16. **O lote do Bracov não lista venda a venda — tem que ser composto pelas vendas do período.**
+    O "Movimento de Lotes fechados" traz só o total por lote (`VALOR`/`QUANT`/`VAL_LIQ`) e o
+    período (`INICIO`–`FIM`) por CNPJ. As vendas que formam o lote são as que já foram importadas
+    do relatório de VENDAS do Bracov: mesma loja (uni), `data_venda ∈ [INICIO, FIM]`. O import
+    sintetiza uma parcela por venda encontrada, ligada à venda conferida (`item_id`) e ao
+    depósito do lote — aí o lote fecha venda a venda. Se faltar venda no período, a soma fica
+    abaixo do `VAL_LIQ` e o depósito "não fecha" (divergência real, não silêncio).
+
+    **v2.0 (Postgres).** O layout de lote vira uma flag na importação:
+    ```sql
+    -- colunas já existentes em conc_repasse servem; o que muda é COMO as parcelas nascem:
+    -- para layout 'BRACOV_LOTES' (e qualquer lote-só-total que se queira compor), o serviço de
+    -- importação roda, por lote:
+    INSERT INTO conc_repasse_parcela
+      (arquivo_id, repasse_id, empresa_id, operadora, data_recebimento, data_venda, data_vencimento,
+       nsu, autorizacao, lote, estabelecimento, uni_erp, loja_id, bandeira, modalidade, grupo,
+       parcelas, parcela, valor_bruto, taxa, valor_taxa, valor_liquido, status, item_id)
+    SELECT :arquivo_id, :repasse_id, :empresa_id, :operadora, :pago, i.data, :pago,
+           i.nsu, i.autorizacao, :lote, :estab, :uni, :loja, 'Bracov', 'Convênio', 'CREDIARIO',
+           COALESCE(i.parcelas,1), 1, i.valor, :taxa_pct,
+           round(i.valor * :taxa_pct/100, 2), round(i.valor - i.valor*:taxa_pct/100, 2), 'PAGO', i.id
+      FROM conc_item i
+     WHERE i.empresa_id = :empresa_id AND i.operadora = :operadora
+       AND i.uni_erp = :uni AND i.data BETWEEN :ini AND :fim;
+    ```
+    Idealmente guardar `conc_repasse.periodo_ini`/`periodo_fim` e `qtd_lote` para auditoria
+    ("lote diz 5 vendas, achei 4").
+
+17. **Previsão de repasse ≠ dinheiro que caiu — o reconhecimento é LOTE × EXTRATO do banco.**
+    A Uze/Multi Mais exporta "Pagamentos efetuados / previsão" (layout posicional, agrupado por
+    loja com CNPJ no cabeçalho; uma linha de crédito por lote: Data do Crédito, Vencimento Repasse,
+    Compras bruto, Comissão, Valor pago, Status "Confirmado (R)"). "Confirmado" é a operadora
+    dizendo que pagou — só o extrato bancário do ERP (`lancamentofinanceiro origem='F' tipo='E'`)
+    confirma que o valor caiu. A auto-conferência passou a reconhecer **lotes-só-total** (sem
+    parcela para "fechar") pelo próprio valor contra o extrato — antes eram ignorados porque
+    `depositado ≠ soma_parcelas (=0)`.
+
+    **v2.0 (Postgres).** O reconhecimento é uma query de casamento por (uni, valor) com janela de
+    dias úteis, marcando a conferência quando bate:
+    ```sql
+    -- lote previsto (sem parcelas) reconhecido no extrato:
+    UPDATE conc_repasse r SET status_conf = 'reconhecido', conferido_em = now()
+     WHERE r.tipo = 'recebido' AND r.id = :dep_id
+       AND NOT EXISTS (SELECT 1 FROM conc_repasse_parcela p WHERE p.repasse_id = r.id)
+       AND EXISTS (
+         SELECT 1 FROM lancamentofinanceiro lf
+          WHERE lf.unidadenegocioid = :uni AND lf.origem='F' AND lf.tipo='E'
+            AND lf.datahora >= :ini::date AND lf.datahora < (:fim::date + 6)
+            AND round(lf.valor::numeric,2) = round(r.valor,2));
+    -- o que NÃO bate fica 'previsto' (a conferir): previsão que a operadora confirmou mas
+    -- ainda não localizei no banco.
+    ```
+    Resolução de loja por CNPJ vale para depósitos também (Uze/Bracov trazem o CNPJ no lote, não
+    só na parcela); normalizar os dois lados em dígitos — `unidadenegocio.cnpj` no ERP é só dígito.
