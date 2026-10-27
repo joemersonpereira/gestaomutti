@@ -301,3 +301,52 @@ aba **💰 Repasses** em `pages/ConciliacaoCartoes.js`.
     ```
     Resolução de loja por CNPJ vale para depósitos também (Uze/Bracov trazem o CNPJ no lote, não
     só na parcela); normalizar os dois lados em dígitos — `unidadenegocio.cnpj` no ERP é só dígito.
+
+18. **Filtros multi-loja/operadora e "Depósitos que não fecham" (por bandeira × extrato).**
+    O filtro de loja passou a aceitar VÁRIAS lojas (CSV); no app isso virou cláusulas `loja_id IN (…)`
+    nas conferências locais (conferir, conferirVencimentos, conferirNoBanco, custoMaquinas) e
+    `unisEmpresa` já aceitava CSV no lado ERP. O repasse ganhou filtro multi-operadora (`operadoras`
+    CSV → `resumo.porOperadora`). A conferência lote×extrato (conferirNoBanco) virou **aba própria**
+    ("Depósitos que não fecham") com duas visões: por LOTE (data|loja|operadora) e por BANDEIRA (cada
+    `conc_repasse` recebido, casado 1-a-1 com o crédito do extrato por estabelecimento+valor+data±6d),
+    sinalizando "caiu em outra data" (`banco_data <> data`).
+
+    **v2.0 (Postgres).** Multi-loja é `WHERE loja_id = ANY($lojas)`. Por bandeira × extrato:
+    ```sql
+    SELECT r.*, b.data AS banco_data,
+           (b.id IS NOT NULL) AS caiu, (b.id IS NOT NULL AND b.data <> r.data) AS em_outra_data
+      FROM conc_repasse r
+      LEFT JOIN LATERAL (
+        SELECT eb.id, eb.datahora::date AS data FROM extratobancario eb
+         JOIN contabancaria cb ON cb.id = eb.contabancariaid
+         JOIN contacorrente cc ON cc.id = cb.contacorrenteid
+        WHERE cc.unidadenegocioid = ANY(:bank_unis) AND eb.valor > 0
+          AND round(eb.valor::numeric,2) = round(r.valor,2)
+          AND regexp_replace(upper(coalesce(eb.descricao,'')),'\D','','g') LIKE '%'||regexp_replace(r.estabelecimento,'\D','','g')||'%'
+          AND eb.datahora::date BETWEEN r.data - 6 AND r.data + 6
+        ORDER BY abs(eb.datahora::date - r.data) LIMIT 1) b ON true
+     WHERE r.tipo='recebido' AND r.data BETWEEN :ini AND :fim;
+    ```
+
+19. **Conciliação de Recebimento (#17): Efetuar Recebimento (ERP) × repasse pago.** Nova aba que
+    lista os títulos A RECEBER do ERP — `cartaoreceber` com `recebimentocartaoid IS NULL` e
+    `status <> 'C'`, por `datavencimento`, menos os já corrigidos (`correcaocartaoreceberincorreto`) —
+    e marca cada um como conciliado quando bate com uma parcela de repasse já importada
+    (`conc_repasse_parcela`) por `uni_erp + NSU` (ou autorização), mostrando de qual operadora/lote
+    caiu. O que não bate fica pendente ("não caiu no meio dos lotes"). Filtro conciliou/não é
+    server-side; valor/modalidade/NSU na tela. Teto de 10 mil linhas na resposta + trava de 60 mil
+    no ERP (a tela sempre filtra por vencimento).
+
+    **v2.0 (Postgres).**
+    ```sql
+    SELECT cr.id, cr.unidadenegocioid, mc.nome modalidade, cr.valor, cr.datavencimento, cr.numerotransacao nsu,
+           p.operadora, p.data_recebimento, p.lote, (p.id IS NOT NULL) AS conciliado
+      FROM cartaoreceber cr
+      LEFT JOIN modalidadecartao mc ON mc.id = cr.modalidadecartaoid
+      LEFT JOIN conc_repasse_parcela p
+        ON p.uni_erp = cr.unidadenegocioid
+       AND regexp_replace(p.nsu,'\D','','g') = regexp_replace(cr.numerotransacao,'\D','','g')
+     WHERE cr.unidadenegocioid = ANY(:unis) AND cr.recebimentocartaoid IS NULL AND cr.status <> 'C'
+       AND cr.datavencimento BETWEEN :ini AND :fim
+       AND NOT EXISTS (SELECT 1 FROM correcaocartaoreceberincorreto ci WHERE ci.cartaoreceberid = cr.id);
+    ```
