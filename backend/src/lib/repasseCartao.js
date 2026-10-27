@@ -15,7 +15,7 @@
 const crypto = require('crypto');
 const db = require('../db/connection');
 const { erpQuery, habilitado } = require('../db/erp');
-const { lojasEmpresa, unisEmpresa } = require('./escopoCompras');
+const { lojasEmpresa, unisEmpresa, filtroLojaNamed, filtroLojaPosic } = require('./escopoCompras');
 const { lerRepasse } = require('./conciliacaoRepasseParsers');
 const { lerUze } = require('./conciliacaoUzeParsers');
 
@@ -413,22 +413,36 @@ async function importar(empresaId, { conteudoBase64, nomeArquivo, usuarioId, loj
     qtdAjustes: lido.ajustes.length, valorTotal, ...conf, avisos: [...avisos, ...(conf.avisos || [])] };
 }
 
+// operadoras com depósito recebido no período (alimenta o seletor multi-operadora do filtro;
+// independe do filtro de operadora em vigor, senão as não-selecionadas sumiriam do seletor).
+function operadorasNoPeriodo(empresaId, { ini, fim, lojaId } = {}) {
+  const flj = filtroLojaNamed('loja_id', lojaId);
+  return db.prepare(`SELECT DISTINCT operadora FROM conc_repasse
+     WHERE empresa_id=@emp AND tipo='recebido' AND data BETWEEN @ini AND @fim ${flj.sql}
+     ORDER BY operadora`).all({ emp: empresaId, ini, fim, ...flj.params }).map(r => r.operadora).filter(Boolean);
+}
+
 // ── conferência do período ────────────────────────────────────────────────
-function conferir(empresaId, { ini, fim, lojaId } = {}) {
+function conferir(empresaId, { ini, fim, lojaId, operadoras } = {}) {
   const lojas = lojasEmpresa(empresaId);
   const nomeLoja = id => (lojas.find(l => l.id === id) || {}).nome || null;
-  const filtroLoja = lojaId ? ' AND r.loja_id = @loja' : '';
-  const p = { emp: empresaId, ini, fim, loja: lojaId || '' };
+  const flj = filtroLojaNamed('r.loja_id', lojaId);   // aceita loja única, array ou CSV (multi-loja)
+  const filtroLoja = flj.sql;
+  const p = { emp: empresaId, ini, fim, ...flj.params };
+  // filtro multi-operadora (CSV/array) — aplicado em JS porque o nome tem espaço/barra ("Multi Mais / Uze")
+  const opSet = new Set((Array.isArray(operadoras) ? operadoras : String(operadoras || '').split(','))
+    .map(x => String(x).trim()).filter(Boolean));
+  const passaOp = r => !opSet.size || opSet.has(r.operadora);
 
   const depositos = db.prepare(`SELECT r.* FROM conc_repasse r
      WHERE r.empresa_id=@emp AND r.tipo='recebido' AND r.data BETWEEN @ini AND @fim ${filtroLoja}
-     ORDER BY r.data, r.estabelecimento, r.bandeira`).all(p);
+     ORDER BY r.data, r.estabelecimento, r.bandeira`).all(p).filter(passaOp);
   const parcelas = db.prepare(`SELECT r.* FROM conc_repasse_parcela r
-     WHERE r.empresa_id=@emp AND r.data_recebimento BETWEEN @ini AND @fim ${filtroLoja}`).all(p);
+     WHERE r.empresa_id=@emp AND r.data_recebimento BETWEEN @ini AND @fim ${filtroLoja}`).all(p).filter(passaOp);
   const aReceber = db.prepare(`SELECT r.* FROM conc_repasse r
-     WHERE r.empresa_id=@emp AND r.tipo='a_receber' AND r.data BETWEEN @ini AND @fim ${filtroLoja}`).all(p);
+     WHERE r.empresa_id=@emp AND r.tipo='a_receber' AND r.data BETWEEN @ini AND @fim ${filtroLoja}`).all(p).filter(passaOp);
   const ajustes = db.prepare(`SELECT r.* FROM conc_repasse_ajuste r
-     WHERE r.empresa_id=@emp AND (r.data IS NULL OR r.data BETWEEN @ini AND @fim) ${filtroLoja}`).all(p);
+     WHERE r.empresa_id=@emp AND (r.data IS NULL OR r.data BETWEEN @ini AND @fim) ${filtroLoja}`).all(p).filter(passaOp);
 
   if (!depositos.length && !parcelas.length) return { ok: true, vazio: true, resumo: resumoVazio(), depositos: [], divergencias: [] };
 
@@ -476,7 +490,7 @@ function conferir(empresaId, { ini, fim, lojaId } = {}) {
     const naoConferido = doDeposito.filter(x => !x.item_id && !coberta(x)); // falta subir o dia da venda
     return {
       id: d.id, data: d.data, estabelecimento: d.estabelecimento, loja: nomeLoja(d.loja_id) || ('estab. ' + d.estabelecimento),
-      lojaId: d.loja_id, banco: d.banco, bandeira: d.bandeira, modalidade: d.modalidade, grupo: d.grupo,
+      lojaId: d.loja_id, operadora: d.operadora, banco: d.banco, bandeira: d.bandeira, modalidade: d.modalidade, grupo: d.grupo,
       valor: d.valor, status: d.status,
       parcelas: doDeposito.length, somaParcelas: soma, diferenca: dif, fecha: Math.abs(dif) <= TOL,
       bruto: round(doDeposito.reduce((s, x) => s + x.valor_bruto, 0)),
@@ -562,11 +576,14 @@ function conferir(empresaId, { ini, fim, lojaId } = {}) {
       aReceber: round(aReceber.reduce((s, x) => s + x.valor, 0)),
       ajustes: ajustes.length, valorAjustes: round(ajustes.reduce((s, x) => s + x.valor, 0)),
       porLoja: agrupa(lista, d => d.loja, d => d.valor),
+      porOperadora: agrupa(lista, d => d.operadora || '—', d => d.valor),
       porDia: agrupa(lista, d => d.data, d => d.valor).sort((a, b) => String(a.nome).localeCompare(String(b.nome))),
       porBandeira: agrupa(lista, d => d.bandeira + ' ' + d.modalidade, d => d.valor),
       taxas: taxaComparada,
       custoExtraTotal: round(taxaComparada.reduce((s, t) => s + (t.custoExtra > 0 ? t.custoExtra : 0), 0)),
     },
+    // todas as operadoras com depósito no período (independe do filtro) — alimenta o seletor
+    operadorasDisponiveis: operadorasNoPeriodo(empresaId, { ini, fim, lojaId }),
     aReceber: agrupa(aReceber, x => x.data, x => x.valor).sort((a, b) => String(a.nome).localeCompare(String(b.nome))),
     ajustes: ajustes.map(a => ({ ...a, loja: nomeLoja(a.loja_id) || (a.estabelecimento ? 'estab. ' + a.estabelecimento : '—'),
       conferencia: conferencias.get('ajuste:' + a.id) || null })),
@@ -586,10 +603,10 @@ function resumoVazio() {
 async function conferirVencimentos(empresaId, { ini, fim, lojaId, apenasDivergentes = true } = {}) {
   const { erpQuery, habilitado } = require('../db/erp');
   if (!habilitado()) return { ok: false, erro: 'ERP indisponível.' };
-  const filtroLoja = lojaId ? ' AND loja_id = @loja' : '';
+  const flj = filtroLojaNamed('loja_id', lojaId);   // multi-loja (CSV/array)
   const parcelas = db.prepare(`SELECT * FROM conc_repasse_parcela
-     WHERE empresa_id=@emp AND data_recebimento BETWEEN @ini AND @fim ${filtroLoja}`)
-    .all({ emp: empresaId, ini, fim, loja: lojaId || '' });
+     WHERE empresa_id=@emp AND data_recebimento BETWEEN @ini AND @fim ${flj.sql}`)
+    .all({ emp: empresaId, ini, fim, ...flj.params });
   if (!parcelas.length) return { ok: true, vazio: true, resumo: { titulos: 0, divergentes: 0 }, linhas: [] };
 
   // busca no ERP os títulos correspondentes (mesma loja, mesmo NSU)
@@ -782,10 +799,10 @@ async function conferirNoBanco(empresaId, { ini, fim, lojaId } = {}) {
   // repasse pode ser filtrado por loja; o BANCO não — a liquidação de cartão cai numa conta
   // centralizada do grupo (ex.: toda a Rede cai na conta da Esplanada), então o pool do banco
   // é sempre o grupo inteiro e o vínculo real é o código do estabelecimento no texto do extrato.
-  const lojaAppFiltro = lojaId && String(lojaId).startsWith('loja-') ? lojaId : null;
+  const flj = filtroLojaPosic('loja_id', lojaId);   // multi-loja (CSV/array)
   const deps = db.prepare(`SELECT id, data, valor, loja_id, uni_erp, operadora, bandeira, modalidade, estabelecimento
     FROM conc_repasse WHERE empresa_id=? AND tipo='recebido' AND data BETWEEN ? AND ?
-      ${lojaAppFiltro ? 'AND loja_id=?' : ''} ORDER BY data`).all(...(lojaAppFiltro ? [empresaId, ini, fim, lojaAppFiltro] : [empresaId, ini, fim]));
+      ${flj.sql} ORDER BY data`).all(empresaId, ini, fim, ...flj.params);
   if (!deps.length) return vazio;
   const bankUnis = unisEmpresa(empresaId); // todas as contas do grupo
   const bancoRows = await erpQuery(`

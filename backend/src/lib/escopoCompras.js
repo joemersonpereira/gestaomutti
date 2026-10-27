@@ -22,6 +22,23 @@ function normalizarLojas(lojaId) {
   return arr.map(x => String(x).trim()).filter(x => x && x !== 'todas');
 }
 
+// Cláusula "AND col IN (...)" para filtrar tabelas LOCAIS por loja_id (aceita id único, array ou
+// CSV). Vazio = todas (sql ''). Duas formas, porque better-sqlite3 não mistura named e posicional:
+//   named('r.loja_id', loja, 'lj')  → { sql:' AND r.loja_id IN (@lj0,@lj1)', params:{lj0,lj1} }
+//   posic('loja_id', loja)          → { sql:' AND loja_id IN (?,?)', params:['a','b'] }
+function filtroLojaNamed(col, lojaId, prefixo = 'lj') {
+  const ids = normalizarLojas(lojaId);
+  if (!ids.length) return { sql: '', params: {} };
+  const params = {};
+  const ph = ids.map((id, i) => { const k = prefixo + i; params[k] = id; return '@' + k; });
+  return { sql: ` AND ${col} IN (${ph.join(',')})`, params };
+}
+function filtroLojaPosic(col, lojaId) {
+  const ids = normalizarLojas(lojaId);
+  if (!ids.length) return { sql: '', params: [] };
+  return { sql: ` AND ${col} IN (${ids.map(() => '?').join(',')})`, params: ids };
+}
+
 // Lojas da empresa para o seletor de filtro.
 function lojasEmpresa(empresaId) {
   return db.prepare('SELECT id, nome, erp_unidadenegocio_id FROM lojas WHERE empresa_id=? AND erp_unidadenegocio_id IS NOT NULL ORDER BY nome').all(empresaId);
@@ -36,4 +53,4 @@ async function planoCmvIds() {
   return _cmvCache;
 }
 
-module.exports = { unisEmpresa, lojasEmpresa, planoCmvIds, normalizarLojas };
+module.exports = { unisEmpresa, lojasEmpresa, planoCmvIds, normalizarLojas, filtroLojaNamed, filtroLojaPosic };

@@ -102,7 +102,7 @@ router.post('/ajustes/modalidades', wrap(req => cc.salvarDepara(req.usuario.empr
 router.post('/ajustes/operadora', wrap(req => cc.salvarDeparaOperadora(req.usuario.empresa_id, req.body.operadora, req.body.modalidades || [])));
 
 // ── Repasses: o que a credenciadora pagou (trilha do dinheiro) ─────────────
-router.get('/repasses', wrapCache('cc-repasses')(req => rp.conferir(req.usuario.empresa_id, periodo(req))));
+router.get('/repasses', wrapCache('cc-repasses')(req => rp.conferir(req.usuario.empresa_id, { ...periodo(req), operadoras: req.query.operadoras || null })));
 router.get('/repasses/vencimentos', wrapCache('cc-repasses-venc')(req => rp.conferirVencimentos(req.usuario.empresa_id, { ...periodo(req), apenasDivergentes: req.query.todos !== '1' })));
 router.get('/repasses/lotes', wrap(req => ({ ok: true, lotes: rp.lotes(req.usuario.empresa_id) })));
 router.get('/repasses/deposito/:id', wrap(req => rp.detalheDeposito(req.usuario.empresa_id, Number(req.params.id))));

@@ -16,7 +16,7 @@
 const crypto = require('crypto');
 const db = require('../db/connection');
 const { erpQuery, habilitado } = require('../db/erp');
-const { unisEmpresa, lojasEmpresa, normalizarLojas } = require('./escopoCompras');
+const { unisEmpresa, lojasEmpresa, normalizarLojas, filtroLojaPosic } = require('./escopoCompras');
 const { lerArquivo } = require('./conciliacaoCartaoParsers');
 const { lerUze } = require('./conciliacaoUzeParsers');
 
@@ -466,7 +466,8 @@ async function pendentesPorOperadora(empresaId, { ini, fim, lojaId, grupo } = {}
     if (t.ids.some(id => cobertosEdi.has(id))) continue;                   // já cruzou com o EDI automático
     const operadora = palpiteOperadora(t.modalidade) || t.modalidade;      // nome conhecido, ou a própria modalidade se for bandeira nova
     pendentes.push({ operadora, loja: nomeLoja(t.uni), uni: t.uni, data: t.data, hora: t.hora,
-      modalidade: t.modalidade, valor: t.valor, nsu: t.nsu, autorizacao: t.aut, operador: t.operador, crIds: t.ids });
+      vencimento: t.vencimento, conferidoErp: t.conferido, modalidade: t.modalidade, valor: t.valor,
+      nsu: t.nsu, autorizacao: t.aut, operador: t.operador, crIds: t.ids });
   }
   pendentes.sort((a, b) => a.operadora.localeCompare(b.operadora) || String(b.data).localeCompare(String(a.data)));
 
@@ -997,7 +998,8 @@ async function biTaxaCombinada(empresaId, { ini, fim, lojaId } = {}) {
 // Agrupado por operadora + descrição + loja. Filtro por período (data do ajuste) e loja.
 function custoMaquinas(empresaId, { ini, fim, lojaId } = {}) {
   const params = [empresaId]; let w = 'empresa_id = ?';
-  if (lojaId) { params.push(lojaId); w += ' AND loja_id = ?'; }
+  const flj = filtroLojaPosic('loja_id', lojaId);   // multi-loja (CSV/array)
+  if (flj.sql) { w += flj.sql; params.push(...flj.params); }
   if (ini) { params.push(ini); w += " AND (data IS NULL OR data >= ?)"; }
   if (fim) { params.push(fim); w += " AND (data IS NULL OR data <= ?)"; }
   const rows = db.prepare(`SELECT operadora, COALESCE(NULLIF(TRIM(descricao),''), tipo) AS descricao, loja_id,

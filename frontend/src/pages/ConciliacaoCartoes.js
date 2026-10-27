@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useOrdenavel, ThOrd } from '../components/Ordenavel';
 import CacheBar from '../components/CacheBar';
+import MultiLojaSelect from '../components/MultiLojaSelect';
 
 // Conciliação de Cartões — a Tesouraria sobe o relatório de cada operadora todo dia; o sistema
 // confronta com o que o ERP registrou e lista o que precisa ser corrigido à mão no ERP.
@@ -65,8 +66,7 @@ export default function ConciliacaoCartoes() {
       <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <label style={s.fld}>De<input type="date" value={per.ini} onChange={e => setPer(p => ({ ...p, ini: e.target.value }))} style={s.inp} /></label>
         <label style={s.fld}>Até<input type="date" value={per.fim} onChange={e => setPer(p => ({ ...p, fim: e.target.value }))} style={s.inp} /></label>
-        <label style={s.fld}>Loja<select value={loja} onChange={e => setLoja(e.target.value)} style={s.inp}>
-          <option value="">Todas</option>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></label>
+        <label style={s.fld}>Loja (uma ou várias)<MultiLojaSelect value={loja} onChange={setLoja} lojas={lojas} style={{ marginTop: 2 }} /></label>
         <label style={s.fld}>Forma de pagamento<select value={grupo} onChange={e => setGrupo(e.target.value)} style={s.inp}>
           <option value="">Todas</option>{GRUPOS_PAGAMENTO.map(g => <option key={g} value={g}>{ROTULO_GRUPO_PAGAMENTO[g]}</option>)}</select></label>
         <label style={s.fld}>Conferir com<select value={fonte} onChange={e => setFonte(e.target.value)} style={s.inp}>
@@ -306,6 +306,8 @@ function AguardandoRelatorio({ API, f }) {
   const [buscaNsu, setBuscaNsu] = useState('');
   const [valorMin, setValorMin] = useState('');
   const [valorMax, setValorMax] = useState('');
+  const [vencIni, setVencIni] = useState('');
+  const [vencFim, setVencFim] = useState('');
   if (carreg || !d) return <div style={s.vazio}>carregando…</div>;
   if (d.erro) return <div style={s.erroBox}>⚠️ {d.erro}</div>;
   const todas = d.pendentes || [];
@@ -315,12 +317,14 @@ function AguardandoRelatorio({ API, f }) {
     && (!buscaOperador || (p.operador || '').toLowerCase().includes(buscaOperador.toLowerCase()))
     && (!buscaNsu || String(p.nsu || p.autorizacao || '').includes(buscaNsu))
     && (!valorMin || p.valor >= Number(valorMin))
-    && (!valorMax || p.valor <= Number(valorMax)));
-  const limparFiltros = () => { setFiltroOp(''); setFiltroMod(''); setBuscaOperador(''); setBuscaNsu(''); setValorMin(''); setValorMax(''); };
+    && (!valorMax || p.valor <= Number(valorMax))
+    && (!vencIni || (p.vencimento && p.vencimento >= vencIni))
+    && (!vencFim || (p.vencimento && p.vencimento <= vencFim)));
+  const limparFiltros = () => { setFiltroOp(''); setFiltroMod(''); setBuscaOperador(''); setBuscaNsu(''); setValorMin(''); setValorMax(''); setVencIni(''); setVencFim(''); };
   const exportar = () => baixarCSV('vendas-a-conferir', [
     { h: 'Operadora', f: p => p.operadora }, { h: 'Data', f: p => dBR(p.data) }, { h: 'Hora', f: p => (p.hora || '').slice(0, 5) },
-    { h: 'Loja', f: p => p.loja }, { h: 'Modalidade', f: p => p.modalidade }, { h: 'NSU', f: p => p.nsu || p.autorizacao || '' },
-    { h: 'Operador', f: p => p.operador || '' }, { h: 'Valor', f: p => num(p.valor) },
+    { h: 'Vencimento', f: p => dBR(p.vencimento) }, { h: 'Loja', f: p => p.loja }, { h: 'Modalidade', f: p => p.modalidade },
+    { h: 'NSU', f: p => p.nsu || p.autorizacao || '' }, { h: 'Operador', f: p => p.operador || '' }, { h: 'Valor', f: p => num(p.valor) },
   ], lista);
   return (
     <>
@@ -355,6 +359,8 @@ function AguardandoRelatorio({ API, f }) {
         <label style={s.fld}>NSU<input value={buscaNsu} onChange={e => setBuscaNsu(e.target.value)} placeholder="número…" style={s.inp} /></label>
         <label style={s.fld}>Valor de<input type="number" value={valorMin} onChange={e => setValorMin(e.target.value)} placeholder="0" style={{ ...s.inp, width: 90 }} /></label>
         <label style={s.fld}>até<input type="number" value={valorMax} onChange={e => setValorMax(e.target.value)} placeholder="—" style={{ ...s.inp, width: 90 }} /></label>
+        <label style={s.fld}>Vencimento de<input type="date" value={vencIni} onChange={e => setVencIni(e.target.value)} style={s.inp} /></label>
+        <label style={s.fld}>até<input type="date" value={vencFim} onChange={e => setVencFim(e.target.value)} style={s.inp} /></label>
         <button onClick={limparFiltros} style={s.chip}>limpar filtros</button>
         <button onClick={exportar} disabled={!lista.length} style={{ ...s.chip, ...s.chipOn, marginLeft: 'auto' }}>⬇️ Excel detalhado</button>
       </div>
@@ -363,12 +369,13 @@ function AguardandoRelatorio({ API, f }) {
         {!lista.length && <div style={s.vazio}>nada aguardando relatório no período 🎉</div>}
         {lista.length > LIMITE_TABELA && <div style={s.aviso}>⚠️ Mostrando {LIMITE_TABELA} de {lista.length} registros — refine os filtros acima pra ver o resto.</div>}
         {!!lista.length && <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-          <thead><tr>{['Operadora', 'Data', 'Hora', 'Loja', 'Modalidade', 'NSU', 'Operador', 'Valor'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{['Operadora', 'Data', 'Hora', 'Vencimento', 'Loja', 'Modalidade', 'NSU', 'Operador', 'Valor'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
           <tbody>{lista.slice(0, LIMITE_TABELA).map((p, i) => (
             <tr key={i} style={{ borderTop: '1px solid #f2f2f2' }}>
               <td style={{ ...s.td, fontWeight: 600 }}>{p.operadora}</td>
               <td style={s.td}>{dBR(p.data)}</td>
               <td style={s.td}>{(p.hora || '').slice(0, 5)}</td>
+              <td style={s.td}>{dBR(p.vencimento)}</td>
               <td style={s.td}>{p.loja}</td>
               <td style={s.td}>{p.modalidade}</td>
               <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11.5 }}>{p.nsu || p.autorizacao || '—'}</td>
@@ -855,9 +862,13 @@ function RemanejarModal({ x, todas, API, onClose, onOk }) {
 
 // ── Repasses: o que a credenciadora pagou ──────────────────────────────────
 function Repasses({ API, f }) {
-  const [d, carreg, recarregar] = useDados(API, '/conciliacao-cartao/repasses', { ini: f.ini, fim: f.fim, loja: f.loja }, [API, f.ini, f.fim, f.loja]);
+  const [ops, setOps] = useState('');   // multi-operadora (CSV); "" = todas
+  const [d, carreg, recarregar] = useDados(API, '/conciliacao-cartao/repasses',
+    { ini: f.ini, fim: f.fim, loja: f.loja, operadoras: ops }, [API, f.ini, f.fim, f.loja, ops]);
   const [aberto, setAberto] = useState(null);
   const [detalhe, setDetalhe] = useState(null);
+  const opsSel = new Set(String(ops || '').split(',').map(x => x.trim()).filter(Boolean));
+  const toggleOp = o => { const n = new Set(opsSel); n.has(o) ? n.delete(o) : n.add(o); setOps([...n].join(',')); };
 
   const abrir = async id => {
     if (aberto === id) { setAberto(null); setDetalhe(null); return; }
@@ -898,6 +909,17 @@ function Repasses({ API, f }) {
               bg={pendentes ? '#FBEAEA' : '#EAF6EF'} sub={`${cancs.length} no período`} />; })()}
         </div>
 
+        {!!(d.operadorasDisponiveis || []).length && (
+          <div style={{ ...s.card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#555' }}>O que caiu na conta por operadora:</span>
+            <button onClick={() => setOps('')} style={{ ...s.chip, ...(opsSel.size === 0 ? s.chipOn : {}) }}>todas</button>
+            {d.operadorasDisponiveis.map(o => (
+              <button key={o} onClick={() => toggleOp(o)} style={{ ...s.chip, ...(opsSel.has(o) ? s.chipOn : {}) }}>{o}</button>
+            ))}
+            {opsSel.size > 0 && <span style={{ fontSize: 11, color: '#999' }}>{opsSel.size} selecionada(s)</span>}
+          </div>
+        )}
+
         <div style={s.nota}>
           🔎 Das {d.resumo.parcelasPagas} parcelas pagas, <b>{d.resumo.parcelasConciliadas}</b> casaram com vendas que você já conferiu
           {d.resumo.parcelasSemVenda > 0 && <> · <b style={{ color: '#C0392B' }}>{d.resumo.parcelasSemVenda} pagas sem venda sua ({brl(d.resumo.valorSemVenda)})</b></>}
@@ -906,6 +928,7 @@ function Repasses({ API, f }) {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 10, marginTop: 10 }}>
           <Barras titulo="Quanto caiu de cada filial" itens={d.resumo.porLoja.map(l => ({ nome: l.nome, n: l.n, valor: l.valor }))} cor="#1E874B" />
+          {(d.resumo.porOperadora || []).length > 1 && <Barras titulo="Por operadora" itens={d.resumo.porOperadora} cor="#0d6b5e" />}
           <Barras titulo="Por bandeira" itens={d.resumo.porBandeira} cor="#2E5C9E" />
           {d.resumo.porDia.length > 1 && <Barras titulo="Por dia de crédito" itens={d.resumo.porDia} cor="#7A4FB0" />}
         </div>
