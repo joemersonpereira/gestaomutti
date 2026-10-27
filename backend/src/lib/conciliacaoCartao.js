@@ -334,17 +334,24 @@ function marcarTratativa(empresaId, { ref, tipo, status, obs, valor, lojaId, ope
 // Remaneja uma transação "Operadora pagou, ERP não tem" (SO_OPERADORA) para a loja onde a venda
 // realmente foi lançada: marca as DUAS pontas como 'remanejada' (some da Loja origem E da Loja
 // destino, que estava como "ERP tem, operadora não pagou"). refPar = a SO_ERP escolhida (opcional).
-function remanejarLoja(empresaId, { ref, tipo, valor, lojaId, lojaNome, refPar, refParValor, obs, usuarioId }) {
+// acao='ligar' = venda incluída manualmente no ERP (mesma loja) — baixada como dinheiro e era cartão;
+// liga a transação da operadora à venda agora existente. acao='remanejar' (padrão) = maquininha numa
+// loja, venda lançada em outra. Em ambos os casos as DUAS pontas saem da pendência (status != aberta).
+function remanejarLoja(empresaId, { ref, tipo, valor, lojaId, lojaNome, refPar, refParValor, obs, usuarioId, acao }) {
   if (!ref) throw new Error('Transação de origem não informada.');
   if (!lojaId && !refPar) throw new Error('Escolha a loja de destino ou a venda correspondente.');
+  const ligar = acao === 'ligar';
+  const status = ligar ? 'ligada' : 'remanejada';
   const destino = lojaNome ? ` p/ ${lojaNome}` : '';
-  marcarTratativa(empresaId, { ref, tipo: tipo || 'SO_OPERADORA', status: 'remanejada', valor,
+  marcarTratativa(empresaId, { ref, tipo: tipo || 'SO_OPERADORA', status, valor,
     lojaId: lojaId || '', usuarioId, refPar: refPar || null,
-    obs: `Remanejada${destino}${refPar ? ' (casada com a venda da outra loja)' : ''}.${obs ? ' ' + obs : ''}` });
+    obs: ligar ? `Ligada à venda incluída no ERP (mesma loja).${obs ? ' ' + obs : ''}`
+      : `Remanejada${destino}${refPar ? ' (casada com a venda da outra loja)' : ''}.${obs ? ' ' + obs : ''}` });
   if (refPar) {
-    marcarTratativa(empresaId, { ref: refPar, tipo: 'SO_ERP', status: 'remanejada', valor: refParValor != null ? refParValor : valor,
+    marcarTratativa(empresaId, { ref: refPar, tipo: 'SO_ERP', status, valor: refParValor != null ? refParValor : valor,
       lojaId: '', usuarioId, refPar: ref,
-      obs: `Conciliada com a transação da outra loja (maquininha em loja diferente).${obs ? ' ' + obs : ''}` });
+      obs: ligar ? `Ligada à transação da operadora (venda incluída manualmente no ERP).${obs ? ' ' + obs : ''}`
+        : `Conciliada com a transação da outra loja (maquininha em loja diferente).${obs ? ' ' + obs : ''}` });
   }
   return { ok: true };
 }
@@ -461,16 +468,26 @@ async function pendentesPorOperadora(empresaId, { ini, fim, lojaId, grupo, conf 
   const modsDeOperadora = new Set(db.prepare('SELECT DISTINCT modalidade_id FROM conc_operadora_modalidade WHERE empresa_id=?')
     .all(empresaId).map(r => String(r.modalidade_id)));
 
+  // Títulos do ERP LIGADOS à mão a uma transação da operadora (venda incluída manualmente, ou
+  // remanejada de outra loja): o ref da tratativa guarda o id do título no fim ("SO_ERP|origem:ID").
+  // Eles saem de "a conferir" e entram como conferidos (foi conciliado manualmente) — #13 do Joe.
+  const ligadosManual = new Set();
+  for (const r of db.prepare("SELECT ref FROM conc_tratativa WHERE empresa_id=? AND tipo='SO_ERP' AND status IN ('ligada','remanejada')").all(empresaId)) {
+    const m = /:(\d+)$/.exec(r.ref || ''); if (m) ligadosManual.add(Number(m[1]));
+  }
+
   // Agora lista TODAS as vendas de cartão do período, cada uma com o selo "já conferida?" e COM O
-  // QUE ligou (relatório que casou, ou EDI automático). O filtro "conferida/não" é feito na tela.
+  // QUE ligou (relatório que casou, EDI automático, ou ligação manual). O filtro "conferida/não" é na tela.
   const itens = [];
   for (const t of titulos) {
     if (conciliarPor.get(String(t.modId)) === false) continue;             // modalidade marcada p/ não conciliar
     if (grupo && grupoDe(t.modId) !== grupo) continue;                     // filtro por forma de pagamento
     if (grupoDe(t.modId) === 'PIX' && !modsDeOperadora.has(String(t.modId))) continue;   // Pix do banco, não da maquininha
     const porEdi = t.ids.some(id => cobertosEdi.has(id));                   // cruzou com o EDI automático (Rede/Brasil Card)
-    const conferida = !!t.casado || porEdi;
+    const ligadoManual = t.ids.some(id => ligadosManual.has(Number(id)));   // ligado à mão (venda incluída/remanejada)
+    const conferida = !!t.casado || porEdi || ligadoManual;
     const ligadoA = t.ligadoA ? `${t.ligadoA.operadora} · ${t.ligadoA.nsu || 's/ NSU'} (via ${t.ligadoA.via})`
+      : ligadoManual ? 'ligada manualmente à operadora (venda incluída no ERP)'
       : porEdi ? 'EDI automático (o ERP já recebe)' : '';
     const operadora = (t.ligadoA && t.ligadoA.operadora) || palpiteOperadora(t.modalidade) || t.modalidade;
     itens.push({ operadora, loja: nomeLoja(t.uni), uni: t.uni, data: t.data, hora: t.hora,

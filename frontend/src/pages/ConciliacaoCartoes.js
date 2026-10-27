@@ -795,11 +795,12 @@ function ListaDivergencias({ itens, todas = [], API, onMudar }) {
               <td style={{ ...s.td, textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{brl(x.valor)}</td>
               <td style={s.td}>{x.status === 'aberta' ? <span style={{ color: '#C0392B' }}>em aberto</span>
                 : x.status === 'corrigida' ? <span style={{ color: '#1E874B' }}>corrigida</span>
+                : x.status === 'ligada' ? <span style={{ color: '#0d6b5e' }}>🔗 ligada</span>
                 : x.status === 'remanejada' ? <span style={{ color: '#2E5C9E' }}>↔ remanejada</span>
                 : x.status === 'ignorada' ? <span style={{ color: '#999' }}>ignorada</span> : <span style={{ color: '#C87A1E' }}>procede</span>}</td>
               {API && <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
-                {x.tipo === 'SO_OPERADORA' && (x.status === 'aberta' || x.status === 'procede') &&
-                  <button onClick={() => setRemanejar(x)} style={{ ...s.btnMini, borderColor: '#2E5C9E', color: '#2E5C9E' }} title="A maquininha é de uma loja mas a venda foi lançada em outra — remanejar/casar">↔ outra loja</button>}
+                {x.tipo === 'SO_OPERADORA' &&
+                  <button onClick={() => setRemanejar(x)} style={{ ...s.btnMini, borderColor: '#2E5C9E', color: '#2E5C9E' }} title="Ligar a uma venda do ERP: incluída manualmente na MESMA loja (baixada como dinheiro e era cartão) ou lançada em OUTRA loja">↔ ligar venda</button>}
                 <button onClick={() => tratar(x, 'corrigida')} style={s.btnMini} title="Já corrigi no ERP">✅ corrigi</button>
                 <button onClick={() => tratar(x, 'ignorada')} style={s.btnMini} title="Não é erro">🚫 ignorar</button>
                 {x.status !== 'aberta' && <button onClick={() => tratar(x, 'aberta')} style={s.btnMini}>reabrir</button>}
@@ -820,13 +821,16 @@ function RemanejarModal({ x, todas, API, onClose, onOk }) {
   const [sel, setSel] = useState(null);     // SO_ERP escolhida (casar venda)
   const [lojaManual, setLojaManual] = useState(''); // ou só a loja (uni) sem casar venda
   const [salvando, setSalvando] = useState(false);
-  // candidatas: "ERP tem, operadora não pagou" de OUTRA loja, ainda em aberto, mesmo valor
+  // candidatas: "ERP tem, operadora não pagou" com MESMO valor — mesma loja (venda incluída
+  // manualmente) OU outra loja (remanejar). Inclui as já tratadas (o Joe pediu que liguem mesmo
+  // assim), menos as que já foram ligadas/remanejadas. Mesma loja primeiro.
   const cents = v => Math.round((Number(v) || 0) * 100);
+  const mesma = d => String(d.uni) === String(x.uni);
   const candidatas = (todas || []).filter(d => d.tipo === 'SO_ERP'
-    && String(d.uni) !== String(x.uni)
-    && (d.status === 'aberta' || d.status === 'procede')
-    && cents(d.valor) === cents(x.valor));
-  // lojas de destino possíveis (pelas divergências carregadas) p/ o caso "sem casar venda"
+    && d.ref !== x.ref && d.status !== 'remanejada' && d.status !== 'ligada'
+    && cents(d.valor) === cents(x.valor))
+    .sort((a, b) => (mesma(a) ? 0 : 1) - (mesma(b) ? 0 : 1) || String(a.loja).localeCompare(String(b.loja)));
+  // lojas de destino possíveis (pelas divergências carregadas) p/ o caso "sem casar venda" (só outra loja)
   const lojasDestino = [...new Map((todas || []).filter(d => String(d.uni) !== String(x.uni) && d.uni != null)
     .map(d => [String(d.uni), { uni: d.uni, nome: d.loja }])).values()].sort((a, b) => String(a.nome).localeCompare(String(b.nome)));
   const confirmar = async () => {
@@ -834,30 +838,32 @@ function RemanejarModal({ x, todas, API, onClose, onOk }) {
     setSalvando(true);
     try {
       const body = sel
-        ? { ref: x.ref, tipo: x.tipo, valor: x.valor, lojaId: sel.uni, lojaNome: sel.loja, refPar: sel.ref, refParValor: sel.valor }
-        : { ref: x.ref, tipo: x.tipo, valor: x.valor, lojaId: lojaManual, lojaNome: (lojasDestino.find(l => String(l.uni) === String(lojaManual)) || {}).nome };
+        ? { ref: x.ref, tipo: x.tipo, valor: x.valor, lojaId: sel.uni, lojaNome: sel.loja, refPar: sel.ref, refParValor: sel.valor, acao: mesma(sel) ? 'ligar' : 'remanejar' }
+        : { ref: x.ref, tipo: x.tipo, valor: x.valor, lojaId: lojaManual, lojaNome: (lojasDestino.find(l => String(l.uni) === String(lojaManual)) || {}).nome, acao: 'remanejar' };
       await API.post('/conciliacao-cartao/remanejar', body);
       onOk();
-    } catch (e) { alert(e.response?.data?.erro || 'Erro ao remanejar.'); setSalvando(false); }
+    } catch (e) { alert(e.response?.data?.erro || 'Erro ao ligar a venda.'); setSalvando(false); }
   };
   return (
     <div style={s.overlay} onClick={onClose}>
       <div style={{ ...s.modal, maxWidth: 640 }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 2 }}>↔ Remanejar para outra loja</div>
-        <div style={{ fontSize: 12.5, color: '#64748b', marginBottom: 12 }}>A maquininha está na <b>{x.loja}</b>, mas a venda pode ter sido lançada em outra loja. Escolha a venda correspondente (ou só a loja) para conciliar as duas pontas.</div>
+        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 2 }}>↔ Ligar a uma venda do ERP</div>
+        <div style={{ fontSize: 12.5, color: '#64748b', marginBottom: 12 }}>A operadora pagou e o ERP não tinha essa venda. Escolha a venda correspondente (mesmo valor): na <b>mesma loja</b> quando foi incluída manualmente (baixada como dinheiro e era cartão) ou em <b>outra loja</b> quando a maquininha estava em loja diferente. As duas pontas saem da pendência.</div>
         <div style={{ ...s.card, margin: 0, marginBottom: 12, background: '#F7FAFF', border: '1px solid #E3ECF7' }}>
           <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 700 }}>TRANSAÇÃO (operadora pagou)</div>
           <div style={{ fontSize: 13 }}><b>{brl(x.valor)}</b> · {x.loja} · {dBR(x.data)} {(x.hora || '').slice(0, 5)} · NSU {x.nsu || x.autorizacao || '—'} · {x.tipoOperadora || x.operadora}</div>
         </div>
-        <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Venda correspondente em outra loja <span style={{ color: '#94a3b8', fontWeight: 400 }}>(mesmo valor, "ERP tem, operadora não pagou")</span></div>
+        <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Venda correspondente no ERP <span style={{ color: '#94a3b8', fontWeight: 400 }}>(mesmo valor, "ERP tem, operadora não pagou")</span></div>
         {candidatas.length === 0
-          ? <div style={{ fontSize: 12.5, color: '#8A6D3B', background: '#FFF8E6', border: '1px solid #F0E0B0', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>Nenhuma venda de outra loja com esse valor em aberto. Você pode só <b>mudar a loja</b> abaixo (a outra ponta você trata quando aparecer).</div>
+          ? <div style={{ fontSize: 12.5, color: '#8A6D3B', background: '#FFF8E6', border: '1px solid #F0E0B0', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>Nenhuma venda com esse valor pendente (nem nesta loja nem em outra). Se a venda foi baixada como dinheiro, inclua-a no ERP como cartão; ela aparece aqui pra você ligar. Ou só <b>mude a loja</b> abaixo.</div>
           : <div style={{ display: 'grid', gap: 6, marginBottom: 10, maxHeight: 220, overflowY: 'auto' }}>
             {candidatas.map(c => {
               const on = sel && sel.ref === c.ref;
               return <div key={c.ref} onClick={() => { setSel(on ? null : c); setLojaManual(''); }}
                 style={{ border: '1px solid ' + (on ? '#2E5C9E' : '#e5e7eb'), background: on ? '#EAF1FB' : '#fff', borderRadius: 8, padding: '8px 10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <div style={{ fontSize: 12.5 }}><b>{c.loja}</b> · {dBR(c.data)} · {c.modalidadeErp || '—'}{c.operador ? ' · ' + c.operador : ''} · NSU {c.nsu || c.autorizacao || '—'}</div>
+                <div style={{ fontSize: 12.5 }}>
+                  <span style={{ fontSize: 10.5, padding: '1px 6px', borderRadius: 10, marginRight: 6, background: mesma(c) ? '#E6F3F0' : '#EEF2FB', color: mesma(c) ? '#0d6b5e' : '#2E5C9E', fontWeight: 700 }}>{mesma(c) ? 'mesma loja' : 'outra loja'}</span>
+                  <b>{c.loja}</b> · {dBR(c.data)} · {c.modalidadeErp || '—'}{c.operador ? ' · ' + c.operador : ''} · NSU {c.nsu || c.autorizacao || '—'}{c.status && c.status !== 'aberta' ? ' · ' + c.status : ''}</div>
                 <div style={{ fontWeight: 700, color: '#2E5C9E', whiteSpace: 'nowrap' }}>{brl(c.valor)}{on ? ' ✓' : ''}</div>
               </div>;
             })}
@@ -869,7 +875,7 @@ function RemanejarModal({ x, todas, API, onClose, onOk }) {
         </select>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={s.btnMini}>cancelar</button>
-          <button onClick={confirmar} disabled={salvando || (!sel && !lojaManual)} style={{ ...s.btn, opacity: (salvando || (!sel && !lojaManual)) ? 0.5 : 1 }}>{salvando ? 'salvando…' : 'Remanejar e conciliar'}</button>
+          <button onClick={confirmar} disabled={salvando || (!sel && !lojaManual)} style={{ ...s.btn, opacity: (salvando || (!sel && !lojaManual)) ? 0.5 : 1 }}>{salvando ? 'salvando…' : (sel && mesma(sel) ? 'Ligar venda' : 'Remanejar e conciliar')}</button>
         </div>
       </div>
     </div>
