@@ -456,7 +456,9 @@ function NovaPosicao({ API, lojas, onClose, onSaved }) {
         <label style={s.lbl}>Preço de venda R$<input type="number" step="0.01" value={f.preco_unit} onChange={e => set('preco_unit', e.target.value)} placeholder="99,90" style={{ ...s.inp, width: 120 }} /></label>
         <label style={s.lbl}><span>Piso de negociação R$ <span style={{ fontWeight: 400, color: '#B7791F' }}>🔒 só interno</span></span><input type="number" step="0.01" value={f.preco_min} onChange={e => set('preco_min', e.target.value)} placeholder="até onde pode descer" style={{ ...s.inp, width: 150 }} /></label>
       </div>
-      <button onClick={salvar} style={s.btn}>💾 Criar posição</button>
+      <div style={{ position: 'sticky', bottom: -18, background: '#fff', borderTop: '1px solid #eef0f4', margin: '2px -18px -18px', padding: '10px 18px 12px', display: 'flex', justifyContent: 'flex-end' }}>
+        <button onClick={salvar} style={s.btn}>💾 Criar posição</button>
+      </div>
     </div>
   </div></div>;
 }
@@ -738,7 +740,9 @@ function PlanoEditor({ API, id, onClose, onSaved }) {
       </div>
       <CrmClassif API={API} tipo="plano" id={id} />
       <CrmOutreach API={API} tipo="plano" id={id} />
-      <button onClick={salvar} style={s.btn}>💾 Salvar plano</button>
+      <div style={{ position: 'sticky', bottom: -18, background: '#fff', borderTop: '1px solid #eef0f4', margin: '2px -18px -18px', padding: '10px 18px 12px', display: 'flex', justifyContent: 'flex-end' }}>
+        <button onClick={salvar} style={s.btn}>💾 Salvar plano</button>
+      </div>
     </div>
   </div></div>;
 }
@@ -1583,7 +1587,7 @@ function PosicaoEditModal({ API, p, onClose, onSaved }) {
       </div>
       <CrmClassif API={API} tipo="espaco" id={p.id} />
       <CrmOutreach API={API} tipo="espaco" id={p.id} />
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 2 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, position: 'sticky', bottom: -18, background: '#fff', borderTop: '1px solid #eef0f4', margin: '2px -18px -18px', padding: '10px 18px 12px' }}>
         <button onClick={onClose} style={s.btnMini}>Cancelar</button>
         <button onClick={salvar} style={s.btn}>Salvar</button>
       </div>
