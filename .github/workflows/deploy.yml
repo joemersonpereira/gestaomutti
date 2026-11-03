@@ -229,6 +229,31 @@ jobs:
               echo " ❌ Container no ar, mas /api/health não responde."; exit 1
             fi
             echo " ✅ Deploy concluído"
+
+            # ── Poda das imagens antigas DESTA app (só depois de um deploy OK) ──
+            # Mantém as $MANTER tags sha-* mais recentes + a imagem deste deploy +
+            # a do PreviousSpec (é ela que `docker service rollback` usa).
+            # Nunca derruba o deploy: qualquer erro aqui é ignorado.
+            # Por quê: docs/disco-vps-imagens-e-backups.md (86 tags acumuladas, disco a 85%).
+            echo ""
+            echo "==> Podando imagens antigas de ${IMAGE%%:*}..."
+            (
+              set +e
+              REPO="${IMAGE%%:*}"
+              MANTER=5
+              PRESERVAR=$( {
+                  echo "$IMAGE"
+                  docker service inspect "$SERVICE_NAME" \
+                    --format '{{.PreviousSpec.TaskTemplate.ContainerSpec.Image}}' 2>/dev/null
+                  docker ps --format '{{.Image}}'
+                } | sed 's/@.*//' | sort -u )
+              docker images "$REPO" --format '{{.CreatedAt}}|{{.Repository}}:{{.Tag}}' \
+                | grep ':sha-' | sort -r | tail -n +$((MANTER + 1)) | cut -d'|' -f2 \
+                | while read -r IMG; do
+                    echo "$PRESERVAR" | grep -qxF "$IMG" && continue
+                    docker rmi "$IMG" >/dev/null 2>&1 && echo "  removida $IMG"
+                  done
+            ) || true
             echo "=========================================="
             echo "URL:    https://$APP_DOMAIN"
             echo "Imagem: $IMAGE"

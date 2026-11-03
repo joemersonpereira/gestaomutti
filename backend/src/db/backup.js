@@ -1,5 +1,6 @@
 // backup.js — copia segura do banco (backup nativo do SQLite, funciona com o sistema em uso).
-// Gera backend/backups/mutti-AAAA-MM-DD_HH-MM.db, mantém os 30 mais recentes
+// Gera backend/backups/mutti-AAAA-MM-DD_HH-MM.db, mantém os BACKUP_MANTER mais recentes
+// (padrão 30; a VPS usa 7 — docs/disco-vps-imagens-e-backups.md)
 // e, SE configurado no .env, envia a cópia por e-mail (anexo).
 const path = require('path');
 const fs = require('fs');
@@ -10,6 +11,7 @@ require('dotenv').config({ path: path.join(backendRoot, '.env') });
 
 const dbPath = path.resolve(backendRoot, process.env.DB_PATH || './db/mutti.db');
 const backupDir = path.join(backendRoot, 'backups');
+const MANTER = Math.max(1, parseInt(process.env.BACKUP_MANTER, 10) || 30);
 fs.mkdirSync(backupDir, { recursive: true });
 
 function log(linha) {
@@ -68,7 +70,7 @@ db.backup(dest)
         .filter(f => f.startsWith('mutti-') && f.endsWith('.db'))
         .map(f => ({ f, t: fs.statSync(path.join(backupDir, f)).mtimeMs }))
         .sort((a, b) => b.t - a.t);
-      files.slice(30).forEach(x => { try { fs.unlinkSync(path.join(backupDir, x.f)); } catch (e) { /* */ } });
+      files.slice(MANTER).forEach(x => { try { fs.unlinkSync(path.join(backupDir, x.f)); } catch (e) { /* */ } });
     } catch (e) { /* */ }
     try { await enviarEmail(); }
     catch (e) { console.error('Falha ao enviar e-mail (backup local OK):', e.message); log(`${stamp}  EMAIL erro: ${e.message}`); }

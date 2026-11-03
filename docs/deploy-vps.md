@@ -134,11 +134,14 @@ crontab -l | cat - infra/vps-cron/crontab.txt | crontab -
 /opt/apps/gestaomutti/cron/gestaomutti-backup.sh; echo "saida=$?"   # testa à mão
 ```
 
-Todo dia às 03:20: `backup.js` dentro do container (backup nativo do SQLite, 30
-cópias no volume) + cópia para `/opt/apps/gestaomutti/backups/` (14 cópias, fora
-do Docker). Log em `/var/log/gestaomutti-backup.log`. O disco da VPS tinha 11 GB
-livres em 2026-10-15 e o banco de demonstração tem 1 MB; vale olhar o tamanho do
-banco real antes de aumentar a retenção.
+Todo dia às 03:20: `backup.js` dentro do container (backup nativo do SQLite,
+`BACKUP_MANTER` cópias no volume — 7 na VPS, padrão 30) + cópia para
+`/opt/apps/gestaomutti/backups/` (14 cópias, fora do Docker). Log em
+`/var/log/gestaomutti-backup.log`. O banco real tem **98 MB** desde 2026-10-21
+(não 1 MB, como o de demonstração): 21 cópias ≈ 2 GB. Olhe `df -h /` antes de
+aumentar a retenção — o disco chegou a 85% em 2026-11-03
+([`disco-vps-imagens-e-backups.md`](disco-vps-imagens-e-backups.md)). O
+`BACKUP_MANTER` vem do `.env.production` e só vale depois de um `stack deploy`.
 
 Restaurar = §3 com o arquivo do backup.
 

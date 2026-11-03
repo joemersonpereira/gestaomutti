@@ -7,7 +7,8 @@
 # Faz duas coisas, nesta ordem:
 #   1. roda `backup.js` DENTRO do container (backup nativo do SQLite, seguro com o
 #      sistema em uso) → grava em /app/backend/backups, que é o volume `backups`;
-#      o próprio backup.js mantém só os 30 mais recentes lá dentro.
+#      o próprio backup.js mantém só os BACKUP_MANTER mais recentes lá dentro
+#      (7 na VPS, pelo .env.production; padrão 30).
 #   2. copia o arquivo recém-gerado para FORA do Docker, em $DESTINO, e mantém
 #      $GUARDAR cópias — é a cópia que sobrevive a um `docker volume rm` por engano.
 #
