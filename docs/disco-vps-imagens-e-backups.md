@@ -4,6 +4,11 @@ Plano de ação depois do alerta do Uptime Kuma de **disco em 85%** na VPS `Nexi
 em 2026-11-03. Os números abaixo foram medidos nesse dia. O runbook geral do deploy é o
 [`deploy-vps.md`](deploy-vps.md); este documento trata só do disco.
 
+> **Situação em 2026-11-03 (fim do dia):** itens 1, 2, 3a, 3b e 3d **aplicados e
+> conferidos** (commit `5c68b09`). Disco **85% → 77%** (7,5G livres). **Em aberto:**
+> backup fora da VPS (depende do Joe) e o item 3c (opcional, não aplicado). Detalhes no
+> [Checklist](#checklist).
+
 ## O diagnóstico em uma tabela
 
 | | Antes do gestaomutti (até 15/10) | Hoje (03/11) |
@@ -202,17 +207,21 @@ e a seguinte (já houve 27 deploys num único dia).
 
 ## Checklist
 
-- [x] Item 1 — bloco de poda no `deploy.yml` (03/11; entra no deploy deste mesmo commit)
+- [x] Item 1 — bloco de poda no `deploy.yml` (commit `5c68b09`). Conferido no log do
+      Actions (run 41691514315): `==> Podando imagens antigas…` removeu `sha-444c0b6`
 - [x] Item 2 — limpeza única na VPS em 03/11: 84 tags removidas, ficaram 5 (em uso
       `ed2d91a` e rollback `c97a457` entre elas). Disco **85% → 79%** (5,1G → 6,7G livres)
 - [x] Item 3a — `BACKUP_MANTER` no `backup.js` (padrão 30), testado numa cópia isolada
       (3 → mantém 3; ausente ou inválido → 30)
 - [x] Item 3b — `BACKUP_MANTER=7` no `.env.production` (03/11, `.bak-2026-11-03` ao lado);
-      passa a valer no deploy do 3a
+      valendo desde o deploy do `5c68b09` (`printenv BACKUP_MANTER` no container = 7).
+      Backup manual rodou com `saida=0` e cortou o volume de 20 para 7 cópias
 - [ ] Item 3c — (opcional) `GUARDAR`/gzip na cópia de fora — **não aplicado**: com o
       disco em 79% e o volume caindo para 7, não é preciso por ora
 - [x] Item 3d — runbook `deploy-vps.md` §5 atualizado (e o comentário do
       `infra/vps-cron/gestaomutti-backup.sh`, que também dizia "30")
-- [ ] Combinar com o Joe o backup fora da VPS
-- [ ] Conferência final: `df -h /`, `docker images ghcr.io/joemersonpereira/gestaomutti | wc -l`,
-      `ls /var/lib/docker/volumes/gestaomutti_backups/_data | wc -l`
+- [ ] **Em aberto** — combinar com o Joe o backup fora da VPS (ver o achado acima).
+      Até lá, as 7 + 14 cópias continuam no mesmo disco
+- [x] Conferência final (03/11, 15:14): `df -h /` = **77%** (24G usados, 7,5G livres);
+      `docker images ghcr.io/joemersonpereira/gestaomutti | wc -l` = **6** (cabeçalho + 5);
+      volume `gestaomutti_backups` = **7** cópias `mutti-*.db`; fora do Docker = **14**
