@@ -363,17 +363,71 @@ router.post('/vendas', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id, b = req.body;
   if (!b.fornecedor_nome) return res.status(400).json({ erro: 'Informe o fornecedor.' });
   const id = uuid();
-  db.prepare(`INSERT INTO tmkt_vendas (id,empresa_id,codigo,fornecedor_id,fornecedor_nome,loja_id,forma_pagamento,tema_id,tema_desc,contrato_url,vigencia_ini,vigencia_fim,valor,status,eans_monitorados,observacao,status_desde,criado_por,criado_em)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?,datetime('now'))`)
-    .run(id, emp, proximoCodigo(emp), b.fornecedor_id || null, b.fornecedor_nome, b.loja_id || null, b.forma_pagamento || null,
+  db.prepare(`INSERT INTO tmkt_vendas (id,empresa_id,codigo,origem,associacao_id,associacao_nome,fornecedor_id,fornecedor_nome,loja_id,forma_pagamento,tema_id,tema_desc,contrato_url,vigencia_ini,vigencia_fim,valor,status,eans_monitorados,observacao,status_desde,criado_por,criado_em)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?,datetime('now'))`)
+    .run(id, emp, proximoCodigo(emp), b.origem === 'associacao' ? 'associacao' : 'direto', b.associacao_id || null, b.associacao_nome || null,
+      b.fornecedor_id || null, b.fornecedor_nome, b.loja_id || null, b.forma_pagamento || null,
       b.tema_id || null, b.tema_desc || null, b.contrato_url || null, b.vigencia_ini || null, b.vigencia_fim || null,
       Number(b.valor) || 0, STATUS.includes(b.status) ? b.status : 'rascunho',
       b.eans ? JSON.stringify(b.eans) : null, b.observacao || null, req.usuario.id);
   res.json({ ok: true, id });
 });
+
+// ── Associações (ex.: Multmais): cadastro + ação (bonificação por expor a marca) ──────────────
+router.get('/associacoes', exigePerfil(...GESTAO), (req, res) => {
+  res.json({ associacoes: db.prepare('SELECT * FROM tmkt_associacao WHERE empresa_id=? AND ativo=1 ORDER BY nome').all(req.usuario.empresa_id) });
+});
+router.post('/associacoes', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id, b = req.body;
+  if (!b.nome) return res.status(400).json({ erro: 'Informe o nome da associação.' });
+  const id = b.id || uuid();
+  const existe = db.prepare('SELECT 1 FROM tmkt_associacao WHERE id=? AND empresa_id=?').get(id, emp);
+  if (existe) db.prepare('UPDATE tmkt_associacao SET nome=?, cnpj=?, observacao=? WHERE id=? AND empresa_id=?').run(b.nome, b.cnpj || null, b.observacao || null, id, emp);
+  else db.prepare("INSERT INTO tmkt_associacao (id,empresa_id,nome,cnpj,observacao,ativo,criado_em) VALUES (?,?,?,?,?,1,datetime('now'))").run(id, emp, b.nome, b.cnpj || null, b.observacao || null);
+  res.json({ ok: true, id });
+});
+router.delete('/associacoes/:id', exigePerfil(...GESTAO), (req, res) => {
+  db.prepare('UPDATE tmkt_associacao SET ativo=0 WHERE id=? AND empresa_id=?').run(req.params.id, req.usuario.empresa_id);
+  res.json({ ok: true });
+});
+// Cria a AÇÃO da associação: bonificação por expor a marca de um laboratório. modo='por_loja' gera
+// UMA negociação por loja (cada R$ valor, sua comprovação e seu recebimento); modo='unico' gera uma.
+router.post('/associacoes/acao', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id, b = req.body;
+  if (!b.associacao_nome) return res.status(400).json({ erro: 'Informe a associação.' });
+  if (!b.laboratorio_nome) return res.status(400).json({ erro: 'Informe o laboratório/marca exposta.' });
+  const valor = Number(b.valor) || 0;
+  const espaco = (b.espaco_desc || '').trim() || 'Ponta de gôndola';
+  const status = STATUS.includes(b.status) ? b.status : 'confirmado';
+  const modo = b.modo === 'unico' ? 'unico' : 'por_loja';
+  const lojas = modo === 'por_loja'
+    ? (Array.isArray(b.lojas) ? b.lojas.filter(l => l && (l.id || l.nome)) : [])
+    : [{ id: null, nome: null }];
+  if (modo === 'por_loja' && !lojas.length) return res.status(400).json({ erro: 'Escolha ao menos uma loja que vai expor.' });
+  const venc = b.vencimento || b.vigencia_fim || null;
+  const insV = db.prepare(`INSERT INTO tmkt_vendas (id,empresa_id,codigo,origem,associacao_id,associacao_nome,fornecedor_id,fornecedor_nome,loja_id,tema_desc,vigencia_ini,vigencia_fim,valor,status,eans_monitorados,observacao,status_desde,criado_por,criado_em)
+    VALUES (?,?,?,'associacao',?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?,datetime('now'))`);
+  const insE = db.prepare('INSERT INTO tmkt_venda_espacos (id,empresa_id,venda_id,espaco_desc,valor,loja_id,loja_nome) VALUES (?,?,?,?,?,?,?)');
+  const insP = db.prepare('INSERT INTO tmkt_parcelas (id,empresa_id,venda_id,numero,vencimento,valor,recebido) VALUES (?,?,?,1,?,?,0)');
+  const ids = [];
+  const tx = db.transaction(() => {
+    for (const lj of lojas) {
+      const id = uuid();
+      insV.run(id, emp, proximoCodigo(emp), b.associacao_id || null, b.associacao_nome,
+        b.laboratorio_id || null, b.laboratorio_nome, lj.id || null, espaco,
+        b.vigencia_ini || null, b.vigencia_fim || null, valor, status,
+        b.eans ? JSON.stringify(b.eans) : null, b.observacao || null, req.usuario.id);
+      insE.run(uuid(), emp, id, espaco, valor, lj.id || null, lj.nome || null);
+      if (valor > 0) insP.run(uuid(), emp, id, venc, valor);
+      ids.push(id);
+    }
+  });
+  tx();
+  res.json({ ok: true, criadas: ids.length, ids });
+});
 router.put('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id, b = req.body;
-  const campos = ['fornecedor_id', 'fornecedor_nome', 'loja_id', 'forma_pagamento', 'tema_id', 'tema_desc', 'contrato_url', 'vigencia_ini', 'vigencia_fim', 'valor', 'status', 'observacao'];
+  const campos = ['fornecedor_id', 'fornecedor_nome', 'loja_id', 'forma_pagamento', 'tema_id', 'tema_desc', 'contrato_url', 'vigencia_ini', 'vigencia_fim', 'valor', 'status', 'observacao', 'origem', 'associacao_id', 'associacao_nome'];
   const set = [], vals = [];
   campos.forEach(c => { if (c in b) { set.push(`${c}=?`); vals.push(b[c] === '' ? null : b[c]); } });
   if ('eans' in b) { set.push('eans_monitorados=?'); vals.push(b.eans ? JSON.stringify(b.eans) : null); }

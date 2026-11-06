@@ -65,7 +65,7 @@ export default function TradeMarketing() {
         {gestao && <button onClick={() => setModelo(true)} style={bannerBtn}>📄 Modelo de contrato</button>}
       </Banner>
       <div style={{ display: 'flex', gap: 6, margin: '10px 0 14px', flexWrap: 'wrap' }}>
-        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
+        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
       </div>
       {modelo && <ModeloContrato API={API} onClose={() => setModelo(false)} />}
@@ -76,6 +76,7 @@ export default function TradeMarketing() {
       {aba === 'porloja' && <EspacoLoja API={API} gestao={gestao} />}
       {aba === 'capacidade' && <Capacidade API={API} />}
       {aba === 'espacos' && <Espacos API={API} gestao={gestao} />}
+      {aba === 'associacoes' && <Associacoes API={API} gestao={gestao} />}
       {aba === 'grupos' && <GruposEconomicos API={API} gestao={gestao} />}
     </div>
   );
@@ -1663,8 +1664,9 @@ function EspacoLoja({ API, gestao }) {
   const [canalSel, setCanalSel] = useState(''); const [areaSel, setAreaSel] = useState('');
   const [abertas, setAbertas] = useState({});
   const [editP, setEditP] = useState(null); const [novo, setNovo] = useState(false);
+  const [todasLojas, setTodasLojas] = useState([]);   // todas as lojas (mesmo as sem posição ainda)
   const carregar = useCallback(() => API.get('/trademkt/portal/posicoes').then(r => setItens(r.data.posicoes || [])).catch(() => setItens([])), [API]);
-  useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => { carregar(); API.get('/compras/lojas').then(r => setTodasLojas(r.data.lojas || [])).catch(() => { }); }, [carregar, API]);
   if (!itens) return <div style={s.card}>Carregando…</div>;
   const locais = [...new Set(itens.map(i => i.local))].sort();
   const canaisPresentes = FAM_ORDEM.filter(f => itens.some(i => familiaDe(i) === f));
@@ -1681,7 +1683,9 @@ function EspacoLoja({ API, gestao }) {
   const autoOpen = !!lojaSel || !!q || !!canalSel || !!areaSel || nomes.length <= 1;
   const estaAberto = n => abertas[n] != null ? abertas[n] : autoOpen;
   const toggle = n => setAbertas(a => ({ ...a, [n]: !estaAberto(n) }));
-  const lojasFis = [...new Set(itens.filter(i => i.escopo !== 'rede').map(i => i.local))].filter(Boolean).sort();
+  // datalist de lojas: as que já têm posição + TODAS as cadastradas (pra poder criar a 1ª posição
+  // numa loja ainda sem nada — ex.: Ultra Entre Rios, que não aparecia por não ter posição).
+  const lojasFis = [...new Set([...itens.filter(i => i.escopo !== 'rede').map(i => i.local), ...todasLojas.map(l => l.nome)])].filter(Boolean).sort();
   return (
     <div>
       {novo && <NovaPosicao API={API} lojas={lojasFis} onClose={() => setNovo(false)} onSaved={() => { setNovo(false); carregar(); }} />}
@@ -1970,6 +1974,92 @@ function Espacos({ API, gestao }) {
         </div>
       )}
     </>
+  );
+}
+
+// ── Associações (ex.: Multmais): cadastro + ação de bonificação por expor a marca ──────────────
+function Associacoes({ API, gestao }) {
+  const [assocs, setAssocs] = useState([]);
+  const [lojas, setLojas] = useState([]);
+  const [fa, setFa] = useState({ nome: '', cnpj: '' });
+  const [editAid, setEditAid] = useState(null);
+  const [msg, setMsg] = useState('');
+  const [ac, setAc] = useState({ associacao_id: '', laboratorio_nome: '', espaco_desc: 'Ponta de gôndola', valor: '', modo: 'por_loja', vigencia_ini: '', vigencia_fim: '' });
+  const [lojasSel, setLojasSel] = useState(new Set());
+  const carregar = useCallback(() => API.get('/trademkt/associacoes').then(r => setAssocs(r.data.associacoes || [])).catch(() => { }), [API]);
+  useEffect(() => { carregar(); API.get('/compras/lojas').then(r => setLojas(r.data.lojas || [])).catch(() => { }); }, [carregar, API]);
+  const seta = (k, v) => setAc(x => ({ ...x, [k]: v }));
+  const salvarAssoc = () => { if (!fa.nome.trim()) return setMsg('⚠️ Informe o nome da associação.'); API.post('/trademkt/associacoes', { ...fa, id: editAid || undefined }).then(() => { setFa({ nome: '', cnpj: '' }); setEditAid(null); setMsg('✅ Associação salva'); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro'))); };
+  const removerAssoc = id => { if (window.confirm('Remover associação?')) API.delete('/trademkt/associacoes/' + id).then(carregar); };
+  const toggleLoja = id => { const n = new Set(lojasSel); n.has(id) ? n.delete(id) : n.add(id); setLojasSel(n); };
+  const criarAcao = () => {
+    const a = assocs.find(x => x.id === ac.associacao_id);
+    if (!a) return setMsg('⚠️ Escolha a associação.');
+    if (!ac.laboratorio_nome.trim()) return setMsg('⚠️ Informe o laboratório / marca exposta.');
+    if (!(Number(ac.valor) > 0)) return setMsg('⚠️ Informe a bonificação (R$).');
+    const lojasPayload = ac.modo === 'por_loja' ? lojas.filter(l => lojasSel.has(l.id)).map(l => ({ id: l.id, nome: l.nome })) : [];
+    if (ac.modo === 'por_loja' && !lojasPayload.length) return setMsg('⚠️ Marque as lojas que vão expor.');
+    API.post('/trademkt/associacoes/acao', { ...ac, associacao_nome: a.nome, valor: Number(ac.valor), lojas: lojasPayload })
+      .then(r => { setMsg(`✅ ${r.data.criadas} negociação(ões) criada(s) — já aparecem em 🗂️ Negociações e 💰 Cobrança.`); setLojasSel(new Set()); setAc(x => ({ ...x, laboratorio_nome: '', valor: '' })); })
+      .catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro')));
+  };
+  const lab = { fontSize: 11, color: '#64748b', display: 'flex', flexDirection: 'column', gap: 3 };
+  return (
+    <div>
+      <div style={{ ...s.card, background: '#F5F3FF', borderLeft: '4px solid #7C3AED' }}>
+        🤝 <b>Trade via associação.</b> Quando a ação vem de uma associação (ex.: <b>Multmais</b>) que bonifica a farmácia por <b>expor</b> a marca de um laboratório
+        (ponta de gôndola do Cimed = R$ 100), é aqui. Cada ação vira negociação(ões) com a <b>comprovação (foto)</b> e o <b>recebimento</b> na Cobrança — igual às diretas.
+      </div>
+
+      {gestao && <div style={s.card}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>➕ Nova ação da associação</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={{ ...lab, minWidth: 180 }}>Associação (quem bonifica)<select style={s.inp} value={ac.associacao_id} onChange={e => seta('associacao_id', e.target.value)}>
+            <option value="">— escolher —</option>{assocs.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}</select></label>
+          <label style={{ ...lab, minWidth: 180 }}>Laboratório / marca exposta<input style={s.inp} value={ac.laboratorio_nome} onChange={e => seta('laboratorio_nome', e.target.value)} placeholder="ex.: Cimed" /></label>
+          <label style={{ ...lab, minWidth: 160 }}>Espaço / ação<input style={s.inp} value={ac.espaco_desc} onChange={e => seta('espaco_desc', e.target.value)} placeholder="ex.: Ponta de gôndola" /></label>
+          <label style={lab}>Bonificação R$<input type="number" step="0.01" style={{ ...s.inp, width: 110 }} value={ac.valor} onChange={e => seta('valor', e.target.value)} placeholder="100,00" /></label>
+          <label style={lab}>Vigência início<input type="date" style={s.inp} value={ac.vigencia_ini} onChange={e => seta('vigencia_ini', e.target.value)} /></label>
+          <label style={lab}>Vigência fim<input type="date" style={s.inp} value={ac.vigencia_fim} onChange={e => seta('vigencia_fim', e.target.value)} /></label>
+        </div>
+        <div style={{ display: 'flex', gap: 8, margin: '10px 0 6px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#555' }}>Bonificação:</span>
+          <button onClick={() => seta('modo', 'por_loja')} style={{ ...s.chip, ...(ac.modo === 'por_loja' ? s.chipOn : {}) }}>Por loja que expõe</button>
+          <button onClick={() => seta('modo', 'unico')} style={{ ...s.chip, ...(ac.modo === 'unico' ? s.chipOn : {}) }}>Valor único da ação</button>
+          <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
+            {ac.modo === 'por_loja' ? 'cada loja marcada ganha o valor (N lojas = N× R$), com sua comprovação e recebimento' : 'um valor único, uma comprovação e um recebimento'}
+          </span>
+        </div>
+        {ac.modo === 'por_loja' && <div style={{ ...s.card, margin: '4px 0', background: '#FAFAFE' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: '#555', marginBottom: 6 }}>Lojas que vão expor <span style={{ fontWeight: 400, color: '#94a3b8' }}>({lojasSel.size} marcada(s))</span></div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {lojas.map(l => <label key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, border: '1px solid ' + (lojasSel.has(l.id) ? '#7C3AED' : '#e5e7eb'), background: lojasSel.has(l.id) ? '#F3EEFF' : '#fff', borderRadius: 8, padding: '5px 9px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={lojasSel.has(l.id)} onChange={() => toggleLoja(l.id)} />{l.nome}</label>)}
+            {!lojas.length && <span style={{ fontSize: 12, color: '#aaa' }}>carregando lojas…</span>}
+          </div>
+        </div>}
+        <button onClick={criarAcao} style={{ ...s.btn, background: '#7C3AED', marginTop: 6 }}>🤝 Criar negociação(ões)</button>
+        {msg && <div style={{ ...s.tag, marginLeft: 10, background: '#eef2ff', color: '#3730a3' }}>{msg}</div>}
+      </div>}
+
+      <div style={s.card}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>🏢 Associações cadastradas</div>
+        {gestao && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
+          <label style={{ ...lab, minWidth: 200 }}>Nome<input style={s.inp} value={fa.nome} onChange={e => setFa(x => ({ ...x, nome: e.target.value }))} placeholder="ex.: Multmais" /></label>
+          <label style={{ ...lab, minWidth: 180 }}>CNPJ<input style={s.inp} value={fa.cnpj || ''} onChange={e => setFa(x => ({ ...x, cnpj: e.target.value }))} placeholder="(opcional)" /></label>
+          <button onClick={salvarAssoc} style={s.btn}>{editAid ? 'Salvar' : '+ Cadastrar'}</button>
+          {editAid && <button onClick={() => { setEditAid(null); setFa({ nome: '', cnpj: '' }); }} style={s.btnMini}>cancelar</button>}
+        </div>}
+        {assocs.map(a => <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderTop: '1px solid #f2f2f2', fontSize: 13 }}>
+          <span><b>{a.nome}</b>{a.cnpj ? <span style={{ color: '#999' }}> · {a.cnpj}</span> : null}</span>
+          {gestao && <span style={{ display: 'flex', gap: 4 }}>
+            <button onClick={() => { setEditAid(a.id); setFa({ nome: a.nome, cnpj: a.cnpj || '' }); }} style={s.mv}>✎</button>
+            <button onClick={() => removerAssoc(a.id)} style={s.mv}>✕</button>
+          </span>}
+        </div>)}
+        {!assocs.length && <div style={s.vazio}>Nenhuma associação cadastrada ainda.</div>}
+      </div>
+    </div>
   );
 }
 
