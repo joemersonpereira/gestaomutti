@@ -1377,9 +1377,10 @@ function Cobranca({ API, gestao }) {
 
 function Dashboard({ API }) {
   const [d, setD] = useState(null); const [loja, setLoja] = useState(''); const [lojas, setLojas] = useState([]);
+  const [espItens, setEspItens] = useState([]); const [lojaAberta, setLojaAberta] = useState('');  // clicar na loja → ver os espaços
   const carregar = useCallback(() => API.get('/trademkt/dashboard', { params: { loja: loja || undefined } }).then(r => setD(r.data)).catch(() => {}), [API, loja]);
   useEffect(() => { carregar(); }, [carregar]);
-  useEffect(() => { API.get('/trademkt/espaco-loja').then(r => setLojas([...new Set((r.data.itens || []).map(i => i.loja_nome))])).catch(() => {}); }, [API]);
+  useEffect(() => { API.get('/trademkt/espaco-loja').then(r => { const it = r.data.itens || []; setEspItens(it); setLojas([...new Set(it.map(i => i.loja_nome))]); }).catch(() => {}); }, [API]);
   const k = d?.kpis;
   const cards = k ? [
     ['Total de Espaços', k.total, '#2E5C9E'], ['Espaços Vendidos', k.vendidos, '#1E874B'],
@@ -1436,16 +1437,36 @@ function Dashboard({ API }) {
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
             <thead><tr>{COLS_L.map(c => <ThOrd key={c.k} c={c} ordem={ordemL} clicar={clicarL} seta={setaL} base={s.th} />)}</tr></thead>
-            <tbody>{linhasL.map(l => (
-              <tr key={l.loja} style={{ borderTop: '1px solid #f2f2f2' }}>
-                <td style={s.td}><b>{l.loja}</b></td>
-                <td style={s.tdR}>{l.total}</td>
-                <td style={{ ...s.tdR, color: '#1E874B' }}>{l.vendidos}</td>
-                <td style={{ ...s.tdR, color: '#B7791F' }}>{l.disponiveis}</td>
-                <td style={s.tdR}>{l.ocupacao}%</td>
-                <td style={s.tdR}>{brl(l.receita)}</td>
-                <td style={{ ...s.tdR, color: '#888' }}>{brl(l.potencial)}</td>
-              </tr>))}</tbody>
+            <tbody>{linhasL.map(l => {
+              const aberta = lojaAberta === l.loja;
+              const esp = espItens.filter(i => i.loja_nome === l.loja);
+              return (
+                <React.Fragment key={l.loja}>
+                  <tr onClick={() => setLojaAberta(aberta ? '' : l.loja)} style={{ borderTop: '1px solid #f2f2f2', cursor: 'pointer', background: aberta ? '#F7F5FC' : 'transparent' }} title="clique para ver os espaços desta loja">
+                    <td style={s.td}><span style={{ color: '#999', marginRight: 4 }}>{aberta ? '▾' : '▸'}</span><b>{l.loja}</b></td>
+                    <td style={s.tdR}>{l.total}</td>
+                    <td style={{ ...s.tdR, color: '#1E874B' }}>{l.vendidos}</td>
+                    <td style={{ ...s.tdR, color: '#B7791F' }}>{l.disponiveis}</td>
+                    <td style={s.tdR}>{l.ocupacao}%</td>
+                    <td style={s.tdR}>{brl(l.receita)}</td>
+                    <td style={{ ...s.tdR, color: '#888' }}>{brl(l.potencial)}</td>
+                  </tr>
+                  {aberta && <tr><td colSpan={7} style={{ padding: '4px 10px 12px', background: '#FAFAFE' }}>
+                    {esp.length ? <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead><tr>{['Espaço', 'Vagas', 'Ocupadas', 'Livres', 'Preço'].map((h, i) => <th key={h} style={{ ...s.th, textAlign: i ? 'right' : 'left' }}>{h}</th>)}</tr></thead>
+                      <tbody>{esp.map(e => (
+                        <tr key={e.id} style={{ borderTop: '1px solid #eee' }}>
+                          <td style={s.td}>{e.area ? e.area + ' · ' : ''}{e.espaco}</td>
+                          <td style={s.tdR}>{e.quantidade || 0}</td>
+                          <td style={{ ...s.tdR, color: '#1E874B' }}>{e.ocupados || 0}</td>
+                          <td style={{ ...s.tdR, color: (e.disponiveis || 0) > 0 ? '#B7791F' : '#C0392B' }}>{e.disponiveis || 0}</td>
+                          <td style={s.tdR}>{brl(e.preco_unit)}</td>
+                        </tr>))}</tbody>
+                    </table> : <div style={{ fontSize: 12, color: '#aaa' }}>Nenhum espaço cadastrado nesta loja.</div>}
+                  </td></tr>}
+                </React.Fragment>
+              );
+            })}</tbody>
           </table>
         </div>
       </div>

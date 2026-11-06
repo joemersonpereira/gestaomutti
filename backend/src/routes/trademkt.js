@@ -210,8 +210,10 @@ router.get('/dashboard', (req, res) => {
     FROM tmkt_espaco_loja WHERE empresa_id=? ${loja ? 'AND loja_nome=?' : ''} GROUP BY loja_nome, loja_id`).all(...(loja ? [emp, loja] : [emp]));
   // vendidos/receita por loja (vendas vigentes/concluídas)
   // vendidos e receita atribuídos à loja do ESPAÇO vendido (negociação pode ter espaços de várias lojas)
+  // "vendido/ocupado" = negócio COMPROMETIDO (fechado), não só os já vigentes — senão um confirmado
+  // de R$ 3.700 aparece como "tudo disponível". Mesma régua do resto do sistema (menos rascunho/pedido/negociação, que ainda não fecharam).
   const vend = db.prepare(`SELECT COALESCE(ve.loja_id, v.loja_id) loja_id, COUNT(ve.id) vendidos, COALESCE(SUM(ve.valor),0) receita
-    FROM tmkt_venda_espacos ve JOIN tmkt_vendas v ON v.id=ve.venda_id WHERE v.empresa_id=? AND v.status IN ('vigente','concluido')
+    FROM tmkt_venda_espacos ve JOIN tmkt_vendas v ON v.id=ve.venda_id WHERE v.empresa_id=? AND v.status IN ('confirmado','briefing','aguardando','vigente','vendido','concluido','encerrado')
     GROUP BY COALESCE(ve.loja_id, v.loja_id)`).all(emp).reduce((m, r) => (m[r.loja_id] = r, m), {});
   const monitorados = db.prepare(`SELECT COALESCE(SUM(json_array_length(eans_monitorados)),0) n FROM tmkt_vendas WHERE empresa_id=? AND eans_monitorados IS NOT NULL`).get(emp).n || 0;
 
