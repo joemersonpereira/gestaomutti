@@ -1054,7 +1054,7 @@ router.post('/portal/espaco', exigePerfil(...GESTAO), (req, res) => {
 // (e-commerce/rádio/CRM/tabloide = PADRÃO DA REDE; espaços físicos = POR LOJA)
 router.get('/portal/posicoes', (req, res) => {
   const emp = req.usuario.empresa_id;
-  const rows = db.prepare(`SELECT id, segmento, area, espaco, tamanho, descricao, loja_nome, preco_unit, preco_min, quantidade, COALESCE(modo_venda,'periodo') modo_venda, midia, COALESCE(unidade,'mes') unidade, limite_dia, limite_mes, (foto IS NOT NULL AND foto<>'') AS tem_foto, COALESCE(disponivel,1) disponivel, COALESCE(destaque,0) destaque
+  const rows = db.prepare(`SELECT id, segmento, area, espaco, tamanho, descricao, loja_id, loja_nome, preco_unit, preco_min, quantidade, COALESCE(modo_venda,'periodo') modo_venda, midia, COALESCE(unidade,'mes') unidade, limite_dia, limite_mes, (foto IS NOT NULL AND foto<>'') AS tem_foto, COALESCE(disponivel,1) disponivel, COALESCE(destaque,0) destaque
     FROM tmkt_espaco_loja WHERE empresa_id=?
     ORDER BY segmento, loja_nome, area, espaco`).all(emp);
   // ocupação atual (vagas já reservadas em vendas ativas, independentemente do período)
