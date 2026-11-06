@@ -64,9 +64,9 @@ export default function TradeMarketing() {
       <Banner emoji="📣" titulo="Trade Marketing" cor="roxo" sub="Aluguel de espaços da loja (pontos extras, ilhas, gôndolas) para fornecedores — contrato, financeiro e sell-out no ERP.">
         {gestao && <button onClick={() => setModelo(true)} style={bannerBtn}>📄 Modelo de contrato</button>}
       </Banner>
-      <div style={{ display: 'flex', gap: 6, margin: '10px 0 14px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 6, margin: '12px 0 16px', flexWrap: 'wrap', padding: 6, background: '#fff', border: '1px solid #ecefee', borderRadius: 14, boxShadow: '0 1px 3px rgba(16,40,45,.05)' }}>
         {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
-          <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
+          <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, border: 'none', ...(aba === v ? s.chipOn : { background: 'transparent', color: '#51607a' }) }}>{l}</button>)}
       </div>
       {modelo && <ModeloContrato API={API} onClose={() => setModelo(false)} />}
       {aba === 'portal' && <Portal API={API} gestao={gestao} />}
@@ -2049,25 +2049,26 @@ function Associacoes({ API, gestao }) {
 }
 
 
+const BRAND = '#0E7C5A', BRAND_GRAD = 'linear-gradient(135deg,#0E7C5A,#0C6A7E)';
 const s = {
-  wrap: { padding: '1rem', maxWidth: 1500, margin: '0 auto', fontFamily: 'system-ui, sans-serif' },
-  titulo: { fontSize: 20, fontWeight: 700 }, sub: { fontSize: 12, color: '#666' },
-  card: { background: '#fff', border: '1px solid #edf0f4', borderRadius: 14, boxShadow: '0 1px 2px rgba(16,24,40,.05)', padding: '12px 14px', marginBottom: 10 },
-  inp: { border: '1px solid #ddd', borderRadius: 8, padding: '7px 9px', fontSize: 13 },
-  btn: { fontSize: 13, padding: '8px 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 },
-  btnMini: { fontSize: 12, padding: '6px 10px', background: '#fff', color: '#444', border: '1px solid #ddd', borderRadius: 7, cursor: 'pointer' },
-  colHead: { color: '#fff', fontWeight: 700, fontSize: 13, padding: '8px 12px', borderRadius: '10px 10px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 2 },
-  colN: { background: 'rgba(255,255,255,.3)', borderRadius: 10, padding: '1px 8px', fontSize: 12 },
-  colBody: { background: '#F7F8FA', border: '1px solid #eee', borderTop: 'none', borderRadius: '0 0 10px 10px', padding: 8, minHeight: 180 },
-  cardA: { background: '#fff', border: '1px solid #eee', borderRadius: 10, padding: 10, marginBottom: 8 },
-  tag: { fontSize: 10, background: '#F0F3F7', color: '#5A7186', borderRadius: 8, padding: '2px 6px', fontWeight: 600, marginLeft: 6 },
-  mv: { fontSize: 12, padding: '4px 8px', background: '#fff', color: '#444', border: '1px solid #ddd', borderRadius: 6, cursor: 'pointer' },
-  lbl: { display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: '#888' },
-  vazio: { fontSize: 12.5, color: '#aaa', textAlign: 'center', padding: 14 },
-  chip: { fontSize: 12, padding: '6px 12px', borderRadius: 20, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', color: '#666' },
-  chipOn: { background: '#111', color: '#fff', borderColor: '#111' },
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 },
-  modal: { background: '#fff', borderRadius: 14, padding: 18, width: '100%', maxHeight: '90vh', overflowY: 'auto' },
-  th: { textAlign: 'right', fontSize: 11, color: '#888', padding: '4px 8px', borderBottom: '1px solid #eee', whiteSpace: 'nowrap' },
-  td: { textAlign: 'left', padding: '4px 8px' }, tdR: { textAlign: 'right', padding: '4px 8px' },
+  wrap: { padding: '1.1rem', maxWidth: 1500, margin: '0 auto', fontFamily: 'system-ui, sans-serif' },
+  titulo: { fontSize: 20, fontWeight: 800, letterSpacing: '-.01em' }, sub: { fontSize: 12, color: '#667085' },
+  card: { background: '#fff', border: '1px solid #ecefee', borderRadius: 16, boxShadow: '0 1px 3px rgba(16,40,45,.05)', padding: '15px 17px', marginBottom: 12 },
+  inp: { border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '8px 11px', fontSize: 13, background: '#fff' },
+  btn: { fontSize: 13, padding: '9px 16px', background: BRAND_GRAD, color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontWeight: 700, boxShadow: '0 6px 14px -6px rgba(14,124,90,.5)' },
+  btnMini: { fontSize: 12, padding: '6px 11px', background: '#fff', color: '#334155', border: '1px solid #e2e8f0', borderRadius: 9, cursor: 'pointer', fontWeight: 500 },
+  colHead: { color: '#fff', fontWeight: 700, fontSize: 13, padding: '9px 12px', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 2 },
+  colN: { background: 'rgba(255,255,255,.3)', borderRadius: 999, padding: '1px 9px', fontSize: 12 },
+  colBody: { background: '#F7F9F8', border: '1px solid #eef1f0', borderTop: 'none', borderRadius: '0 0 12px 12px', padding: 8, minHeight: 180 },
+  cardA: { background: '#fff', border: '1px solid #eef1f0', borderRadius: 12, padding: 11, marginBottom: 8, boxShadow: '0 1px 2px rgba(16,40,45,.04)' },
+  tag: { fontSize: 10, background: '#EAF4F0', color: BRAND, borderRadius: 999, padding: '2px 8px', fontWeight: 700, marginLeft: 6 },
+  mv: { fontSize: 12, padding: '5px 9px', background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer' },
+  lbl: { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: '#64748b', fontWeight: 600 },
+  vazio: { fontSize: 12.5, color: '#9aa6b2', textAlign: 'center', padding: 18 },
+  chip: { fontSize: 12.5, padding: '7px 13px', borderRadius: 999, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', color: '#51607a', fontWeight: 600 },
+  chipOn: { background: BRAND_GRAD, color: '#fff', borderColor: 'transparent', boxShadow: '0 4px 12px -5px rgba(14,124,90,.55)' },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(16,30,28,.45)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 },
+  modal: { background: '#fff', borderRadius: 16, padding: 18, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px -20px rgba(16,40,45,.35)' },
+  th: { textAlign: 'right', fontSize: 11, color: '#8a97a5', padding: '6px 8px', borderBottom: '1px solid #eef1f0', whiteSpace: 'nowrap', fontWeight: 700 },
+  td: { textAlign: 'left', padding: '6px 8px' }, tdR: { textAlign: 'right', padding: '6px 8px' },
 };
