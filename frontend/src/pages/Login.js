@@ -33,26 +33,26 @@ export default function Login({ onLogin }) {
             <div className="lg-brand-sub">Sistema de Gestão</div>
           </div>
           <div className="lg-brand-mid">
-            <span className="lg-eyebrow">Plataforma de gestão</span>
-            <h2>Tudo da operação<br />em um só lugar.</h2>
-            <p>Do balcão à diretoria, ao vivo — para decidir com segurança.</p>
-            <div className="lg-cards">
-              <div className="lg-c">
-                <span className="lg-ci">📊</span>
-                <div><strong>Vendas &amp; metas</strong><em>Por loja e vendedor, em tempo real</em></div>
+            <span className="lg-eyebrow">✦ Gestão com dados ao vivo</span>
+            <h2>Gestão inteligente para<br />resultados extraordinários</h2>
+            <p>Do balcão à diretoria, em tempo real — para decidir com segurança.</p>
+            <div className="lg-hero" aria-hidden="true">
+              <div className="lg-mock">
+                <div className="lg-mock-top"><i /><i /><i /></div>
+                <div className="lg-mock-stat">
+                  <b>R$ 1,24M</b>
+                  <em>Vendas do mês · +12%</em>
+                </div>
+                <div className="lg-bars">
+                  <span style={{ height: '42%' }} /><span style={{ height: '64%' }} />
+                  <span style={{ height: '53%' }} /><span style={{ height: '81%' }} />
+                  <span style={{ height: '70%' }} /><span style={{ height: '96%' }} />
+                </div>
               </div>
-              <div className="lg-c">
-                <span className="lg-ci">💳</span>
-                <div><strong>Financeiro</strong><em>Conciliação, tesouraria e DRE</em></div>
-              </div>
-              <div className="lg-c">
-                <span className="lg-ci">🛒</span>
-                <div><strong>Compras &amp; trade</strong><em>Pedidos, fornecedores e acordos</em></div>
-              </div>
-              <div className="lg-c">
-                <span className="lg-ci">👥</span>
-                <div><strong>RH &amp; equipe</strong><em>Ponto, indicadores e benefícios</em></div>
-              </div>
+              <span className="lg-pill lg-pill-1">📊 Vendas</span>
+              <span className="lg-pill lg-pill-2">💳 Financeiro</span>
+              <span className="lg-pill lg-pill-3">🛒 Compras</span>
+              <span className="lg-pill lg-pill-4">👥 RH</span>
             </div>
           </div>
           <div className="lg-brand-foot">Mutti · Ultra · Farma Rocha · Posto de Medicamentos</div>
@@ -117,19 +117,31 @@ const CSS = `
 .lg-brand-name{font-size:19px;font-weight:800;color:#fff;letter-spacing:.2px;}
 .lg-brand-sub{font-size:12.5px;color:rgba(255,255,255,.72);margin-top:1px;}
 .lg-brand-mid{flex:1;display:flex;flex-direction:column;justify-content:center;z-index:1;}
-.lg-eyebrow{display:inline-block;align-self:flex-start;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#9dffdb;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);padding:5px 11px;border-radius:999px;margin-bottom:16px;}
-.lg-brand-mid h2{font-size:32px;line-height:1.14;font-weight:800;color:#fff;margin:0 0 12px;letter-spacing:-.5px;}
+.lg-eyebrow{display:inline-block;align-self:flex-start;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#9dffdb;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);padding:6px 13px;border-radius:999px;margin-bottom:18px;}
+.lg-brand-mid h2{font-size:38px;line-height:1.1;font-weight:800;color:#fff;margin:0 0 14px;letter-spacing:-.8px;}
 .lg-brand-mid p{font-size:15px;line-height:1.55;color:rgba(255,255,255,.82);margin:0;max-width:400px;}
-.lg-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:30px;max-width:460px;}
-.lg-c{display:flex;align-items:flex-start;gap:11px;padding:14px;border-radius:14px;
-  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(6px);
-  transition:background .15s,transform .15s,border-color .15s;}
-.lg-c:hover{background:rgba(255,255,255,.13);border-color:rgba(255,255,255,.26);transform:translateY(-2px);}
-.lg-ci{width:38px;height:38px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
-  font-size:19px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);}
-.lg-c>div{display:flex;flex-direction:column;gap:3px;min-width:0;}
-.lg-c strong{font-size:13.5px;font-weight:700;color:#fff;letter-spacing:-.01em;}
-.lg-c em{font-size:11.5px;font-style:normal;color:rgba(255,255,255,.72);line-height:1.35;}
+/* Composição hero: mock do painel + badges flutuantes */
+.lg-hero{position:relative;flex:1;min-height:300px;margin-top:26px;display:flex;align-items:center;justify-content:center;}
+.lg-mock{width:320px;max-width:80%;background:linear-gradient(160deg,#ffffff,#f3f8f6);border-radius:20px;
+  padding:20px 20px 22px;box-shadow:0 30px 60px -22px rgba(3,30,24,.55),0 6px 18px -8px rgba(3,30,24,.3);
+  transform:rotate(-2deg);}
+.lg-mock-top{display:flex;gap:6px;margin-bottom:16px;}
+.lg-mock-top i{width:9px;height:9px;border-radius:50%;background:#d6e3de;}
+.lg-mock-top i:first-child{background:#0E7C5A;}
+.lg-mock-stat b{display:block;font-size:26px;font-weight:800;color:#13233a;letter-spacing:-.02em;line-height:1;}
+.lg-mock-stat em{display:block;font-size:12px;font-style:normal;color:#1d9e6e;font-weight:600;margin-top:5px;}
+.lg-bars{display:flex;align-items:flex-end;gap:8px;height:84px;margin-top:18px;}
+.lg-bars span{flex:1;border-radius:6px 6px 3px 3px;background:linear-gradient(180deg,#19a177,#0E7C5A);opacity:.92;}
+.lg-bars span:last-child{background:linear-gradient(180deg,#1fc993,#17a37a);box-shadow:0 6px 14px -4px rgba(14,124,90,.6);}
+.lg-pill{position:absolute;display:inline-flex;align-items:center;gap:7px;color:#fff;font-size:13px;font-weight:700;
+  padding:10px 15px;border-radius:999px;white-space:nowrap;border:1px solid rgba(255,255,255,.22);
+  box-shadow:0 14px 30px -10px rgba(3,30,24,.6);backdrop-filter:blur(2px);}
+.lg-pill-1{top:2%;right:4%;transform:rotate(-5deg);background:linear-gradient(135deg,#0E7C5A,#0C6A7E);animation:lgfloat 5.5s ease-in-out infinite;}
+.lg-pill-2{top:33%;left:-2%;transform:rotate(4deg);background:linear-gradient(135deg,#0C6A7E,#0C5A86);animation:lgfloat 6.5s ease-in-out infinite .4s;}
+.lg-pill-3{bottom:12%;left:5%;transform:rotate(-3deg);background:linear-gradient(135deg,#B45309,#92400E);animation:lgfloat 6s ease-in-out infinite .8s;}
+.lg-pill-4{bottom:3%;right:8%;transform:rotate(5deg);background:linear-gradient(135deg,#0C5A86,#0E7C5A);animation:lgfloat 5.8s ease-in-out infinite .2s;}
+@keyframes lgfloat{0%,100%{transform:translateY(0) rotate(var(--r,0deg));}50%{transform:translateY(-9px) rotate(var(--r,0deg));}}
+.lg-pill-1{--r:-5deg;}.lg-pill-2{--r:4deg;}.lg-pill-3{--r:-3deg;}.lg-pill-4{--r:5deg;}
 .lg-brand::after{content:"";position:absolute;right:-70px;bottom:34px;width:440px;height:84px;background:url(/logo-mutti-white.svg) no-repeat right center/contain;opacity:.06;z-index:0;pointer-events:none;}
 .lg-brand-foot{margin-top:28px;z-index:1;font-size:11.5px;color:rgba(255,255,255,.62);letter-spacing:.3px;
   padding-top:16px;border-top:1px solid rgba(255,255,255,.16);}
@@ -171,5 +183,5 @@ const CSS = `
   .lg-form-wrap{padding:30px 26px 26px;}
   .lg-logo-mobile{display:flex;}
 }
-@media (prefers-reduced-motion:reduce){.lg-btn,.lg-spin{transition:none;animation:none;}}
+@media (prefers-reduced-motion:reduce){.lg-btn,.lg-spin,.lg-pill{transition:none;animation:none;}}
 `;
