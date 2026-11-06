@@ -38,6 +38,7 @@ import PainelRH from './pages/PainelRH';
 import Clima from './pages/Clima';
 import PainelCompras from './pages/PainelCompras';
 import Financeiro from './pages/Financeiro';
+import ValidacaoFinanceira from './pages/ValidacaoFinanceira';
 import ContasReceber from './pages/ContasReceber';
 import ConciliacaoCartoes from './pages/ConciliacaoCartoes';
 import Entrega from './pages/Entrega';
@@ -114,6 +115,7 @@ const MODULOS = [
   { id: 'trademkt', label: '📐 Trade Marketing', C: TradeMarketing, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Marketing'] },
   { id: 'financeiro', label: '💼 Financeiro', C: Financeiro, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
   { id: 'contas-receber', label: '📥 Contas a Receber', C: ContasReceber, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro'] },
+  { id: 'validacao-financeira', label: '💰 Validação Financeira', C: ValidacaoFinanceira, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Tesouraria', 'Contabilidade', 'Comercial', 'Marketing', 'Supervisor'] },
   { id: 'conciliacao-cartao', label: '💳 Conciliação de Cartões', C: ConciliacaoCartoes, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro', 'Contabilidade'] },
   { id: 'estagios', label: '🧾 Faturas', C: EstagiosFaturas, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'RH'] },
   { id: 'estagio-rh', label: '🎓 Estágios', C: EstagioRH, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'RH', 'Supervisor'] },

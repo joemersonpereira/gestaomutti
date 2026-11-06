@@ -82,6 +82,7 @@ const PENDENTES = [
   './migrations/312_ecomm_conversao_categoria',
   './migrations/314_estagio_seguro_sura',
   './migrations/315_tmkt_associacao',
+  './migrations/316_fin_validacao',
 ];
 
 console.log('=== Rodando migrações pendentes (065–073) ===\n');
