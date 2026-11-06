@@ -115,8 +115,23 @@ function Seguros({ API }) {
   const [f, setF] = useState(vaziaS);
   const [editId, setEditId] = useState(null);
   const [msg, setMsg] = useState('');
+  const [prev, setPrev] = useState(null);     // prévia das vidas ativas (contagem) p/ o export mensal
+  const [baixando, setBaixando] = useState(false);
   const carregar = useCallback(() => API.get('/estagio/seguro').then(r => setRows(r.data)).catch(() => {}), [API]);
   useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => { API.get('/estagio/seguro/vidas-ativas').then(r => setPrev(r.data)).catch(() => {}); }, [API]);
+  // Baixa a "Relação de Titulares" (estagiários ativos) no formato da seguradora, todo mês.
+  const baixarVidas = async () => {
+    setBaixando(true); setMsg('');
+    try {
+      const r = await API.get('/estagio/seguro/vidas-ativas.xlsx', { responseType: 'blob' });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement('a'); a.href = url;
+      a.download = `seguro-estagiarios-ativos-${new Date().toISOString().slice(0, 7)}.xlsx`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { setMsg('⚠️ Não consegui gerar a lista. ' + (e.response?.data?.erro || '')); }
+    finally { setBaixando(false); }
+  };
   const salvar = () => API.post('/estagio/seguro', { ...f, id: editId || undefined, valor: Number(f.valor) || 0, ativo: 1 }).then(() => { setMsg(editId ? '✅ Seguro atualizado' : '✅ Seguro salvo'); setF(vaziaS); setEditId(null); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro')));
   const remover = id => { if (window.confirm('Remover seguro?')) API.delete('/estagio/seguro/' + id).then(carregar); };
   const editar = r => { setEditId(r.id); setF({ ...vaziaS, ...r }); window.scrollTo({ top: 0, behavior: 'smooth' }); };
@@ -124,6 +139,22 @@ function Seguros({ API }) {
   return (
     <div>
       <div style={{ ...s.msg, background: '#eff6ff', color: '#1e40af', marginBottom: 12 }}>O seguro é <b>obrigatório por lei</b> (Lei 11.788) e precisa constar no contrato. Cadastre a apólice aqui para vincular na ficha do estagiário.</div>
+
+      {/* Extração mensal para a seguradora — a Relação de Titulares (estagiários ativos) */}
+      <div style={{ ...s.card, borderLeft: '4px solid #1E874B', background: '#F2FBF6' }}>
+        <div style={s.cardT}>📥 Lista mensal para a seguradora</div>
+        <div style={{ fontSize: 13, color: '#334155', margin: '4px 0 10px' }}>
+          A <b>Relação de Titulares</b> (estagiários <b>ativos</b>) para enviar <b>todo mês</b> à seguradora, já no formato que ela pede
+          (Nome · CPF 11 díg · Sexo · Nascimento · Plano · Opção · Capital). Puxa o sexo/nascimento do ERP por CPF e <b>tira quem está inativo</b>.
+          {prev && <div style={{ marginTop: 6 }}>
+            Neste mês vão <b style={{ color: '#1E874B' }}>{prev.vidas ?? 0}</b> vida(s) ativa(s)
+            {prev.inativosErp ? <> · <span style={{ color: '#B45309' }}>{prev.inativosErp} tirado(s) por estar inativo no ERP</span></> : null}
+            {prev.semCpf ? <> · <span style={{ color: '#B91C1C' }}>⚠️ {prev.semCpf} sem CPF ficam de fora (o seguro exige CPF)</span></> : null}.
+          </div>}
+        </div>
+        <button style={{ ...s.btnP, background: '#1E874B' }} onClick={baixarVidas} disabled={baixando}>{baixando ? 'gerando…' : '📥 Baixar estagiários ativos (Excel)'}</button>
+      </div>
+
       <div style={s.card}>
         <div style={s.cardT}>{editId ? 'Editar seguro' : 'Novo seguro'}</div>
         <div style={s.grid}>
