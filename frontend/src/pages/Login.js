@@ -34,7 +34,13 @@ export default function Login({ onLogin }) {
           </div>
           <div className="lg-brand-mid">
             <h2>Tudo da operação<br />em um só lugar.</h2>
-            <p>Vendas, financeiro, compras, RH e indicadores — ao vivo, para decidir com segurança.</p>
+            <p>Do balcão à diretoria — ao vivo, para decidir com segurança.</p>
+            <ul className="lg-feats">
+              <li><span>✓</span> Vendas e metas por loja, em tempo real</li>
+              <li><span>✓</span> Financeiro, conciliação e tesouraria</li>
+              <li><span>✓</span> Compras, trade e fornecedores</li>
+              <li><span>✓</span> RH, ponto e indicadores da equipe</li>
+            </ul>
           </div>
           <div className="lg-brand-foot">Mutti · Ultra · Farma Rocha · Posto de Medicamentos</div>
           <span className="lg-glow lg-glow-1" aria-hidden="true" />
@@ -97,9 +103,13 @@ const CSS = `
   background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);backdrop-filter:blur(4px);}
 .lg-brand-name{font-size:19px;font-weight:800;color:#fff;letter-spacing:.2px;}
 .lg-brand-sub{font-size:12.5px;color:rgba(255,255,255,.72);margin-top:1px;}
-.lg-brand-mid{margin-top:auto;z-index:1;}
-.lg-brand-mid h2{font-size:27px;line-height:1.2;font-weight:800;color:#fff;margin:0 0 12px;letter-spacing:-.3px;}
-.lg-brand-mid p{font-size:14px;line-height:1.55;color:rgba(255,255,255,.82);margin:0;max-width:330px;}
+.lg-brand-mid{flex:1;display:flex;flex-direction:column;justify-content:center;z-index:1;}
+.lg-brand-mid h2{font-size:29px;line-height:1.18;font-weight:800;color:#fff;margin:0 0 12px;letter-spacing:-.4px;}
+.lg-brand-mid p{font-size:14.5px;line-height:1.55;color:rgba(255,255,255,.82);margin:0;max-width:360px;}
+.lg-feats{list-style:none;margin:28px 0 0;padding:0;display:flex;flex-direction:column;gap:13px;}
+.lg-feats li{display:flex;align-items:center;gap:11px;font-size:14px;color:rgba(255,255,255,.92);}
+.lg-feats li span{width:23px;height:23px;border-radius:7px;background:rgba(255,255,255,.15);display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:#9dffdb;flex-shrink:0;font-weight:700;}
+.lg-brand::after{content:"";position:absolute;right:-70px;bottom:34px;width:440px;height:84px;background:url(/logo-mutti-white.svg) no-repeat right center/contain;opacity:.06;z-index:0;pointer-events:none;}
 .lg-brand-foot{margin-top:28px;z-index:1;font-size:11.5px;color:rgba(255,255,255,.62);letter-spacing:.3px;
   padding-top:16px;border-top:1px solid rgba(255,255,255,.16);}
 .lg-glow{position:absolute;border-radius:50%;filter:blur(10px);opacity:.5;z-index:0;}
