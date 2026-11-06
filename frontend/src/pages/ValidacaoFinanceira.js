@@ -13,6 +13,8 @@ export default function ValidacaoFinanceira() {
   const [d, setD] = useState(null);
   const [erro, setErro] = useState('');
   const [origem, setOrigem] = useState('');
+  const [venc, setVenc] = useState('todos');   // todos | vencidos | avencer
+  const [vde, setVde] = useState(''); const [vate, setVate] = useState('');
   const [busy, setBusy] = useState('');
   const fileRef = useRef(null);
   const alvoRef = useRef(null);
@@ -46,7 +48,16 @@ export default function ValidacaoFinanceira() {
   };
 
   const r = d?.resumo;
-  const itens = d?.itens || [];
+  const hojeISO = new Date().toISOString().slice(0, 10);
+  const itens = (d?.itens || []).filter(i => {
+    const dt = (i.data || '').slice(0, 10);
+    if (venc === 'vencidos' && !(dt && dt < hojeISO)) return false;
+    if (venc === 'avencer' && !(dt && dt >= hojeISO)) return false;
+    if (vde && (!dt || dt < vde)) return false;
+    if (vate && (!dt || dt > vate)) return false;
+    return true;
+  });
+  const vencidosN = (d?.itens || []).filter(i => { const dt = (i.data || '').slice(0, 10); return dt && dt < hojeISO; }).length;
   return (
     <div style={s.wrap}>
       <div style={{ padding: '6px 0 12px', borderBottom: '1px solid #e5e7eb', marginBottom: 14 }}>
@@ -73,6 +84,18 @@ export default function ValidacaoFinanceira() {
           </button>
         ))}
         {!podeConfirmar && <span style={{ marginLeft: 'auto', fontSize: 11.5, color: '#B45309' }}>Você pode anexar comprovante; a confirmação é do Financeiro.</span>}
+      </div>
+
+      <div style={{ ...s.card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#555' }}>Vencimento:</span>
+        <button onClick={() => setVenc('todos')} style={{ ...s.chip, ...(venc === 'todos' ? s.chipOn : {}) }}>Todos</button>
+        <button onClick={() => setVenc('vencidos')} style={{ ...s.chip, ...(venc === 'vencidos' ? { background: '#C0392B', color: '#fff', borderColor: '#C0392B' } : { color: '#C0392B', borderColor: '#f0c7c7' }) }}>⚠️ Vencidos{vencidosN ? ' · ' + vencidosN : ''}</button>
+        <button onClick={() => setVenc('avencer')} style={{ ...s.chip, ...(venc === 'avencer' ? s.chipOn : {}) }}>A vencer</button>
+        <span style={{ width: 1, background: '#e5e7eb', alignSelf: 'stretch', margin: '0 2px' }} />
+        <label style={{ fontSize: 11.5, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5 }}>de<input type="date" value={vde} onChange={e => setVde(e.target.value)} style={{ ...s.input || {}, border: '1.5px solid #e2e8f0', borderRadius: 9, padding: '6px 8px', fontSize: 13 }} /></label>
+        <label style={{ fontSize: 11.5, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5 }}>até<input type="date" value={vate} onChange={e => setVate(e.target.value)} style={{ border: '1.5px solid #e2e8f0', borderRadius: 9, padding: '6px 8px', fontSize: 13 }} /></label>
+        {(vde || vate || venc !== 'todos') && <button onClick={() => { setVenc('todos'); setVde(''); setVate(''); }} style={s.btnMini}>limpar</button>}
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}><b>{itens.length}</b> de {(d?.itens || []).length}</span>
       </div>
 
       <div style={{ ...s.card, overflowX: 'auto' }}>

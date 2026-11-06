@@ -264,20 +264,38 @@ function AppInner() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f5f3ef', display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
+      <style>{`
+        /* ── Polimento GLOBAL (vale para todas as telas, sem mexer no conteúdo de cada uma) ── */
+        html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+        ::selection{background:#0E7C5A;color:#fff}
+        *:focus-visible{outline:2px solid #0E7C5A;outline-offset:2px;border-radius:4px}
+        input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px rgba(14,124,90,.13)}
+        button{cursor:pointer;transition:background .12s,color .12s,box-shadow .12s,transform .06s,opacity .12s}
+        button:active:not(:disabled){transform:translateY(.5px)}
+        a{transition:color .12s}
+        ::-webkit-scrollbar{width:11px;height:11px}
+        ::-webkit-scrollbar-thumb{background:#c7d0cb;border-radius:9px;border:3px solid transparent;background-clip:content-box}
+        ::-webkit-scrollbar-thumb:hover{background:#aab4ae;background-clip:content-box}
+        /* ── Menu lateral ── */
+        .mt-nav .mt-navbtn:hover{background:rgba(255,255,255,.08);color:#fff}
+        .mt-nav::-webkit-scrollbar{width:8px}
+        .mt-nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border:none}
+        @media (prefers-reduced-motion:reduce){button,a{transition:none}button:active:not(:disabled){transform:none}}
+      `}</style>
       {/* Botões flutuantes (Rhia / Chat da Gestão) removidos a pedido do Joe. */}
       {isMobile && (
         <div style={navStyles.topbar}>
           <button onClick={() => setMenuOpen(true)} style={navStyles.hamburger} aria-label="Abrir menu">☰</button>
-          <div style={navStyles.marcaMobile}>🏪 Mutti</div>
+          <div style={navStyles.marcaMobile}><MarcaMutti size={18} /></div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><NotificationBell /><button onClick={logout} style={navStyles.btnLogout}>Sair</button></div>
         </div>
       )}
       {isMobile && menuOpen && <div style={navStyles.overlay} onClick={() => setMenuOpen(false)} />}
       {/* colapso só vale no desktop */}
       {(() => { const col = !isMobile && navCollapsed; return (
-      <nav style={isMobile ? { ...navStyles.nav, ...navStyles.navMobile, ...(menuOpen ? navStyles.navMobileOpen : {}) } : { ...navStyles.nav, ...(col ? navStyles.navCol : {}) }}>
+      <nav className="mt-nav" style={isMobile ? { ...navStyles.nav, ...navStyles.navMobile, ...(menuOpen ? navStyles.navMobileOpen : {}) } : { ...navStyles.nav, ...(col ? navStyles.navCol : {}) }}>
         <div style={{ ...navStyles.marca, display: 'flex', alignItems: 'center', justifyContent: col ? 'center' : 'space-between', gap: 6 }}>
-          {!col && <span>🏪 Mutti</span>}
+          {col ? <MarcaMutti size={20} iconOnly /> : <MarcaMutti size={18} />}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {!col && !isMobile && <NotificationBell />}
             {!isMobile && (
@@ -289,7 +307,7 @@ function AppInner() {
           {(() => {
             const visById = new Map(visiveis.map(m => [m.id, m]));
             const btn = m => (
-              <button key={m.id} title={m.label}
+              <button key={m.id} title={m.label} className="mt-navbtn"
                 style={{ ...navStyles.btn, ...(col ? navStyles.btnCol : {}), ...(atual && atual.id === m.id ? navStyles.btnAtivo : {}) }}
                 onClick={() => { setPaginaAtual(m.id); setMenuOpen(false); }}>
                 {col ? (m.label.split(' ')[0]) : m.label}
@@ -421,6 +439,18 @@ function TrocarSenha({ onConcluido }) {
   );
 }
 
+function MarcaMutti({ size = 18, iconOnly = false }) {
+  const S = size + 6;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 800, color: '#fff', letterSpacing: .2 }}>
+      <span style={{ width: S, height: S, borderRadius: Math.round(S * 0.28), background: 'linear-gradient(135deg,#0E7C5A,#0C6A7E)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 2px 8px -2px rgba(14,124,90,.6)' }}>
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5V8h3.5A1.5 1.5 0 0 1 21 9.5v5A1.5 1.5 0 0 1 19.5 16H16v3.5A1.5 1.5 0 0 1 14.5 21h-5A1.5 1.5 0 0 1 8 19.5V16H4.5A1.5 1.5 0 0 1 3 14.5v-5A1.5 1.5 0 0 1 4.5 8H8V4.5A1.5 1.5 0 0 1 9.5 3Z" fill="#fff" /></svg>
+      </span>
+      {!iconOnly && <span style={{ fontSize: size }}>Mutti</span>}
+    </span>
+  );
+}
+
 const navStyles = {
   nav: { background: '#14201c', color: '#fff', padding: '0.75rem 0.5rem', display: 'flex', flexDirection: 'column', width: 196, flexShrink: 0, height: '100vh', position: 'sticky', top: 0, overflowY: 'auto', gap: 6, fontFamily: "'Archivo', system-ui, sans-serif" },
   marca: { fontSize: 16, fontWeight: 700, padding: '4px 8px 10px' },
@@ -431,7 +461,7 @@ const navStyles = {
   sub: { display: 'flex', flexDirection: 'column', gap: 1, marginLeft: 9, paddingLeft: 6, borderLeft: '1px solid rgba(255,255,255,0.13)' },
   subLabel: { fontSize: 8.5, textTransform: 'uppercase', letterSpacing: 0.4, color: 'rgba(255,255,255,0.3)', padding: '3px 8px 1px' },
   btn: { fontSize: 13, padding: '7px 10px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', borderRadius: 6, textAlign: 'left', width: '100%' },
-  btnAtivo: { background: '#0d6b5e', color: '#fff' },
+  btnAtivo: { background: 'linear-gradient(135deg,#0E7C5A,#0C6A7E)', color: '#fff', fontWeight: 600, boxShadow: '0 4px 12px -4px rgba(14,124,90,.6)' },
   // --- Desktop recolhido (rail só com ícones) ---
   navCol: { width: 56, padding: '0.75rem 0.25rem', alignItems: 'center' },
   btnCol: { textAlign: 'center', padding: '9px 0', fontSize: 18 },
