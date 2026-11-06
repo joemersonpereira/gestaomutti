@@ -94,13 +94,9 @@ export default function Login({ onLogin }) {
 }
 
 const CSS = `
-.lg-bg{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
-  background:radial-gradient(1200px 600px at 10% -10%,#e8f5ef 0,transparent 55%),
-             radial-gradient(1000px 700px at 110% 110%,#e6eef7 0,transparent 55%),#f4f6f8;
-  font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;box-sizing:border-box;}
+.lg-bg{min-height:100vh;background:#fff;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;box-sizing:border-box;}
 .lg-bg *{box-sizing:border-box;}
-.lg-card{width:100%;max-width:940px;min-height:540px;display:grid;grid-template-columns:1.05fr 1fr;
-  background:#fff;border-radius:22px;overflow:hidden;box-shadow:0 24px 60px -20px rgba(16,40,60,.28),0 4px 14px rgba(16,40,60,.06);}
+.lg-card{width:100%;min-height:100vh;display:grid;grid-template-columns:1.05fr 1fr;background:#fff;overflow:hidden;}
 /* Painel da marca */
 .lg-brand{position:relative;padding:38px 36px;color:#eafff6;display:flex;flex-direction:column;overflow:hidden;
   background:linear-gradient(150deg,#0E7C5A 0%,#0B6B6E 55%,#0C5A86 100%);}
@@ -118,7 +114,8 @@ const CSS = `
 .lg-glow-1{width:260px;height:260px;right:-90px;top:-70px;background:radial-gradient(circle,rgba(255,255,255,.35),transparent 65%);}
 .lg-glow-2{width:200px;height:200px;left:-70px;bottom:-60px;background:radial-gradient(circle,rgba(120,255,214,.35),transparent 65%);}
 /* Formulário */
-.lg-form-wrap{padding:44px 44px 30px;display:flex;flex-direction:column;justify-content:center;}
+.lg-form-wrap{padding:44px;display:flex;flex-direction:column;justify-content:center;align-items:center;}
+.lg-form-wrap>*{width:100%;max-width:400px;}
 .lg-logo-mobile{display:none;align-items:center;gap:8px;font-size:16px;color:#0E7C5A;margin-bottom:18px;}
 .lg-title{font-size:23px;font-weight:800;color:#13233a;margin:0 0 4px;letter-spacing:-.3px;}
 .lg-subtitle{font-size:13.5px;color:#64748b;margin:0 0 22px;}
