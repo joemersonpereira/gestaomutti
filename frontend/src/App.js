@@ -440,15 +440,15 @@ function TrocarSenha({ onConcluido }) {
 }
 
 function MarcaMutti({ size = 18, iconOnly = false }) {
-  const S = size + 6;
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 800, color: '#fff', letterSpacing: .2 }}>
+  if (iconOnly) {
+    const S = size + 10;
+    return (
       <span style={{ width: S, height: S, borderRadius: Math.round(S * 0.28), background: 'linear-gradient(135deg,#0E7C5A,#0C6A7E)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 2px 8px -2px rgba(14,124,90,.6)' }}>
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none"><path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5V8h3.5A1.5 1.5 0 0 1 21 9.5v5A1.5 1.5 0 0 1 19.5 16H16v3.5A1.5 1.5 0 0 1 14.5 21h-5A1.5 1.5 0 0 1 8 19.5V16H4.5A1.5 1.5 0 0 1 3 14.5v-5A1.5 1.5 0 0 1 4.5 8H8V4.5A1.5 1.5 0 0 1 9.5 3Z" fill="#fff" /></svg>
       </span>
-      {!iconOnly && <span style={{ fontSize: size }}>Mutti</span>}
-    </span>
-  );
+    );
+  }
+  return <img src="/logo-mutti-white.svg" alt="Grupo Mutti" style={{ height: size + 7, display: 'block', maxWidth: '100%' }} />;
 }
 
 const navStyles = {

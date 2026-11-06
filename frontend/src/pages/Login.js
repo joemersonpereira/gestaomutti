@@ -28,16 +28,9 @@ export default function Login({ onLogin }) {
       <div className="lg-card">
         {/* Painel da marca */}
         <aside className="lg-brand">
-          <div className="lg-brand-top">
-            <div className="lg-logo" aria-hidden="true">
-              <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
-                <path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5V8h3.5A1.5 1.5 0 0 1 21 9.5v5A1.5 1.5 0 0 1 19.5 16H16v3.5A1.5 1.5 0 0 1 14.5 21h-5A1.5 1.5 0 0 1 8 19.5V16H4.5A1.5 1.5 0 0 1 3 14.5v-5A1.5 1.5 0 0 1 4.5 8H8V4.5A1.5 1.5 0 0 1 9.5 3Z" fill="#fff" />
-              </svg>
-            </div>
-            <div>
-              <div className="lg-brand-name">Grupo Mutti</div>
-              <div className="lg-brand-sub">Sistema de Gestão</div>
-            </div>
+          <div className="lg-brand-top" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
+            <img src="/logo-mutti-white.svg" alt="Grupo Mutti" style={{ height: 42, maxWidth: '85%' }} />
+            <div className="lg-brand-sub">Sistema de Gestão</div>
           </div>
           <div className="lg-brand-mid">
             <h2>Tudo da operação<br />em um só lugar.</h2>
@@ -51,8 +44,7 @@ export default function Login({ onLogin }) {
         {/* Formulário */}
         <main className="lg-form-wrap">
           <div className="lg-logo-mobile" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5V8h3.5A1.5 1.5 0 0 1 21 9.5v5A1.5 1.5 0 0 1 19.5 16H16v3.5A1.5 1.5 0 0 1 14.5 21h-5A1.5 1.5 0 0 1 8 19.5V16H4.5A1.5 1.5 0 0 1 3 14.5v-5A1.5 1.5 0 0 1 4.5 8H8V4.5A1.5 1.5 0 0 1 9.5 3Z" fill="#0E7C5A" /></svg>
-            <b>Grupo Mutti</b>
+            <img src="/logo-mutti-color.svg" alt="Grupo Mutti" style={{ height: 28 }} />
           </div>
           <h1 className="lg-title">Bem-vindo de volta</h1>
           <p className="lg-subtitle">Entre com sua conta para acessar o painel.</p>
