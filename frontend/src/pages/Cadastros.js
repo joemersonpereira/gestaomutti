@@ -345,8 +345,14 @@ function Colaboradores({ API }) {
           <label title="A qual conta Pay X (CNPJ) este colaborador carrega a premiação — define em qual Excel da carga ele sai. Em branco = usa o CNPJ da loja dele." style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#444' }}>
             🏦 Vínculo Pay X:
             <select style={{ fontSize: 12, padding: '3px 6px', border: '1px solid #ddd', borderRadius: 6 }} value={form.payx_cnpj || ''} onChange={e => setForm({ ...form, payx_cnpj: e.target.value })}>
-              <option value="">— pela loja —</option>
-              {payxContas.map(c => <option key={c.cnpj} value={c.cnpj}>{c.cnpj_fmt}{c.empresa_nome ? ' · ' + c.empresa_nome : ''}</option>)}
+              <option value="">— pela loja do colaborador —</option>
+              {(() => {
+                const dig = v => String(v || '').replace(/\D/g, '');
+                const vistos = new Set(); const opts = [];
+                lojas.filter(l => l.cnpj).forEach(l => { const k = dig(l.cnpj); if (k && !vistos.has(k)) { vistos.add(k); opts.push({ v: k, t: `${l.nome} · ${l.cnpj}` }); } });
+                payxContas.forEach(c => { const k = dig(c.cnpj); if (k && !vistos.has(k)) { vistos.add(k); opts.push({ v: k, t: `${c.cnpj_fmt || c.cnpj}${c.empresa_nome ? ' · ' + c.empresa_nome : ''}` }); } });
+                return opts.map(o => <option key={o.v} value={o.v}>{o.t}</option>);
+              })()}
             </select>
           </label>
         </div>
