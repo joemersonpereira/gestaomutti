@@ -1500,4 +1500,34 @@ router.get('/espiao/lead-resumo', async (req, res) => {
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
+// GET /contabilidade/recebimento-aberto?loja= — mercadoria que teve recebimento de transporte
+// mas NÃO foi concluído ("recebeu e não deu entrada"): recebimento físico iniciado (status 'A')
+// e nunca finalizado no ERP. Um recebimento pode ter várias NFs — agrega 1 linha por recebimento.
+router.get('/recebimento-aberto', async (req, res) => {
+  try {
+    const unis = unisEmpresa(req.usuario.empresa_id, req.query.loja);
+    if (!unis.length) return res.json({ itens: [], resumo: { total: 0, criticos: 0 } });
+    const rows = await erpQuery(`
+      SELECT rf.codigo, rf.unidadenegocioid AS loja_erp,
+             to_char(rf.datahora,'YYYY-MM-DD') AS inicio,
+             EXTRACT(day FROM now()-rf.datahora)::int AS dias,
+             count(DISTINCT rfn.notafiscalid) AS nfs,
+             max(nf.numero) AS nf,
+             NULLIF(string_agg(DISTINCT forn.nome, ', '), '') AS fornecedor,
+             (SELECT count(*) FROM itemrecebimentofisico i WHERE i.recebimentofisicoid = rf.id) AS itens,
+             ui.apelido AS iniciado_por
+        FROM recebimentofisico rf
+        LEFT JOIN recebimentofisiconotafiscal rfn ON rfn.recebimentofisicoid = rf.id
+        LEFT JOIN notafiscal nf ON nf.id = rfn.notafiscalid
+        LEFT JOIN pessoa forn ON forn.id = nf.fornecedorid
+        LEFT JOIN usuario ui ON ui.id = rf.usuarioinicialid
+       WHERE rf.status = 'A' AND rf.unidadenegocioid = ANY($1::bigint[])
+       GROUP BY rf.id, rf.codigo, rf.unidadenegocioid, rf.datahora, ui.apelido
+       ORDER BY rf.datahora ASC`, [unis]);
+    const mapa = mapaLojas(req.usuario.empresa_id);
+    const itens = rows.map(r => ({ ...r, loja: mapa[Number(r.loja_erp)] || r.loja_erp, dias: Number(r.dias), nfs: Number(r.nfs), itens: Number(r.itens) }));
+    res.json({ itens, resumo: { total: itens.length, criticos: itens.filter(i => i.dias > 2).length } });
+  } catch (e) { res.status(503).json({ erro: 'ERP indisponível para o acompanhamento.', detalhe: String(e.message || e) }); }
+});
+
 module.exports = router;
