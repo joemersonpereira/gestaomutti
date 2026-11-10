@@ -42,8 +42,8 @@ router.post('/contas', exigePerfil('Diretor Geral', 'Gestor Geral', 'Supervisor'
 router.get('/exportar', exigePerfil(...ACESSO), async (req, res) => {
   try {
     const r = await pf.exportarCarga(emp(req), req.query.mes, req.query.ano);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="carga_premiacao_${String(req.query.mes).padStart(2, '0')}_${req.query.ano}.xlsx"`);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="cargas_premiacao_${String(req.query.mes).padStart(2, '0')}_${req.query.ano}.zip"`);
     res.setHeader('X-Sem-Id', String((r.sem_id || []).length)); // quantos pagáveis sem ID Premiação
     res.send(r.buffer);
   } catch (e) { res.status(400).json({ erro: e.message }); }

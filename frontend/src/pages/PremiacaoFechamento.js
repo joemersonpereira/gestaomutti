@@ -106,8 +106,8 @@ export default function PremiacaoFechamento() {
       const r = await API.get('/premiacao-fechamento/exportar', { params: { mes, ano }, responseType: 'blob' });
       const semId = Number(r.headers['x-sem-id'] || 0);
       const a = document.createElement('a'); a.href = URL.createObjectURL(r.data);
-      a.download = `carga_premiacao_${String(mes).padStart(2, '0')}_${ano}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
-      setMsg(semId ? `✅ Carga gerada. ⚠️ ${semId} colaborador(es) pagáveis SEM ID Premiação no cadastro — preencha o ID para não sair em branco.` : '✅ Carga gerada no modelo Pay X Virtual.');
+      a.download = `cargas_premiacao_${String(mes).padStart(2, '0')}_${ano}.zip`; a.click(); URL.revokeObjectURL(a.href);
+      setMsg(semId ? `✅ Cargas geradas (1 arquivo por CNPJ, no ZIP). ⚠️ ${semId} colaborador(es) pagáveis SEM ID Premiação — preencha o ID.` : '✅ Cargas geradas: 1 arquivo por CNPJ (ZIP), no modelo Pay X.');
     } catch { setMsg('Erro ao exportar a carga.'); }
   }
 
@@ -151,7 +151,7 @@ export default function PremiacaoFechamento() {
             🎟️ Importar IDs/vínculos (cargas)
             <input type="file" multiple accept=".xls,.xlsx" style={{ display: 'none' }} disabled={fechado} onChange={e => subirIds(e.target.files)} />
           </label>
-          <button style={s.btnSec} onClick={exportarCarga} disabled={!dados.relatorios.length}>⬇️ Exportar carga (Pay X Virtual)</button>
+          <button style={s.btnSec} onClick={exportarCarga} disabled={!dados.linhas.length}>⬇️ Exportar cargas (ZIP · 1 por CNPJ)</button>
           {fechado
             ? <button style={s.btnSec} onClick={() => fecharMes(true)}>🔓 Reabrir mês</button>
             : <button style={s.btn} onClick={() => fecharMes(false)} disabled={!dados.relatorios.length}>🔒 Fechar mês</button>}

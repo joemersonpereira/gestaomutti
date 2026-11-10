@@ -4,9 +4,68 @@
 // (perfumista/premiacao_gestao/premiacao_caixa) e calcula o prêmio bruto, os descontos e o líquido.
 // O sistema NÃO escreve no ERP — os relatórios são a fonte da base (o Joe os baixa todo mês).
 const XLSX = require('xlsx');
+const JSZip = require('jszip');
+const fs = require('fs');
+const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db/connection');
 const { erpQuery } = require('../db/erp');
+
+// modelo oficial da carga Pay X (embutido no projeto) — a formatação sai IDÊNTICA a ele.
+const MODELO_PATH = path.join(__dirname, '..', 'templates', 'payx_modelo.xlsx');
+let _modeloBuf = null;
+const modeloBuf = () => { if (!_modeloBuf) _modeloBuf = fs.readFileSync(MODELO_PATH); return _modeloBuf; };
+const xmlEsc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// Preenche o modelo com os dados de UMA conta/CNPJ, preservando 100% a formatação (estilos,
+// logo, colunas). Troca só os valores do cabeçalho e regenera as linhas de dados (A=CPF, B=Nome,
+// C=Valor, D=ID), reaproveitando os estilos do modelo (s10/s11). Devolve o buffer do xlsx.
+async function preencherTemplate(g) {
+  const z = await JSZip.loadAsync(modeloBuf());
+  let xml = await z.file('xl/worksheets/sheet1.xml').async('string');
+  const setCell = (ref, s, conteudo) => {
+    const re = new RegExp('<c r="' + ref + '"(?:\\s[^>]*?)?(?:/>|>[\\s\\S]*?</c>)');
+    xml = xml.replace(re, `<c r="${ref}" s="${s}"${conteudo}`);
+  };
+  const inline = v => ` t="inlineStr"><is><t xml:space="preserve">${xmlEsc(v)}</t></is></c>`;
+  const number = v => `><v>${v}</v></c>`;
+  const codNum = /^\d+$/.test(String(g.codigo || '')) ? Number(g.codigo) : null;
+  setCell('B2', 14, inline(g.empresa));
+  setCell('B4', 14, inline(g.cnpj_fmt));
+  setCell('B5', 14, inline(g.produto));
+  setCell('B6', 14, codNum != null ? number(codNum) : inline(g.codigo));
+  setCell('B7', 17, number(g.taxaFrac));
+  setCell('D7', 4, number(g.taxaRs));
+  setCell('B8', 4, number(g.soma));
+  setCell('B9', 21, number(g.total));
+  // regenera as linhas de dados (apaga r>=11 e recria com os estilos do modelo)
+  const cut = xml.indexOf('<row r="11"');
+  const endSD = xml.indexOf('</sheetData>');
+  const cabeca = cut >= 0 ? xml.slice(0, cut) : xml.slice(0, endSD);
+  const cauda = xml.slice(endSD);
+  let dataRows = '';
+  g.linhas.forEach((l, i) => {
+    const rn = 11 + i;
+    dataRows += `<row r="${rn}" spans="1:5">`
+      + `<c r="A${rn}" s="10" t="inlineStr"><is><t xml:space="preserve">${xmlEsc(l.cpf)}</t></is></c>`
+      + `<c r="B${rn}" s="10" t="inlineStr"><is><t xml:space="preserve">${xmlEsc(l.nome)}</t></is></c>`
+      + `<c r="C${rn}" s="11"><v>${Number(l.valor) || 0}</v></c>`
+      + `<c r="D${rn}" s="10" t="inlineStr"><is><t xml:space="preserve">${xmlEsc(l.id || '')}</t></is></c>`
+      + `</row>`;
+  });
+  xml = cabeca + dataRows + cauda;
+  const lastRow = 10 + g.linhas.length;
+  xml = xml.replace(/<dimension ref="[^"]*"\/>/, `<dimension ref="A1:E${Math.max(11, lastRow)}"/>`);
+  z.file('xl/worksheets/sheet1.xml', xml);
+  // remove o calcChain (não há fórmulas) p/ o Excel não tentar recalcular células trocadas
+  if (z.file('xl/calcChain.xml')) {
+    z.remove('xl/calcChain.xml');
+    let ct = await z.file('[Content_Types].xml').async('string');
+    ct = ct.replace(/<Override PartName="\/xl\/calcChain.xml"[^>]*\/>/, '');
+    z.file('[Content_Types].xml', ct);
+  }
+  return z.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
 
 // nome normalizado p/ casar o relatório (que TRUNCA nomes longos ~30 chars) com o cadastro
 const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
@@ -384,34 +443,28 @@ async function exportarCarga(empresaId, mes, ano) {
     grupos.set(key, g);
   }
 
-  const wb = XLSX.utils.book_new();
+  // 1 ARQUIVO POR CNPJ, no modelo oficial (formatação idêntica), empacotados num ZIP.
+  const zip = new JSZip();
   const nomesUsados = new Set();
+  const mm = String(mes).padStart(2, '0');
   for (const [key, g] of grupos) {
     const soma = round(g.linhas.reduce((s, x) => s + x.valor, 0));
-    const taxa = round(soma * (g.taxa || 0) / 100);
-    const aoa = [
-      ['SOLICITAÇÃO DE PREMIAÇÕES – CARREGAMENTO'],
-      ['Empresa', String(g.empresa).trim()],
-      [],
-      ['CNPJ', g.cnpj_fmt],
-      ['Produto', g.produto],
-      ['Código', g.codigo],
-      ['Taxa Adm. (%)', Number(g.taxa).toFixed(2) + '%', '', taxa],
-      ['Valor da premiação', soma, 'Modelo', 1],
-      ['Total da fatura', round(soma + taxa)],
-      ['CPF/CNPJ', 'Nome', 'Valor', 'ID', 'OBSERVAÇÃO'],
-      ...g.linhas.map(x => [x.cpf, x.nome, x.valor, x.id, x.obs]),
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    let nome = (g.cnpj_fmt || '').replace(/\D/g, '') || String(key).slice(0, 28);
-    nome = nome.slice(0, 31); let n = nome, i = 2;
-    while (nomesUsados.has(n)) { n = nome.slice(0, 28) + '_' + i++; }
+    const taxaRs = round(soma * (g.taxa || 0) / 100);
+    const buf = await preencherTemplate({
+      empresa: String(g.empresa || '').trim(), cnpj_fmt: g.cnpj_fmt || '', produto: g.produto || 'PAYX VIRTUAL COM PIX',
+      codigo: g.codigo, taxaFrac: (Number(g.taxa) || 0) / 100, taxaRs, soma, total: round(soma + taxaRs),
+      linhas: g.linhas,
+    });
+    const cnpjDig = (g.cnpj_fmt || '').replace(/\D/g, '') || String(key);
+    let nome = `CARREGAMENTO - ${(g.produto || 'PAYX')} ${g.cnpj_fmt || cnpjDig} ${mm}-${ano}.xlsx`.replace(/[\\/:*?"<>|]/g, '_');
+    let n = nome, i = 2;
+    while (nomesUsados.has(n)) { n = nome.replace('.xlsx', '') + '_' + i++ + '.xlsx'; }
     nomesUsados.add(n);
-    XLSX.utils.book_append_sheet(wb, ws, n);
+    zip.file(n, buf);
   }
-  if (!grupos.size) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Sem colaboradores com líquido a pagar e cadastro neste mês.']]), 'vazio');
-  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  return { buffer, lojas: grupos.size, colaboradores: pagaveis.length, sem_id: semId, sem_vinculo: semVinculo };
+  if (!grupos.size) zip.file('VAZIO.txt', 'Sem colaboradores com líquido a pagar e cadastro neste mês.');
+  const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  return { buffer, zip: true, lojas: grupos.size, colaboradores: pagaveis.length, sem_id: semId, sem_vinculo: semVinculo };
 }
 
 // ── base AO VIVO direto dos planos de remuneração do ERP ────────────────────
