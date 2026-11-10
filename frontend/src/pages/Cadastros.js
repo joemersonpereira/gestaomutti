@@ -128,9 +128,10 @@ function SyncAlpha({ API, onAplicado, lojas = [], funcoes = [] }) {
 function Colaboradores({ API }) {
   const [lojas, setLojas] = useState([]);
   const [funcoes, setFuncoes] = useState([]);
+  const [payxContas, setPayxContas] = useState([]);
   const [departamentos, setDepartamentos] = useState([]);
   const [lista, setLista] = useState([]);
-  const [form, setForm] = useState({ nome: '', email: '', cpf: '', funcao_id: '', loja_id: '', departamento: '', salario: '', admissao: '', inicio_loja: '', nascimento: '', chefe_setor: false, lideranca: false, conferente: false, perfumista: false, premiacao_gestao: '', premiacao_caixa: false, id_premiacao: '', is_estagiario: false, is_socio: false, lojas_extra: [], empresa_registro: '', empresa_atuacao: '', telefone: '', endereco: '', apelido: '', contato_emergencia_nome: '', contato_emergencia_telefone: '', foto: null, cep: '', endereco_numero: '', complemento: '', bairro: '', cidade: '', uf: '', num_calcado: '', tam_blusa: '', tam_calca: '', tam_jaleco: '', bio: '', presente_favorito: '', cores_favoritas: '', estilo_musical: '', hobbies: '', time_coracao: '', dependentes: [], lgpd: false });
+  const [form, setForm] = useState({ nome: '', email: '', cpf: '', funcao_id: '', loja_id: '', departamento: '', salario: '', admissao: '', inicio_loja: '', nascimento: '', chefe_setor: false, lideranca: false, conferente: false, perfumista: false, premiacao_gestao: '', premiacao_caixa: false, id_premiacao: '', payx_cnpj: '', is_estagiario: false, is_socio: false, lojas_extra: [], empresa_registro: '', empresa_atuacao: '', telefone: '', endereco: '', apelido: '', contato_emergencia_nome: '', contato_emergencia_telefone: '', foto: null, cep: '', endereco_numero: '', complemento: '', bairro: '', cidade: '', uf: '', num_calcado: '', tam_blusa: '', tam_calca: '', tam_jaleco: '', bio: '', presente_favorito: '', cores_favoritas: '', estilo_musical: '', hobbies: '', time_coracao: '', dependentes: [], lgpd: false });
   const [editId, setEditId] = useState(null);
   const [temFotoAtual, setTemFotoAtual] = useState(false);
   const [lgpdInfo, setLgpdInfo] = useState({ consentido: false, em: null });
@@ -152,6 +153,7 @@ function Colaboradores({ API }) {
     API.get('/referencias/lojas').then(r => setLojas(r.data.lojas || []));
     API.get('/referencias/funcoes').then(r => setFuncoes(r.data.funcoes || []));
     API.get('/referencias/departamentos').then(r => setDepartamentos(r.data.departamentos || []));
+    API.get('/premiacao-fechamento/contas').then(r => setPayxContas(r.data.contas || [])).catch(() => {});
     API.get('/referencias/terceirizadas').then(r => { setTerceirizadas(r.data.terceirizadas || []); setEmpresaPrincipal(r.data.principal || ''); }).catch(() => {});
   }, [API, carregar]);
 
@@ -180,7 +182,7 @@ function Colaboradores({ API }) {
     setEditId(c.id);
     setMostrarForm(true);
     setTemFotoAtual(!!c.tem_foto);
-    setForm({ nome: c.nome || '', email: c.email || '', cpf: c.cpf || '', funcao_id: c.funcao_id || '', loja_id: c.loja_id || '', departamento: c.departamento || '', salario: c.salario || '', admissao: c.admissao || '', inicio_loja: (c.inicio_loja || '').slice(0, 10), nascimento: c.nascimento || '', chefe_setor: !!c.chefe_setor, lideranca: !!c.lideranca, conferente: !!c.conferente, perfumista: !!c.perfumista, premiacao_gestao: c.premiacao_gestao || '', premiacao_caixa: !!c.premiacao_caixa, id_premiacao: c.id_premiacao || '', is_estagiario: !!c.is_estagiario, is_socio: !!c.is_socio, lojas_extra: c.lojas_extra ? c.lojas_extra.split(',') : [], empresa_registro: c.empresa_registro || '', empresa_atuacao: c.empresa_atuacao || '', telefone: c.telefone || '', endereco: c.endereco || '', apelido: c.apelido || '', contato_emergencia_nome: c.contato_emergencia_nome || '', contato_emergencia_telefone: c.contato_emergencia_telefone || '', foto: c.foto || null, cep: c.cep || '', endereco_numero: c.endereco_numero || '', complemento: c.complemento || '', bairro: c.bairro || '', cidade: c.cidade || '', uf: c.uf || '', num_calcado: c.num_calcado || '', tam_blusa: c.tam_blusa || '', tam_calca: c.tam_calca || '', tam_jaleco: c.tam_jaleco || '', bio: c.bio || '', presente_favorito: c.presente_favorito || '', cores_favoritas: c.cores_favoritas || '', estilo_musical: c.estilo_musical || '', hobbies: c.hobbies || '', time_coracao: c.time_coracao || '', dependentes: [], lgpd: !!c.lgpd_consentido, tangerino_id: c.tangerino_id || '', tangerino_nome: c.tangerino_nome || '' });
+    setForm({ nome: c.nome || '', email: c.email || '', cpf: c.cpf || '', funcao_id: c.funcao_id || '', loja_id: c.loja_id || '', departamento: c.departamento || '', salario: c.salario || '', admissao: c.admissao || '', inicio_loja: (c.inicio_loja || '').slice(0, 10), nascimento: c.nascimento || '', chefe_setor: !!c.chefe_setor, lideranca: !!c.lideranca, conferente: !!c.conferente, perfumista: !!c.perfumista, premiacao_gestao: c.premiacao_gestao || '', premiacao_caixa: !!c.premiacao_caixa, id_premiacao: c.id_premiacao || '', payx_cnpj: c.payx_cnpj || '', is_estagiario: !!c.is_estagiario, is_socio: !!c.is_socio, lojas_extra: c.lojas_extra ? c.lojas_extra.split(',') : [], empresa_registro: c.empresa_registro || '', empresa_atuacao: c.empresa_atuacao || '', telefone: c.telefone || '', endereco: c.endereco || '', apelido: c.apelido || '', contato_emergencia_nome: c.contato_emergencia_nome || '', contato_emergencia_telefone: c.contato_emergencia_telefone || '', foto: c.foto || null, cep: c.cep || '', endereco_numero: c.endereco_numero || '', complemento: c.complemento || '', bairro: c.bairro || '', cidade: c.cidade || '', uf: c.uf || '', num_calcado: c.num_calcado || '', tam_blusa: c.tam_blusa || '', tam_calca: c.tam_calca || '', tam_jaleco: c.tam_jaleco || '', bio: c.bio || '', presente_favorito: c.presente_favorito || '', cores_favoritas: c.cores_favoritas || '', estilo_musical: c.estilo_musical || '', hobbies: c.hobbies || '', time_coracao: c.time_coracao || '', dependentes: [], lgpd: !!c.lgpd_consentido, tangerino_id: c.tangerino_id || '', tangerino_nome: c.tangerino_nome || '' });
     setLgpdInfo({ consentido: !!c.lgpd_consentido, em: c.lgpd_consentido_em });
     setMsg(null);
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -191,7 +193,7 @@ function Colaboradores({ API }) {
     setMostrarForm(false);
     setTemFotoAtual(false);
     setLgpdInfo({ consentido: false, em: null });
-    setForm({ nome: '', email: '', cpf: '', funcao_id: '', loja_id: '', departamento: '', salario: '', admissao: '', inicio_loja: '', nascimento: '', chefe_setor: false, lideranca: false, conferente: false, perfumista: false, premiacao_gestao: '', premiacao_caixa: false, id_premiacao: '', is_estagiario: false, is_socio: false, lojas_extra: [], empresa_registro: '', empresa_atuacao: '', telefone: '', endereco: '', apelido: '', contato_emergencia_nome: '', contato_emergencia_telefone: '', foto: null, cep: '', endereco_numero: '', complemento: '', bairro: '', cidade: '', uf: '', num_calcado: '', tam_blusa: '', tam_calca: '', tam_jaleco: '', bio: '', presente_favorito: '', cores_favoritas: '', estilo_musical: '', hobbies: '', time_coracao: '', dependentes: [], lgpd: false });
+    setForm({ nome: '', email: '', cpf: '', funcao_id: '', loja_id: '', departamento: '', salario: '', admissao: '', inicio_loja: '', nascimento: '', chefe_setor: false, lideranca: false, conferente: false, perfumista: false, premiacao_gestao: '', premiacao_caixa: false, id_premiacao: '', payx_cnpj: '', is_estagiario: false, is_socio: false, lojas_extra: [], empresa_registro: '', empresa_atuacao: '', telefone: '', endereco: '', apelido: '', contato_emergencia_nome: '', contato_emergencia_telefone: '', foto: null, cep: '', endereco_numero: '', complemento: '', bairro: '', cidade: '', uf: '', num_calcado: '', tam_blusa: '', tam_calca: '', tam_jaleco: '', bio: '', presente_favorito: '', cores_favoritas: '', estilo_musical: '', hobbies: '', time_coracao: '', dependentes: [], lgpd: false });
     setMsg(null);
   }
 
@@ -211,7 +213,7 @@ function Colaboradores({ API }) {
         const r = await API.post('/colaboradores', payload);
         if (form.lgpd && r.data.id) { try { await API.post(`/colaboradores/${r.data.id}/lgpd`); } catch { /* ignora */ } }
         setMsg({ ok: true, senha: r.data.senha_provisoria, email: form.email });
-        setForm({ nome: '', email: '', cpf: '', funcao_id: '', loja_id: '', departamento: '', salario: '', admissao: '', inicio_loja: '', nascimento: '', chefe_setor: false, lideranca: false, conferente: false, perfumista: false, premiacao_gestao: '', premiacao_caixa: false, id_premiacao: '', is_estagiario: false, is_socio: false, lojas_extra: [], empresa_registro: '', empresa_atuacao: '', telefone: '', endereco: '', apelido: '', contato_emergencia_nome: '', contato_emergencia_telefone: '', foto: null, cep: '', endereco_numero: '', complemento: '', bairro: '', cidade: '', uf: '', num_calcado: '', tam_blusa: '', tam_calca: '', tam_jaleco: '', bio: '', presente_favorito: '', cores_favoritas: '', estilo_musical: '', hobbies: '', time_coracao: '', dependentes: [], lgpd: false });
+        setForm({ nome: '', email: '', cpf: '', funcao_id: '', loja_id: '', departamento: '', salario: '', admissao: '', inicio_loja: '', nascimento: '', chefe_setor: false, lideranca: false, conferente: false, perfumista: false, premiacao_gestao: '', premiacao_caixa: false, id_premiacao: '', payx_cnpj: '', is_estagiario: false, is_socio: false, lojas_extra: [], empresa_registro: '', empresa_atuacao: '', telefone: '', endereco: '', apelido: '', contato_emergencia_nome: '', contato_emergencia_telefone: '', foto: null, cep: '', endereco_numero: '', complemento: '', bairro: '', cidade: '', uf: '', num_calcado: '', tam_blusa: '', tam_calca: '', tam_jaleco: '', bio: '', presente_favorito: '', cores_favoritas: '', estilo_musical: '', hobbies: '', time_coracao: '', dependentes: [], lgpd: false });
         carregar();
       }
     } catch (e) {
@@ -350,6 +352,13 @@ function Colaboradores({ API }) {
           <label title="Número de identificação do colaborador no cartão de premiação (Pay X Virtual). Vai na coluna ID da planilha de carga." style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#444' }}>
             🎟️ ID Premiação:
             <input style={{ fontSize: 12, padding: '3px 7px', border: '1px solid #ddd', borderRadius: 6, width: 120 }} value={form.id_premiacao || ''} onChange={e => setForm({ ...form, id_premiacao: e.target.value })} placeholder="ex.: 000092243" />
+          </label>
+          <label title="A qual conta Pay X (CNPJ) este colaborador carrega a premiação — define em qual Excel da carga ele sai. Em branco = usa o CNPJ da loja dele." style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#444' }}>
+            🏦 Vínculo Pay X:
+            <select style={{ fontSize: 12, padding: '3px 6px', border: '1px solid #ddd', borderRadius: 6 }} value={form.payx_cnpj || ''} onChange={e => setForm({ ...form, payx_cnpj: e.target.value })}>
+              <option value="">— pela loja —</option>
+              {payxContas.map(c => <option key={c.cnpj} value={c.cnpj}>{c.cnpj_fmt}{c.empresa_nome ? ' · ' + c.empresa_nome : ''}</option>)}
+            </select>
           </label>
         </div>
 

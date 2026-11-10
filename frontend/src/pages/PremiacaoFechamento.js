@@ -16,6 +16,7 @@ export default function PremiacaoFechamento() {
   const [carregando, setCarregando] = useState(false);
   const [filtro, setFiltro] = useState('');
   const [soPendentes, setSoPendentes] = useState(false);
+  const [contas, setContas] = useState([]);
 
   const carregar = useCallback(() => {
     setCarregando(true);
@@ -25,6 +26,26 @@ export default function PremiacaoFechamento() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [API, mes, ano]);
   useEffect(() => { carregar(); }, [carregar]);
+  const carregarContas = useCallback(() => { API.get('/premiacao-fechamento/contas').then(r => setContas(r.data.contas || [])).catch(() => {}); }, [API]);
+  useEffect(() => { carregarContas(); }, [carregarContas]);
+
+  async function subirIds(files) {
+    const lista = Array.from(files || []); if (!lista.length) return;
+    setMsg(''); let at = 0; const nao = []; const erros = [];
+    for (const f of lista) {
+      try {
+        const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+        const r = await API.post('/premiacao-fechamento/importar-ids', { conteudoBase64: b64, nomeArquivo: f.name });
+        at += r.data.atualizados; nao.push(...(r.data.nao_achados || []));
+      } catch (e) { erros.push(`${f.name}: ${e.response?.data?.erro || 'erro'}`); }
+    }
+    setMsg(`✅ ${at} ID(s)/vínculo(s) preenchidos no cadastro.` + (nao.length ? ` ⚠️ ${nao.length} CPF(s) sem colaborador no sistema (outras razões sociais ou cadastro faltando).` : '') + (erros.length ? ' ' + erros.join(' · ') : ''));
+    carregar(); carregarContas();
+  }
+  async function salvarConta(c) {
+    try { const r = await API.post('/premiacao-fechamento/contas', c); setContas(r.data.contas || []); setMsg('✅ Conta Pay X salva.'); }
+    catch { setMsg('Erro ao salvar a conta.'); }
+  }
 
   async function subirArquivos(files) {
     setMsg('');
@@ -114,6 +135,10 @@ export default function PremiacaoFechamento() {
           {fechado
             ? <span style={{ ...s.chip, background: '#FBE7E2', borderColor: '#A3372A', color: '#A3372A', fontWeight: 700 }}>🔒 Mês fechado{dados.fechado_por ? ' · ' + dados.fechado_por : ''}</span>
             : <span style={{ ...s.chip, ...s.chipOn }}>🔓 Em aberto</span>}
+          <label style={{ ...s.btnSec, opacity: fechado ? 0.45 : 1, pointerEvents: fechado ? 'none' : 'auto' }}>
+            🎟️ Importar IDs/vínculos (cargas)
+            <input type="file" multiple accept=".xls,.xlsx" style={{ display: 'none' }} disabled={fechado} onChange={e => subirIds(e.target.files)} />
+          </label>
           <button style={s.btnSec} onClick={exportarCarga} disabled={!dados.relatorios.length}>⬇️ Exportar carga (Pay X Virtual)</button>
           {fechado
             ? <button style={s.btnSec} onClick={() => fecharMes(true)}>🔓 Reabrir mês</button>
@@ -136,6 +161,25 @@ export default function PremiacaoFechamento() {
       </div>
 
       <FaixasVitaminas API={API} onSalvo={carregar} />
+
+      {/* contas Pay X por CNPJ */}
+      <div style={s.card}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>🏦 Contas Pay X (uma carga por CNPJ)</div>
+        <div style={{ fontSize: 11, color: '#7a8a8c', marginBottom: 10 }}>Cada conta vira uma aba no export. Produto, código e taxa saem no cabeçalho da carga — ajuste aqui se precisar. Capturadas ao importar as cargas.</div>
+        {contas.length === 0 && <div style={{ fontSize: 12, color: '#999' }}>Nenhuma conta ainda. Importe as cargas preenchidas (botão acima) para capturar os CNPJs.</div>}
+        {contas.map((c, i) => (
+          <div key={c.cnpj} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, fontWeight: 600, width: 150 }}>{c.cnpj_fmt || c.cnpj}</span>
+            <input style={{ ...s.inNum, width: 190, textAlign: 'left' }} value={c.empresa_nome || ''} placeholder="Empresa" onChange={e => setContas(cs => cs.map((x, j) => j === i ? { ...x, empresa_nome: e.target.value } : x))} />
+            <input style={{ ...s.inNum, width: 170, textAlign: 'left' }} value={c.produto || ''} placeholder="Produto" onChange={e => setContas(cs => cs.map((x, j) => j === i ? { ...x, produto: e.target.value } : x))} />
+            <input style={{ ...s.inNum, width: 60, textAlign: 'left' }} value={c.codigo || ''} placeholder="Cód" onChange={e => setContas(cs => cs.map((x, j) => j === i ? { ...x, codigo: e.target.value } : x))} />
+            <span style={{ fontSize: 11, color: '#7a8a8c' }}>Taxa</span>
+            <input style={{ ...s.inNum, width: 64 }} type="number" step="0.01" value={c.taxa_adm ?? ''} placeholder="%" onChange={e => setContas(cs => cs.map((x, j) => j === i ? { ...x, taxa_adm: e.target.value } : x))} />
+            <span style={{ fontSize: 11, color: '#7a8a8c' }}>%</span>
+            <button style={s.btnSec} onClick={() => salvarConta(contas[i])}>Salvar</button>
+          </div>
+        ))}
+      </div>
 
       {/* resumo */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>

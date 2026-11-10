@@ -23,7 +23,8 @@ const parsePct = v => { const n = Number(String(v == null ? '' : v).replace('%',
 const round = n => Math.round((Number(n) || 0) * 100) / 100;
 
 // ── config (valores cadastráveis) ──────────────────────────────────────────
-const CFG_PADRAO = { uv_valor_un: 0, kit_min: 100, kit_alto: 250, kit_baixo: 120 };
+const CFG_PADRAO = { uv_valor_un: 0, kit_min: 100, kit_alto: 250, kit_baixo: 120, taxa_adm: 1.2 };
+const cpf11 = c => String(c == null ? '' : c).replace(/\D/g, '').padStart(11, '0');
 function getCfg(empresaId) {
   const rows = db.prepare('SELECT chave, valor FROM premiacao_cfg WHERE empresa_id=?').all(empresaId);
   const cfg = { ...CFG_PADRAO };
@@ -254,60 +255,130 @@ function salvarItem(empresaId, body) {
   return { ok: true };
 }
 
+// ── importar os ID Premiação em massa (das cargas preenchidas pela operadora) ─
+// Lê as planilhas de carga (CPF/CNPJ | Nome | Valor | ID | OBS), casa por CPF (11 díg, zero à
+// esquerda) e grava colaboradores.id_premiacao. Devolve quem casou e quem não achou.
+const campoCab = (rows, label) => { const r = rows.find(x => String(x[0] || '').toUpperCase().trim().startsWith(label)); return r ? String(r[1] == null ? '' : r[1]).trim() : ''; };
+function importarIds(empresaId, { conteudoBase64, nomeArquivo }) {
+  const buf = Buffer.from(String(conteudoBase64 || '').replace(/^data:[^,]+,/, ''), 'base64');
+  if (!buf.length) throw new Error('Arquivo vazio.');
+  let wb;
+  try { wb = XLSX.read(buf, { raw: false }); } catch (e) { throw new Error('Não consegui abrir (' + e.message + ').'); }
+  const cols = db.prepare('SELECT id, cpf FROM colaboradores WHERE empresa_id=?').all(empresaId);
+  const porCpf = new Map(cols.filter(c => c.cpf).map(c => [cpf11(c.cpf), c.id]));
+  const updId = db.prepare('UPDATE colaboradores SET id_premiacao=?, payx_cnpj=? WHERE id=?');
+  const upsertConta = db.prepare(`INSERT INTO payx_conta (empresa_id, cnpj, cnpj_fmt, empresa_nome, produto, codigo, taxa_adm)
+    VALUES (?,?,?,?,?,?,?)
+    ON CONFLICT(empresa_id, cnpj) DO UPDATE SET cnpj_fmt=excluded.cnpj_fmt, empresa_nome=excluded.empresa_nome,
+      produto=excluded.produto, codigo=excluded.codigo, taxa_adm=excluded.taxa_adm`);
+  let atualizados = 0; const naoAchados = []; const contas = [];
+  const tx = db.transaction(() => {
+    for (const ab of wb.SheetNames) {
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[ab], { header: 1, raw: false, defval: '' });
+      const hi = rows.findIndex(r => String(r[0] || '').toUpperCase().includes('CPF'));
+      if (hi < 0) continue;
+      // cabeçalho da conta Pay X
+      const cnpjFmt = campoCab(rows, 'CNPJ') || ab;
+      const cnpj = cnpjFmt.replace(/\D/g, '') || ab.replace(/\D/g, '');
+      const taxaTxt = campoCab(rows, 'TAXA');
+      const taxa = parsePct(taxaTxt);
+      upsertConta.run(empresaId, cnpj, cnpjFmt, campoCab(rows, 'EMPRESA'),
+        campoCab(rows, 'PRODUTO'), campoCab(rows, 'CÓDIGO') || campoCab(rows, 'CODIGO'), taxa != null ? taxa : 1.2);
+      contas.push(cnpjFmt);
+      for (let i = hi + 1; i < rows.length; i++) {
+        const cpf = cpf11(rows[i][0]); const id = String(rows[i][3] || '').trim();
+        if (cpf === '00000000000' || !id) continue;
+        const colabId = porCpf.get(cpf);
+        if (colabId) { updId.run(id, cnpj, colabId); atualizados++; }
+        else naoAchados.push(String(rows[i][1] || '').trim() || cpf);
+      }
+    }
+  });
+  tx();
+  return { ok: true, atualizados, nao_achados: naoAchados, contas, arquivo: nomeArquivo || '' };
+}
+
+// contas Pay X (cabeçalho por CNPJ) — listar e editar (taxa/produto/código/empresa)
+function listarContas(empresaId) {
+  return db.prepare('SELECT cnpj, cnpj_fmt, empresa_nome, produto, codigo, taxa_adm FROM payx_conta WHERE empresa_id=? ORDER BY cnpj_fmt').all(empresaId);
+}
+function salvarConta(empresaId, c) {
+  const cnpj = String(c.cnpj || '').replace(/\D/g, '');
+  if (!cnpj) throw new Error('CNPJ obrigatório.');
+  db.prepare(`INSERT INTO payx_conta (empresa_id, cnpj, cnpj_fmt, empresa_nome, produto, codigo, taxa_adm)
+    VALUES (?,?,?,?,?,?,?)
+    ON CONFLICT(empresa_id, cnpj) DO UPDATE SET cnpj_fmt=excluded.cnpj_fmt, empresa_nome=excluded.empresa_nome,
+      produto=excluded.produto, codigo=excluded.codigo, taxa_adm=excluded.taxa_adm`)
+    .run(empresaId, cnpj, c.cnpj_fmt || c.cnpj || '', c.empresa_nome || '', c.produto || '', c.codigo || '', Number(c.taxa_adm) || 0);
+  return { ok: true, contas: listarContas(empresaId) };
+}
+
 // ── export no modelo da operadora (Pay X Virtual com PIX) ───────────────────
 // Uma aba por loja (CNPJ), com o cabeçalho que a planilha de CARGA exige e as linhas
 // CPF | Nome | Valor (líquido) | ID (id_premiacao do cadastro) | OBSERVAÇÃO.
-const TAXA_ADM = 0.012; // 1,20%
 function exportarCarga(empresaId, mes, ano) {
+  const cfg = getCfg(empresaId);
+  const taxaPct = cfg.taxa_adm != null ? Number(cfg.taxa_adm) : 1.2;
   const L = listar(empresaId, { mes: Number(mes), ano: Number(ano) });
   const pagaveis = L.linhas.filter(l => l.colaborador_id && l.liquido > 0);
-  const semId = [];
-  // detalhes do colaborador (CPF, ID premiação, loja)
+  const semId = []; const semVinculo = [];
   const det = new Map();
   if (pagaveis.length) {
     const ids = pagaveis.map(l => l.colaborador_id);
-    const q = db.prepare(`SELECT c.id, c.cpf, c.id_premiacao, c.loja_id, l.razao_social, l.cnpj AS loja_cnpj, l.nome AS loja_nome
+    const q = db.prepare(`SELECT c.id, c.cpf, c.id_premiacao, c.payx_cnpj, c.loja_id, l.razao_social, l.cnpj AS loja_cnpj, l.nome AS loja_nome
       FROM colaboradores c LEFT JOIN lojas l ON l.id=c.loja_id WHERE c.id IN (${ids.map(() => '?').join(',')})`).all(...ids);
     q.forEach(r => det.set(r.id, r));
   }
-  const porLoja = new Map();
+  const contas = new Map(listarContas(empresaId).map(c => [c.cnpj, c]));
+  const grupos = new Map();
   for (const l of pagaveis) {
     const d = det.get(l.colaborador_id) || {};
     if (!d.id_premiacao) semId.push(l.nome);
-    const key = d.loja_id || 'sem-loja';
-    const g = porLoja.get(key) || { empresa: (d.razao_social || d.loja_nome || 'FARMACIA').trim(), cnpj: d.loja_cnpj || '', linhas: [] };
-    g.linhas.push({ cpf: String(d.cpf || '').replace(/\D/g, ''), nome: l.nome, valor: l.liquido, id: d.id_premiacao || '', obs: '' });
-    porLoja.set(key, g);
+    // vínculo Pay X do colaborador; se não tiver, cai no CNPJ da loja onde trabalha
+    const cnpjVinc = (d.payx_cnpj || '').replace(/\D/g, '') || (d.loja_cnpj || '').replace(/\D/g, '');
+    if (!d.payx_cnpj) semVinculo.push(l.nome);
+    const key = cnpjVinc || ('loja:' + (d.loja_id || 'sem'));
+    const conta = contas.get(cnpjVinc);
+    const g = grupos.get(key) || {
+      cnpj_fmt: (conta && conta.cnpj_fmt) || d.loja_cnpj || '',
+      empresa: (conta && conta.empresa_nome) || d.razao_social || d.loja_nome || 'FARMACIA',
+      produto: (conta && conta.produto) || 'PAYX VIRTUAL COM PIX',
+      codigo: (conta && conta.codigo) || 38,
+      taxa: conta && conta.taxa_adm != null ? Number(conta.taxa_adm) : taxaPct,
+      linhas: [],
+    };
+    g.linhas.push({ cpf: cpf11(d.cpf), nome: l.nome, valor: l.liquido, id: d.id_premiacao || '', obs: '' });
+    grupos.set(key, g);
   }
 
   const wb = XLSX.utils.book_new();
   const nomesUsados = new Set();
-  for (const [key, g] of porLoja) {
+  for (const [key, g] of grupos) {
     const soma = round(g.linhas.reduce((s, x) => s + x.valor, 0));
-    const taxa = round(soma * TAXA_ADM);
+    const taxa = round(soma * (g.taxa || 0) / 100);
     const aoa = [
       ['SOLICITAÇÃO DE PREMIAÇÕES – CARREGAMENTO'],
-      ['Empresa', g.empresa],
+      ['Empresa', String(g.empresa).trim()],
       [],
-      ['CNPJ', g.cnpj],
-      ['Produto', 'PAYX VIRTUAL COM PIX'],
-      ['Código', 38],
-      ['Taxa Adm. (%)', '1.20%', '', taxa],
+      ['CNPJ', g.cnpj_fmt],
+      ['Produto', g.produto],
+      ['Código', g.codigo],
+      ['Taxa Adm. (%)', Number(g.taxa).toFixed(2) + '%', '', taxa],
       ['Valor da premiação', soma, 'Modelo', 1],
       ['Total da fatura', round(soma + taxa)],
       ['CPF/CNPJ', 'Nome', 'Valor', 'ID', 'OBSERVAÇÃO'],
       ...g.linhas.map(x => [x.cpf, x.nome, x.valor, x.id, x.obs]),
     ];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    let nome = (g.cnpj || '').replace(/\D/g, '') || String(key).slice(0, 28);
+    let nome = (g.cnpj_fmt || '').replace(/\D/g, '') || String(key).slice(0, 28);
     nome = nome.slice(0, 31); let n = nome, i = 2;
     while (nomesUsados.has(n)) { n = nome.slice(0, 28) + '_' + i++; }
     nomesUsados.add(n);
     XLSX.utils.book_append_sheet(wb, ws, n);
   }
-  if (!porLoja.size) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Sem colaboradores com líquido a pagar e cadastro neste mês.']]), 'vazio');
+  if (!grupos.size) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Sem colaboradores com líquido a pagar e cadastro neste mês.']]), 'vazio');
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  return { buffer, lojas: porLoja.size, colaboradores: pagaveis.length, sem_id: semId };
+  return { buffer, lojas: grupos.size, colaboradores: pagaveis.length, sem_id: semId, sem_vinculo: semVinculo };
 }
 
-module.exports = { importar, listar, salvarItem, salvarCfg, getCfg, status, fechar, exportarCarga };
+module.exports = { importar, listar, salvarItem, salvarCfg, getCfg, status, fechar, exportarCarga, importarIds, listarContas, salvarConta };

@@ -18,6 +18,12 @@ router.post('/item', exigePerfil(...ACESSO), wrap(req => pf.salvarItem(emp(req),
 router.get('/config', exigePerfil(...ACESSO), wrap(req => ({ cfg: pf.getCfg(emp(req)) })));
 router.post('/config', exigePerfil('Diretor Geral', 'Gestor Geral', 'Supervisor', 'Financeiro'), wrap(req => ({ cfg: pf.salvarCfg(emp(req), req.body) })));
 
+// importar IDs e vínculos Pay X das cargas preenchidas (casa por CPF)
+router.post('/importar-ids', exigePerfil(...ACESSO), wrap(req => pf.importarIds(emp(req), req.body)));
+// contas Pay X (cabeçalho por CNPJ: empresa/produto/código/taxa)
+router.get('/contas', exigePerfil(...ACESSO), wrap(req => ({ contas: pf.listarContas(emp(req)) })));
+router.post('/contas', exigePerfil('Diretor Geral', 'Gestor Geral', 'Supervisor', 'Financeiro'), wrap(req => pf.salvarConta(emp(req), req.body)));
+
 // export no modelo da operadora (Pay X Virtual com PIX) — xlsx, uma aba por loja/CNPJ
 router.get('/exportar', exigePerfil(...ACESSO), (req, res) => {
   try {
