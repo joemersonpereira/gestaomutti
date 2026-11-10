@@ -231,6 +231,9 @@ router.get('/dashboard', (req, res) => {
     .reduce((m, r) => (m[r.status] = { n: r.n, valor: r.valor }, m), {});
   // financeiro: vendido (negócios fechados), a receber e recebido
   const vendidoTotal = db.prepare(`SELECT COALESCE(SUM(valor),0) v FROM tmkt_vendas WHERE empresa_id=? AND status IN ('confirmado','vendido','vigente','concluido','encerrado')`).get(emp).v || 0;
+  // pendente = negociações ainda em aberto (não fecharam nem foram perdidas) — o pipeline em R$
+  const pendenteRow = db.prepare(`SELECT COALESCE(SUM(valor),0) v, COUNT(*) n FROM tmkt_vendas WHERE empresa_id=? AND status IN ('pedido','rascunho','negociacao')`).get(emp);
+  const pendenteTotal = pendenteRow.v || 0, pendenteQtd = pendenteRow.n || 0;
   const aReceber = db.prepare(`SELECT COALESCE(SUM(p.valor),0) v FROM tmkt_parcelas p JOIN tmkt_vendas v ON v.id=p.venda_id WHERE p.empresa_id=? AND COALESCE(p.recebido,0)=0 AND v.status<>'cancelado'`).get(emp).v || 0;
   const recebido = db.prepare(`SELECT COALESCE(SUM(recebido_valor),0) v FROM tmkt_parcelas WHERE empresa_id=? AND recebido=1`).get(emp).v || 0;
   // negociações recentes
@@ -244,7 +247,7 @@ router.get('/dashboard', (req, res) => {
       total: tot.total, vendidos: tot.vendidos, disponiveis: tot.total - tot.vendidos,
       ocupacao: tot.total ? Math.round(tot.vendidos / tot.total * 100) : 0,
       potencial: tot.potencial, potencialPerdido: tot.potencial - tot.receita, receita: tot.receita, monitorados,
-      vendidoTotal, aReceber, recebido,
+      vendidoTotal, aReceber, recebido, pendenteTotal, pendenteQtd,
     },
     lojas, pipeline, recentes, topForn,
   });

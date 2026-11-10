@@ -1413,8 +1413,8 @@ function Dashboard({ API }) {
         ))}
       </div>
       {k && k.vendidoTotal != null && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
-        {[['Vendido (fechado)', brl(k.vendidoTotal), '#1E874B'], ['A receber', brl(k.aReceber), '#B7791F'], ['Recebido', brl(k.recebido), '#2E5C9E']].map(([lab, val, cor]) =>
-          <div key={lab} style={{ ...s.card, marginBottom: 0 }}><div style={{ fontSize: 20, fontWeight: 800, color: cor }}>{val}</div><div style={{ fontSize: 11.5, color: '#888' }}>{lab}</div></div>)}
+        {[['Em negociação (pendente)', brl(k.pendenteTotal || 0), '#6D4AA8', k.pendenteQtd ? `${k.pendenteQtd} negociação(ões) em aberto` : null], ['Vendido (fechado)', brl(k.vendidoTotal), '#1E874B'], ['A receber', brl(k.aReceber), '#B7791F'], ['Recebido', brl(k.recebido), '#2E5C9E']].map(([lab, val, cor, sub]) =>
+          <div key={lab} style={{ ...s.card, marginBottom: 0 }}><div style={{ fontSize: 20, fontWeight: 800, color: cor }}>{val}</div><div style={{ fontSize: 11.5, color: '#888' }}>{lab}</div>{sub && <div style={{ fontSize: 10.5, color: '#aaa', marginTop: 1 }}>{sub}</div>}</div>)}
       </div>}
       {d?.pipeline && <div style={{ ...s.card }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Funil de negociações</div>
