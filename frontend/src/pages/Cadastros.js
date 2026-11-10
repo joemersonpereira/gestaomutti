@@ -130,7 +130,7 @@ function Colaboradores({ API }) {
   const [funcoes, setFuncoes] = useState([]);
   const [departamentos, setDepartamentos] = useState([]);
   const [lista, setLista] = useState([]);
-  const [form, setForm] = useState({ nome: '', email: '', cpf: '', funcao_id: '', loja_id: '', departamento: '', salario: '', admissao: '', inicio_loja: '', nascimento: '', chefe_setor: false, lideranca: false, conferente: false, perfumista: false, is_estagiario: false, is_socio: false, lojas_extra: [], empresa_registro: '', empresa_atuacao: '', telefone: '', endereco: '', apelido: '', contato_emergencia_nome: '', contato_emergencia_telefone: '', foto: null, cep: '', endereco_numero: '', complemento: '', bairro: '', cidade: '', uf: '', num_calcado: '', tam_blusa: '', tam_calca: '', tam_jaleco: '', bio: '', presente_favorito: '', cores_favoritas: '', estilo_musical: '', hobbies: '', time_coracao: '', dependentes: [], lgpd: false });
+  const [form, setForm] = useState({ nome: '', email: '', cpf: '', funcao_id: '', loja_id: '', departamento: '', salario: '', admissao: '', inicio_loja: '', nascimento: '', chefe_setor: false, lideranca: false, conferente: false, perfumista: false, premiacao_gestao: '', premiacao_caixa: false, is_estagiario: false, is_socio: false, lojas_extra: [], empresa_registro: '', empresa_atuacao: '', telefone: '', endereco: '', apelido: '', contato_emergencia_nome: '', contato_emergencia_telefone: '', foto: null, cep: '', endereco_numero: '', complemento: '', bairro: '', cidade: '', uf: '', num_calcado: '', tam_blusa: '', tam_calca: '', tam_jaleco: '', bio: '', presente_favorito: '', cores_favoritas: '', estilo_musical: '', hobbies: '', time_coracao: '', dependentes: [], lgpd: false });
   const [editId, setEditId] = useState(null);
   const [temFotoAtual, setTemFotoAtual] = useState(false);
   const [lgpdInfo, setLgpdInfo] = useState({ consentido: false, em: null });
@@ -180,7 +180,7 @@ function Colaboradores({ API }) {
     setEditId(c.id);
     setMostrarForm(true);
     setTemFotoAtual(!!c.tem_foto);
-    setForm({ nome: c.nome || '', email: c.email || '', cpf: c.cpf || '', funcao_id: c.funcao_id || '', loja_id: c.loja_id || '', departamento: c.departamento || '', salario: c.salario || '', admissao: c.admissao || '', inicio_loja: (c.inicio_loja || '').slice(0, 10), nascimento: c.nascimento || '', chefe_setor: !!c.chefe_setor, lideranca: !!c.lideranca, conferente: !!c.conferente, perfumista: !!c.perfumista, is_estagiario: !!c.is_estagiario, is_socio: !!c.is_socio, lojas_extra: c.lojas_extra ? c.lojas_extra.split(',') : [], empresa_registro: c.empresa_registro || '', empresa_atuacao: c.empresa_atuacao || '', telefone: c.telefone || '', endereco: c.endereco || '', apelido: c.apelido || '', contato_emergencia_nome: c.contato_emergencia_nome || '', contato_emergencia_telefone: c.contato_emergencia_telefone || '', foto: c.foto || null, cep: c.cep || '', endereco_numero: c.endereco_numero || '', complemento: c.complemento || '', bairro: c.bairro || '', cidade: c.cidade || '', uf: c.uf || '', num_calcado: c.num_calcado || '', tam_blusa: c.tam_blusa || '', tam_calca: c.tam_calca || '', tam_jaleco: c.tam_jaleco || '', bio: c.bio || '', presente_favorito: c.presente_favorito || '', cores_favoritas: c.cores_favoritas || '', estilo_musical: c.estilo_musical || '', hobbies: c.hobbies || '', time_coracao: c.time_coracao || '', dependentes: [], lgpd: !!c.lgpd_consentido, tangerino_id: c.tangerino_id || '', tangerino_nome: c.tangerino_nome || '' });
+    setForm({ nome: c.nome || '', email: c.email || '', cpf: c.cpf || '', funcao_id: c.funcao_id || '', loja_id: c.loja_id || '', departamento: c.departamento || '', salario: c.salario || '', admissao: c.admissao || '', inicio_loja: (c.inicio_loja || '').slice(0, 10), nascimento: c.nascimento || '', chefe_setor: !!c.chefe_setor, lideranca: !!c.lideranca, conferente: !!c.conferente, perfumista: !!c.perfumista, premiacao_gestao: c.premiacao_gestao || '', premiacao_caixa: !!c.premiacao_caixa, is_estagiario: !!c.is_estagiario, is_socio: !!c.is_socio, lojas_extra: c.lojas_extra ? c.lojas_extra.split(',') : [], empresa_registro: c.empresa_registro || '', empresa_atuacao: c.empresa_atuacao || '', telefone: c.telefone || '', endereco: c.endereco || '', apelido: c.apelido || '', contato_emergencia_nome: c.contato_emergencia_nome || '', contato_emergencia_telefone: c.contato_emergencia_telefone || '', foto: c.foto || null, cep: c.cep || '', endereco_numero: c.endereco_numero || '', complemento: c.complemento || '', bairro: c.bairro || '', cidade: c.cidade || '', uf: c.uf || '', num_calcado: c.num_calcado || '', tam_blusa: c.tam_blusa || '', tam_calca: c.tam_calca || '', tam_jaleco: c.tam_jaleco || '', bio: c.bio || '', presente_favorito: c.presente_favorito || '', cores_favoritas: c.cores_favoritas || '', estilo_musical: c.estilo_musical || '', hobbies: c.hobbies || '', time_coracao: c.time_coracao || '', dependentes: [], lgpd: !!c.lgpd_consentido, tangerino_id: c.tangerino_id || '', tangerino_nome: c.tangerino_nome || '' });
     setLgpdInfo({ consentido: !!c.lgpd_consentido, em: c.lgpd_consentido_em });
     setMsg(null);
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -191,7 +191,7 @@ function Colaboradores({ API }) {
     setMostrarForm(false);
     setTemFotoAtual(false);
     setLgpdInfo({ consentido: false, em: null });
-    setForm({ nome: '', email: '', cpf: '', funcao_id: '', loja_id: '', departamento: '', salario: '', admissao: '', inicio_loja: '', nascimento: '', chefe_setor: false, lideranca: false, conferente: false, perfumista: false, is_estagiario: false, is_socio: false, lojas_extra: [], empresa_registro: '', empresa_atuacao: '', telefone: '', endereco: '', apelido: '', contato_emergencia_nome: '', contato_emergencia_telefone: '', foto: null, cep: '', endereco_numero: '', complemento: '', bairro: '', cidade: '', uf: '', num_calcado: '', tam_blusa: '', tam_calca: '', tam_jaleco: '', bio: '', presente_favorito: '', cores_favoritas: '', estilo_musical: '', hobbies: '', time_coracao: '', dependentes: [], lgpd: false });
+    setForm({ nome: '', email: '', cpf: '', funcao_id: '', loja_id: '', departamento: '', salario: '', admissao: '', inicio_loja: '', nascimento: '', chefe_setor: false, lideranca: false, conferente: false, perfumista: false, premiacao_gestao: '', premiacao_caixa: false, is_estagiario: false, is_socio: false, lojas_extra: [], empresa_registro: '', empresa_atuacao: '', telefone: '', endereco: '', apelido: '', contato_emergencia_nome: '', contato_emergencia_telefone: '', foto: null, cep: '', endereco_numero: '', complemento: '', bairro: '', cidade: '', uf: '', num_calcado: '', tam_blusa: '', tam_calca: '', tam_jaleco: '', bio: '', presente_favorito: '', cores_favoritas: '', estilo_musical: '', hobbies: '', time_coracao: '', dependentes: [], lgpd: false });
     setMsg(null);
   }
 
@@ -211,7 +211,7 @@ function Colaboradores({ API }) {
         const r = await API.post('/colaboradores', payload);
         if (form.lgpd && r.data.id) { try { await API.post(`/colaboradores/${r.data.id}/lgpd`); } catch { /* ignora */ } }
         setMsg({ ok: true, senha: r.data.senha_provisoria, email: form.email });
-        setForm({ nome: '', email: '', cpf: '', funcao_id: '', loja_id: '', departamento: '', salario: '', admissao: '', inicio_loja: '', nascimento: '', chefe_setor: false, lideranca: false, conferente: false, perfumista: false, is_estagiario: false, is_socio: false, lojas_extra: [], empresa_registro: '', empresa_atuacao: '', telefone: '', endereco: '', apelido: '', contato_emergencia_nome: '', contato_emergencia_telefone: '', foto: null, cep: '', endereco_numero: '', complemento: '', bairro: '', cidade: '', uf: '', num_calcado: '', tam_blusa: '', tam_calca: '', tam_jaleco: '', bio: '', presente_favorito: '', cores_favoritas: '', estilo_musical: '', hobbies: '', time_coracao: '', dependentes: [], lgpd: false });
+        setForm({ nome: '', email: '', cpf: '', funcao_id: '', loja_id: '', departamento: '', salario: '', admissao: '', inicio_loja: '', nascimento: '', chefe_setor: false, lideranca: false, conferente: false, perfumista: false, premiacao_gestao: '', premiacao_caixa: false, is_estagiario: false, is_socio: false, lojas_extra: [], empresa_registro: '', empresa_atuacao: '', telefone: '', endereco: '', apelido: '', contato_emergencia_nome: '', contato_emergencia_telefone: '', foto: null, cep: '', endereco_numero: '', complemento: '', bairro: '', cidade: '', uf: '', num_calcado: '', tam_blusa: '', tam_calca: '', tam_jaleco: '', bio: '', presente_favorito: '', cores_favoritas: '', estilo_musical: '', hobbies: '', time_coracao: '', dependentes: [], lgpd: false });
         carregar();
       }
     } catch (e) {
@@ -332,12 +332,21 @@ function Colaboradores({ API }) {
             ['lideranca', 'Liderança', 'substitui o gerente quando ele e o subgerente faltam'],
             ['conferente', 'É conferente', 'entra no checklist e na comissão de conferente'],
             ['perfumista', '💄 É perfumista', 'recebe a premiação sobre a venda de perfumaria (os demais vendedores não entram nessa base)'],
+            ['premiacao_caixa', '💰 Caixa (prêmio kits)', 'recebe premiação por meta de kits: ≥100 un ou <100 un (valores no fechamento)'],
             ['is_estagiario', '🎓 É estagiário', 'cria/vincula a ficha no módulo Estágios (nome, CPF e loja) para completar lá'],
             ['is_socio', '🤝 É sócio', 'sócio da empresa — fica disponível para assinar os contratos de estágio']].map(([k, t, d]) => (
             <label key={k} title={d} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#444' }}>
               <input type="checkbox" checked={!!form[k]} onChange={e => setForm({ ...form, [k]: e.target.checked })} /> {t}
             </label>
           ))}
+          <label title="Gerente de loja e Liderança recebem premiação extra quando bate a meta. No fechamento vem a pergunta 'bateu meta?'." style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#444' }}>
+            🏅 Premiação de gestão:
+            <select style={{ fontSize: 12, padding: '3px 6px', border: '1px solid #ddd', borderRadius: 6 }} value={form.premiacao_gestao || ''} onChange={e => setForm({ ...form, premiacao_gestao: e.target.value })}>
+              <option value="">— não recebe —</option>
+              <option value="gerente">Gerente de loja</option>
+              <option value="lideranca">Liderança</option>
+            </select>
+          </label>
         </div>
 
         {/* 3) CONTRATO */}
@@ -463,6 +472,8 @@ function Colaboradores({ API }) {
                   {c.chefe_setor ? <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 5, background: '#E6F1FB', color: '#185FA5', marginLeft: 4 }}>chefe</span> : null}
                   {c.conferente ? <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 5, background: '#EFEAF7', color: '#5B3B9E', marginLeft: 4 }}>conf.</span> : null}
                   {c.perfumista ? <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 5, background: '#FBEAF3', color: '#9E3B7A', marginLeft: 4 }}>perfum.</span> : null}
+                  {c.premiacao_gestao ? <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 5, background: '#FBF3E2', color: '#8A5A12', marginLeft: 4 }}>{c.premiacao_gestao === 'gerente' ? 'gerente' : 'liderança'}</span> : null}
+                  {c.premiacao_caixa ? <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 5, background: '#E7F4EF', color: '#0C5A43', marginLeft: 4 }}>caixa</span> : null}
                   {c.is_estagiario ? <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 5, background: '#E7F6EC', color: '#1E7E45', marginLeft: 4 }}>🎓 estágio</span> : null}
                 </div>
                 <div style={{ fontSize: 11, color: '#999', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.funcao} · {c.loja}</div>
