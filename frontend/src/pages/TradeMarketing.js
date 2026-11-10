@@ -1112,6 +1112,7 @@ function Vendas({ API, gestao }) {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}><span style={{ fontSize: 11.5, fontWeight: 700, color: col.cor }}>📐 {v.codigo}</span><span style={{ display: 'flex', gap: 3 }}>{(v.origem === 'portal' || v.origem === 'recompra') ? <span style={{ ...s.tag, background: '#E7F0FB', color: '#2E5C9E' }}>🌐 {v.origem === 'recompra' ? 'recompra' : 'portal'}</span> : null}{proxVencer(v) ? <span style={{ ...s.tag, background: '#FEF3C7', color: '#B45309' }}>⏰ vence</span> : null}{v.atrasado ? <span style={{ ...s.tag, background: '#FBEAEA', color: '#C0392B' }}>atraso</span> : null}</span></div>
                     <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 4 }}>{v.fornecedor_nome}</div>
                     <div style={{ fontSize: 11.5, color: '#666' }}>{v.espacos} espaço(s){v.tema_desc ? ` · ${v.tema_desc}` : ''}</div>
+                    {v.plano_nome && <div style={{ fontSize: 10.5, color: '#6D4AA8', marginTop: 2 }}>📋 {v.plano_nome}</div>}
                     {(v.vigencia_ini || v.vigencia_fim) && <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>🗓️ {dBR(v.vigencia_ini)}–{dBR(v.vigencia_fim)}</div>}
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#1E874B', marginTop: 4 }}>{brl(v.valor)}</div>
                     {v.aReceber > 0 && <div style={{ fontSize: 11, color: '#B7791F' }}>a receber {brl(v.aReceber)}</div>}
@@ -1141,11 +1142,13 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
   const [lojas, setLojas] = useState([]); const [espLoja, setEspLoja] = useState([]); const [espLojaSel, setEspLojaSel] = useState(''); const [verContrato, setVerContrato] = useState(false);
   const [sell, setSell] = useState(null);
   const [assocs, setAssocs] = useState([]);   // associações (ex.: Multmais) p/ marcar a origem da negociação
+  const [planos, setPlanos] = useState([]);   // planos comerciais do portal — p/ vincular e apurar depois
   const recarregar = useCallback(aid => API.get(`/trademkt/vendas/${aid}`).then(r => setV(r.data.venda)), [API]);
   useEffect(() => {
     API.get('/compras/lojas').then(r => setLojas(r.data.lojas || [])).catch(() => {});
     API.get('/trademkt/espaco-loja').then(r => setEspLoja(r.data.itens || [])).catch(() => {});
     API.get('/trademkt/associacoes').then(r => setAssocs(r.data.associacoes || [])).catch(() => {});
+    API.get('/trademkt/portal/planos').then(r => setPlanos(r.data.planos || [])).catch(() => {});
     if (id) recarregar(id);
   }, [API, id, recarregar]);
   const set = (k, val) => setV(x => ({ ...x, [k]: val }));
@@ -1195,6 +1198,10 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
               : <BuscaERP API={API} rota="/trademkt/erp/fornecedores" campo="fornecedores" placeholder="buscar fornecedor no ERP…" onPick={f => { set('fornecedor_id', f.id); set('fornecedor_nome', f.nome); }} />}
           </div>
           <label style={s.lbl}>Loja<select value={v.loja_id || ''} onChange={e => set('loja_id', e.target.value)} style={s.inp}><option value="">—</option>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></label>
+          <label style={{ ...s.lbl, minWidth: 200 }}>Plano comercial <span style={{ fontWeight: 400, color: '#94a3b8' }}>(p/ apurar depois)</span>
+            <select value={v.plano_id || ''} onChange={e => { const p = planos.find(x => x.id === e.target.value); set('plano_id', e.target.value); set('plano_nome', p ? p.nome : ''); }} style={s.inp}>
+              <option value="">— nenhum —</option>{planos.map(p => <option key={p.id} value={p.id}>{p.nome}{p.periodo ? ` · ${p.periodo}` : ''}</option>)}
+            </select></label>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>Origem:</span>

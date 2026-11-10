@@ -368,11 +368,11 @@ router.post('/vendas', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id, b = req.body;
   if (!b.fornecedor_nome) return res.status(400).json({ erro: 'Informe o fornecedor.' });
   const id = uuid();
-  db.prepare(`INSERT INTO tmkt_vendas (id,empresa_id,codigo,origem,associacao_id,associacao_nome,fornecedor_id,fornecedor_nome,loja_id,forma_pagamento,tema_id,tema_desc,contrato_url,vigencia_ini,vigencia_fim,valor,status,eans_monitorados,observacao,status_desde,criado_por,criado_em)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?,datetime('now'))`)
+  db.prepare(`INSERT INTO tmkt_vendas (id,empresa_id,codigo,origem,associacao_id,associacao_nome,fornecedor_id,fornecedor_nome,loja_id,forma_pagamento,tema_id,tema_desc,plano_id,plano_nome,contrato_url,vigencia_ini,vigencia_fim,valor,status,eans_monitorados,observacao,status_desde,criado_por,criado_em)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?,datetime('now'))`)
     .run(id, emp, proximoCodigo(emp), b.origem === 'associacao' ? 'associacao' : 'direto', b.associacao_id || null, b.associacao_nome || null,
       b.fornecedor_id || null, b.fornecedor_nome, b.loja_id || null, b.forma_pagamento || null,
-      b.tema_id || null, b.tema_desc || null, b.contrato_url || null, b.vigencia_ini || null, b.vigencia_fim || null,
+      b.tema_id || null, b.tema_desc || null, b.plano_id || null, b.plano_nome || null, b.contrato_url || null, b.vigencia_ini || null, b.vigencia_fim || null,
       Number(b.valor) || 0, STATUS.includes(b.status) ? b.status : 'rascunho',
       b.eans ? JSON.stringify(b.eans) : null, b.observacao || null, req.usuario.id);
   res.json({ ok: true, id });
@@ -432,7 +432,7 @@ router.post('/associacoes/acao', exigePerfil(...GESTAO), (req, res) => {
 });
 router.put('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id, b = req.body;
-  const campos = ['fornecedor_id', 'fornecedor_nome', 'loja_id', 'forma_pagamento', 'tema_id', 'tema_desc', 'contrato_url', 'vigencia_ini', 'vigencia_fim', 'valor', 'status', 'observacao', 'origem', 'associacao_id', 'associacao_nome'];
+  const campos = ['fornecedor_id', 'fornecedor_nome', 'loja_id', 'forma_pagamento', 'tema_id', 'tema_desc', 'plano_id', 'plano_nome', 'contrato_url', 'vigencia_ini', 'vigencia_fim', 'valor', 'status', 'observacao', 'origem', 'associacao_id', 'associacao_nome'];
   const set = [], vals = [];
   campos.forEach(c => { if (c in b) { set.push(`${c}=?`); vals.push(b[c] === '' ? null : b[c]); } });
   if ('eans' in b) { set.push('eans_monitorados=?'); vals.push(b.eans ? JSON.stringify(b.eans) : null); }
