@@ -130,7 +130,9 @@ async function aplicar(empresaId, { reativar = false } = {}) {
     p.aMarcarEstagio.forEach(c => { marcarEst.run(c.id, empresaId); if (colabById[c.id]) criarFichaEstagio(empresaId, colabById[c.id]); });
   });
   tx();
-  return { desativados: p.aDesativar.length, reativados: reativar ? p.aReativar.length : 0, marcadosEstagio: p.aMarcarEstagio.length, aDesativar: p.aDesativar, aReativar: reativar ? p.aReativar : [], aMarcarEstagio: p.aMarcarEstagio };
+  let cpf = { preenchidos: 0 };
+  try { cpf = await backfillCpf(empresaId); } catch (e) { /* ERP indisponível p/ backfill */ }
+  return { desativados: p.aDesativar.length, reativados: reativar ? p.aReativar.length : 0, marcadosEstagio: p.aMarcarEstagio.length, cpf_preenchidos: cpf.preenchidos, aDesativar: p.aDesativar, aReativar: reativar ? p.aReativar : [], aMarcarEstagio: p.aMarcarEstagio };
 }
 
 // Marca automaticamente (sem mexer em ativo/inativo) todo colaborador cujo CPF está no grupo
@@ -151,4 +153,32 @@ async function marcarEstagioAuto(empresaId) {
   return { marcados: n };
 }
 
-module.exports = { prever, aplicar, cpfsEstagio, marcarEstagioAuto, importar };
+// Preenche o CPF (do ERP, pessoa.cpf) de quem tem vínculo (erp_pessoa_id) mas está sem CPF
+// no cadastro. Seguro (só adiciona CPF onde falta). Resolve os conferentes/gerentes que vieram
+// do ERP sem CPF e, por isso, não casavam na premiação.
+async function backfillCpf(empresaId) {
+  const sem = db.prepare(`SELECT id, erp_pessoa_id, erp_usuario_id FROM colaboradores
+    WHERE empresa_id=? AND (erp_pessoa_id IS NOT NULL OR erp_usuario_id IS NOT NULL)
+      AND (cpf IS NULL OR length(replace(replace(replace(replace(cpf,'.',''),'-',''),'/',''),' ',''))<11)`).all(empresaId);
+  if (!sem.length) return { preenchidos: 0, candidatos: 0 };
+  const pessoaIds = [...new Set(sem.filter(c => c.erp_pessoa_id).map(c => Number(c.erp_pessoa_id)).filter(Boolean))];
+  const usuarioIds = [...new Set(sem.filter(c => c.erp_usuario_id).map(c => Number(c.erp_usuario_id)).filter(Boolean))];
+  const porPessoa = new Map(), porUsuario = new Map();
+  try {
+    if (pessoaIds.length) { (await erpQuery(`SELECT id, regexp_replace(cpf,'[^0-9]','','g') cpf FROM pessoa WHERE id = ANY($1::bigint[]) AND cpf IS NOT NULL AND cpf<>''`, [pessoaIds])).forEach(p => porPessoa.set(String(p.id), String(p.cpf || ''))); }
+    if (usuarioIds.length) { (await erpQuery(`SELECT u.id, regexp_replace(pf.cpf,'[^0-9]','','g') cpf FROM usuario u JOIN pessoa pf ON pf.id = u.pessoaid WHERE u.id = ANY($1::bigint[]) AND pf.cpf IS NOT NULL AND pf.cpf<>''`, [usuarioIds])).forEach(p => porUsuario.set(String(p.id), String(p.cpf || ''))); }
+  } catch (e) { return { preenchidos: 0, candidatos: sem.length, erro: e.message }; }
+  const upd = db.prepare('UPDATE colaboradores SET cpf=? WHERE id=? AND empresa_id=?');
+  let n = 0;
+  const tx = db.transaction(() => {
+    for (const c of sem) {
+      let cpf = c.erp_pessoa_id ? porPessoa.get(String(c.erp_pessoa_id)) : null;
+      if (!cpf && c.erp_usuario_id) cpf = porUsuario.get(String(c.erp_usuario_id));
+      if (cpf && cpf.length >= 11) { upd.run(cpf, c.id, empresaId); n++; }
+    }
+  });
+  tx();
+  return { preenchidos: n, candidatos: sem.length };
+}
+
+module.exports = { prever, aplicar, cpfsEstagio, marcarEstagioAuto, importar, backfillCpf };
