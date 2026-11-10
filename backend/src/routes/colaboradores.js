@@ -205,6 +205,54 @@ router.patch('/:id/ativar', exigePerfil('Gestor Geral', 'Diretor Geral', 'RH'), 
   res.json({ mensagem: 'Status atualizado.' });
 });
 
+// ─── LIMPEZA: cadastros duplicados ────────────────────────────────────────────
+// Acha colaboradores repetidos (mesmo CPF; ou, sem CPF, mesmo nome). Serve p/ o RH escolher
+// qual manter e remover os outros (a mesclagem transfere marcadores/ID/vínculo pro mantido).
+router.get('/duplicados', exigePerfil('Gestor Geral', 'Diretor Geral', 'RH'), (req, res) => {
+  const cols = db.prepare(`SELECT c.id, c.nome, c.cpf, c.ativo, c.email, c.erp_pessoa_id, c.id_premiacao, c.payx_cnpj,
+      c.perfumista, c.premiacao_gestao, c.premiacao_caixa, c.conferente, c.lideranca, f.nome AS funcao, l.nome AS loja
+    FROM colaboradores c LEFT JOIN funcoes f ON f.id=c.funcao_id LEFT JOIN lojas l ON l.id=c.loja_id
+    WHERE c.empresa_id=?`).all(req.usuario.empresa_id);
+  const dig = s => String(s || '').replace(/\D/g, '');
+  const nn = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+  const grupos = [];
+  const byCpf = {};
+  cols.forEach(c => { const k = dig(c.cpf); if (k.length >= 11) (byCpf[k] = byCpf[k] || []).push(c); });
+  Object.entries(byCpf).filter(([, v]) => v.length > 1).forEach(([k, v]) => grupos.push({ tipo: 'cpf', chave: 'CPF ' + k, membros: v }));
+  const usados = new Set(grupos.flatMap(g => g.membros.map(m => m.id)));
+  const byNome = {};
+  cols.filter(c => !usados.has(c.id)).forEach(c => { const k = nn(c.nome); if (k) (byNome[k] = byNome[k] || []).push(c); });
+  Object.entries(byNome).filter(([, v]) => v.length > 1).forEach(([, v]) => grupos.push({ tipo: 'nome', chave: v[0].nome, membros: v }));
+  res.json({ grupos });
+});
+
+// POST /colaboradores/mesclar — mantém um, transfere os campos de premiação p/ ele e DESATIVA os outros.
+router.post('/mesclar', exigePerfil('Gestor Geral', 'Diretor Geral', 'RH'), (req, res) => {
+  const { manter_id, remover_ids } = req.body;
+  if (!manter_id || !Array.isArray(remover_ids) || !remover_ids.length) return res.status(400).json({ erro: 'Informe quem manter e quem remover.' });
+  const emp = req.usuario.empresa_id;
+  const keep = db.prepare('SELECT * FROM colaboradores WHERE id=? AND empresa_id=?').get(manter_id, emp);
+  if (!keep) return res.status(404).json({ erro: 'Colaborador a manter não encontrado.' });
+  const alvo = remover_ids.filter(id => id !== manter_id);
+  if (!alvo.length) return res.status(400).json({ erro: 'Nada para remover.' });
+  const removers = db.prepare(`SELECT * FROM colaboradores WHERE empresa_id=? AND id IN (${alvo.map(() => '?').join(',')})`).all(emp, ...alvo);
+  const campos = ['id_premiacao', 'payx_cnpj', 'premiacao_gestao', 'erp_pessoa_id', 'cpf'];
+  const bools = ['perfumista', 'premiacao_caixa', 'conferente', 'lideranca', 'chefe_setor'];
+  const tx = db.transaction(() => {
+    const patch = {};
+    for (const r of removers) {
+      for (const f of campos) if ((keep[f] == null || keep[f] === '') && r[f]) patch[f] = r[f];
+      for (const b of bools) if (!keep[b] && r[b]) patch[b] = 1;
+    }
+    if (Object.keys(patch).length) db.prepare(`UPDATE colaboradores SET ${Object.keys(patch).map(k => k + '=?').join(', ')} WHERE id=?`).run(...Object.values(patch), manter_id);
+    db.prepare('UPDATE colaboradores SET ativo=1 WHERE id=?').run(manter_id);
+    const upd = db.prepare('UPDATE colaboradores SET ativo=0 WHERE id=? AND empresa_id=?');
+    removers.forEach(r => upd.run(r.id, emp));
+  });
+  tx();
+  res.json({ ok: true, mantido: manter_id, removidos: removers.length });
+});
+
 // ─── OCORRÊNCIAS ──────────────────────────────────────────────────────────────
 
 // GET /colaboradores/:id/ocorrencias

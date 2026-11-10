@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
@@ -261,20 +262,9 @@ function Colaboradores({ API }) {
         {/* 1) IDENTIFICAÇÃO */}
         <Secao n="1" titulo="Identificação" />
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <div style={{ textAlign: 'center' }}>
-            {(form.foto || (temFotoAtual && editId))
-              ? <img src={form.foto || `/api/mural/foto/${editId}`} alt="" style={{ width: 76, height: 76, borderRadius: '50%', objectFit: 'cover', border: '2px solid #eee' }} />
-              : <div style={{ width: 76, height: 76, borderRadius: '50%', background: '#EAF3FB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 30 }}>👤</div>}
-            <label style={{ display: 'block', fontSize: 11, color: '#185FA5', cursor: 'pointer', marginTop: 6, fontWeight: 600 }}>📷 {form.foto || temFotoAtual ? 'trocar' : 'foto'}
-              <input type="file" accept="image/*" onChange={async e => { const f = e.target.files[0]; if (f) setForm({ ...form, foto: await lerImgFile(f) }); }} style={{ display: 'none' }} />
-            </label>
-            {form.foto && <button type="button" onClick={() => setForm({ ...form, foto: null })} style={{ fontSize: 10, color: '#993C1D', background: 'none', border: 'none', cursor: 'pointer' }}>remover</button>}
-          </div>
           <div style={{ flex: 1, minWidth: 220 }}>
             <label style={{ fontSize: 10, color: '#999' }}>Nome completo *</label>
             <input style={s.campo} placeholder="Nome completo" value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} />
-            <label style={{ fontSize: 10, color: '#999' }}>Como gostaria de ser chamado (apelido)</label>
-            <input style={s.campo} placeholder="Apelido" value={form.apelido} onChange={e => setForm({ ...form, apelido: e.target.value })} />
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ flex: 1 }}>
                 <label style={{ fontSize: 10, color: '#999' }}>CPF</label>
@@ -295,7 +285,6 @@ function Colaboradores({ API }) {
             </>}
           </div>
         </div>
-        <div style={s.dica}>📸 Peça uma <strong>foto de rosto, sorrindo</strong> 😊. Ela é usada em <strong>ações internas</strong> (Comunidade, datas comemorativas).</div>
 
         {/* 2) CARGO E LOJA */}
         <Secao n="2" titulo="Cargo e loja" />
@@ -309,10 +298,6 @@ function Colaboradores({ API }) {
             {lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
           </select>
         </div>
-        <select style={s.campo} value={form.departamento} onChange={e => setForm({ ...form, departamento: e.target.value })}>
-          <option value="">Departamento (define a fila de tarefas)</option>
-          {departamentos.map(d => <option key={d} value={d}>{d}</option>)}
-        </select>
         <div style={{ margin: '2px 0 6px' }}>
           <div style={{ fontSize: 12, color: '#444', marginBottom: 4 }}>Também atua em (outras lojas)</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -362,92 +347,6 @@ function Colaboradores({ API }) {
           </label>
         </div>
 
-        {/* 3) CONTRATO */}
-        <Secao n="3" titulo="Contrato" />
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}><label style={{ fontSize: 10, color: '#999' }}>Admissão</label><input style={s.campo} type="date" value={form.admissao} onChange={e => setForm({ ...form, admissao: e.target.value })} /></div>
-          <div style={{ flex: 1 }}><label style={{ fontSize: 10, color: '#999' }}>Início na loja 👋</label><input style={s.campo} type="date" value={form.inicio_loja} onChange={e => setForm({ ...form, inicio_loja: e.target.value })} /></div>
-          <input style={s.campo} type="number" placeholder="Salário (R$)" value={form.salario} onChange={e => setForm({ ...form, salario: e.target.value })} />
-        </div>
-        <div style={{ fontSize: 10, color: '#999', marginTop: -4, marginBottom: 4 }}>💡 No dia do <strong>início na loja</strong>, a Comunidade posta um boas-vindas pedindo a galera pra receber a pessoa.</div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <select style={s.campo} value={terceirizadas.some(t => t.nome === form.empresa_registro) || form.empresa_registro === '' ? form.empresa_registro : '__outra'}
-            onChange={e => setForm({ ...form, empresa_registro: e.target.value === '__outra' ? ' ' : e.target.value })}>
-            <option value="">Empresa de registro: {empresaPrincipal || 'própria empresa'}</option>
-            {terceirizadas.map(t => <option key={t.id} value={t.nome}>{t.nome} (terceirizada)</option>)}
-            <option value="__outra">Outra (digitar)…</option>
-          </select>
-          {!terceirizadas.some(t => t.nome === form.empresa_registro) && form.empresa_registro !== '' && (
-            <input style={s.campo} placeholder="Nome da empresa de registro" value={form.empresa_registro.trim() === '' ? '' : form.empresa_registro} onChange={e => setForm({ ...form, empresa_registro: e.target.value })} />
-          )}
-          <input style={s.campo} placeholder="Empresa de atuação" value={form.empresa_atuacao} onChange={e => setForm({ ...form, empresa_atuacao: e.target.value })} />
-        </div>
-        <div style={{ fontSize: 10, color: '#999', marginTop: -4, marginBottom: 2 }}>A <strong>empresa de registro</strong> aparece nos termos (advertência/suspensão). Em branco = própria empresa.</div>
-
-        {/* 4) CONTATO E ENDEREÇO */}
-        <Secao n="4" titulo="Contato e endereço" />
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input style={s.campo} placeholder="Telefone" value={form.telefone} onChange={e => setForm({ ...form, telefone: e.target.value })} />
-          <div style={{ display: 'flex', gap: 6, flex: 1 }}>
-            <input style={s.campo} placeholder="CEP" value={form.cep} onChange={async e => {
-              const v = e.target.value; setForm(f => ({ ...f, cep: v }));
-              const num = v.replace(/\D/g, '');
-              if (num.length === 8) { try { const r = await API.get(`/colaboradores/cep/${num}`); setForm(f => ({ ...f, endereco: r.data.endereco || f.endereco, bairro: r.data.bairro || f.bairro, cidade: r.data.cidade || f.cidade, uf: r.data.uf || f.uf })); } catch { /* ignora */ } }
-            }} />
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input style={{ ...s.campo, flex: 2 }} placeholder="Rua / logradouro" value={form.endereco} onChange={e => setForm({ ...form, endereco: e.target.value })} />
-          <input style={{ ...s.campo, flex: 0.6 }} placeholder="Nº" value={form.endereco_numero} onChange={e => setForm({ ...form, endereco_numero: e.target.value })} />
-          <input style={{ ...s.campo, flex: 1 }} placeholder="Complemento" value={form.complemento} onChange={e => setForm({ ...form, complemento: e.target.value })} />
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input style={{ ...s.campo, flex: 1.4 }} placeholder="Bairro" value={form.bairro} onChange={e => setForm({ ...form, bairro: e.target.value })} />
-          <input style={{ ...s.campo, flex: 1.4 }} placeholder="Cidade" value={form.cidade} onChange={e => setForm({ ...form, cidade: e.target.value })} />
-          <input style={{ ...s.campo, flex: 0.5 }} placeholder="UF" maxLength={2} value={form.uf} onChange={e => setForm({ ...form, uf: e.target.value.toUpperCase() })} />
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input style={s.campo} placeholder="Contato de emergência (nome)" value={form.contato_emergencia_nome} onChange={e => setForm({ ...form, contato_emergencia_nome: e.target.value })} />
-          <input style={s.campo} placeholder="Telefone de emergência" value={form.contato_emergencia_telefone} onChange={e => setForm({ ...form, contato_emergencia_telefone: e.target.value })} />
-        </div>
-
-        {/* 5) FARDAMENTO (TAMANHOS) */}
-        <Secao n="5" titulo="Fardamento (tamanhos)" />
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 90 }}><label style={{ fontSize: 10, color: '#999' }}>Calçado (nº)</label><input style={s.campo} placeholder="ex.: 40" value={form.num_calcado} onChange={e => setForm({ ...form, num_calcado: e.target.value })} /></div>
-          <div style={{ flex: 1, minWidth: 90 }}><label style={{ fontSize: 10, color: '#999' }}>Blusa/camisa</label><input style={s.campo} placeholder="ex.: G" value={form.tam_blusa} onChange={e => setForm({ ...form, tam_blusa: e.target.value })} /></div>
-          <div style={{ flex: 1, minWidth: 90 }}><label style={{ fontSize: 10, color: '#999' }}>Calça</label><input style={s.campo} placeholder="ex.: 42" value={form.tam_calca} onChange={e => setForm({ ...form, tam_calca: e.target.value })} /></div>
-          <div style={{ flex: 1, minWidth: 90 }}><label style={{ fontSize: 10, color: '#999' }}>Jaleco</label><input style={s.campo} placeholder="ex.: M" value={form.tam_jaleco} onChange={e => setForm({ ...form, tam_jaleco: e.target.value })} /></div>
-        </div>
-
-        {/* 6) SOBRE MIM (Comunidade) */}
-        <Secao n="6" titulo="Sobre mim (Comunidade)" />
-        <textarea style={{ ...s.campo, minHeight: 54, resize: 'vertical' }} placeholder="Uma frase sobre você — aparece no seu perfil da Comunidade 💬" maxLength={500} value={form.bio} onChange={e => setForm({ ...form, bio: e.target.value })} />
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input style={s.campo} placeholder="🎁 O que gosta de presente" value={form.presente_favorito} onChange={e => setForm({ ...form, presente_favorito: e.target.value })} />
-          <input style={s.campo} placeholder="🎨 Cores favoritas" value={form.cores_favoritas} onChange={e => setForm({ ...form, cores_favoritas: e.target.value })} />
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input style={s.campo} placeholder="🎵 Estilo musical" value={form.estilo_musical} onChange={e => setForm({ ...form, estilo_musical: e.target.value })} />
-          <input style={s.campo} placeholder="⚽ Time do coração" value={form.time_coracao} onChange={e => setForm({ ...form, time_coracao: e.target.value })} />
-        </div>
-        <input style={s.campo} placeholder="🎯 Hobbies" value={form.hobbies} onChange={e => setForm({ ...form, hobbies: e.target.value })} />
-
-        {/* 7) FAMÍLIA E PETS */}
-        <Secao n="7" titulo="Família e pets" />
-        <Dependentes API={API} editId={editId} lista={form.dependentes} onChange={deps => setForm({ ...form, dependentes: deps })} lerImgFile={lerImgFile} />
-
-        {/* 8) LGPD */}
-        <Secao n="8" titulo="Consentimento (LGPD)" />
-        {lgpdInfo.consentido ? (
-          <div style={{ fontSize: 12, color: '#3B6D11', background: '#E7F1DC', borderRadius: 8, padding: '8px 10px' }}>✅ Consentimento registrado{lgpdInfo.em ? ` em ${String(lgpdInfo.em).slice(0, 10).split('-').reverse().join('/')}` : ''}. O termo assinado está em <strong>Meus Documentos</strong> do colaborador.</div>
-        ) : (
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, color: '#444', background: '#F6F9FC', borderRadius: 8, padding: '10px 12px' }}>
-            <input type="checkbox" checked={!!form.lgpd} onChange={e => setForm({ ...form, lgpd: e.target.checked })} style={{ marginTop: 2 }} />
-            <span>O colaborador <strong>autoriza o compartilhamento interno</strong> dos seus dados e dos dependentes (nome, foto, datas) para ações internas (Comunidade e datas comemorativas), conforme a <strong>LGPD</strong>. Ao salvar, geramos um <strong>termo assinado</strong> em Meus Documentos.</span>
-          </label>
-        )}
-
         {msg?.erro && <div style={{ fontSize: 12, color: '#993C1D', margin: '10px 0 8px' }}>{msg.erro}</div>}
         {msg?.ok && msg.editado && <div style={s.senhaBox}>✅ Colaborador atualizado.</div>}
         {msg?.ok && !msg.editado && !msg.reset && (
@@ -470,8 +369,6 @@ function Colaboradores({ API }) {
       </div>
       )}
 
-      {editId && <FichaColaborador API={API} colaboradorId={editId} nome={form.nome} estagiario={!!form.is_estagiario} onDesligar={() => setDesligarAlvo({ id: editId, nome: form.nome })} />}
-      {editId && <CampanhasDoColaborador API={API} colaboradorId={editId} />}
 
       <div style={s.card}>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Colaboradores <span style={{ color: '#999', fontWeight: 400 }}>({listaFiltrada.length}{listaFiltrada.length !== lista.length ? ` de ${lista.length}` : ''})</span></div>
