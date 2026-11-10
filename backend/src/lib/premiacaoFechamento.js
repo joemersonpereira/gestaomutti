@@ -436,9 +436,13 @@ async function basesErp(empresaId, mes, ano, force) {
   const planos = await erpQuery("SELECT id, nome FROM planoremuneracao WHERE status='A'");
   const P = n => { const p = planos.find(x => (x.nome || '').trim().toLowerCase() === n); return p && p.id; };
   const setCampo = (rows, campo) => { for (const r of rows) { const id = porPessoa.get(Number(r.pessoaid)); if (id) out.get(id)[campo] = Number(r.v) || 0; } };
+  // casa a classificação do produto com a do plano OU qualquer DESCENDENTE dela (via caminho) —
+  // Premiação lista nós-folha (match igual), mas Perfumista lista nós altos (PERFUMARIA/VAREJO/
+  // CONVENIÊNCIA) e os produtos ficam em sub-nós abaixo; sem descendente, perfumaria vinha zero.
   const comSQL = `SELECT u.pessoaid, COALESCE(SUM(iv.valortotal),0) v FROM itemvenda iv JOIN venda v ON v.id=iv.vendaid ${SELLER_JOIN}
-    JOIN embalagem e ON e.id=iv.embalagemid JOIN classificacaoproduto cp ON cp.produtoid=e.produtoid
-    WHERE cp.classificacaoid IN (SELECT classificacaoid FROM planoremuneracaoitem WHERE planoremuneracaoid=$1 AND classificacaoid IS NOT NULL)
+    JOIN embalagem e ON e.id=iv.embalagemid JOIN classificacaoproduto cp ON cp.produtoid=e.produtoid JOIN classificacao c ON c.id=cp.classificacaoid
+    WHERE EXISTS (SELECT 1 FROM planoremuneracaoitem pri JOIN classificacao pc ON pc.id=pri.classificacaoid
+        WHERE pri.planoremuneracaoid=$1 AND pri.classificacaoid IS NOT NULL AND (c.caminho=pc.caminho OR c.caminho LIKE pc.caminho||' > %'))
       AND v.status='F' AND iv.status='F' AND v.datahoraabertura>=$2 AND v.datahoraabertura<$3 AND u.pessoaid = ANY($4::bigint[]) GROUP BY u.pessoaid`;
   const qtySQL = `SELECT u.pessoaid, COALESCE(SUM(iv.quantidade),0) v FROM itemvenda iv JOIN venda v ON v.id=iv.vendaid ${SELLER_JOIN}
     JOIN embalagem e ON e.id=iv.embalagemid
