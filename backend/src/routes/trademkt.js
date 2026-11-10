@@ -460,6 +460,15 @@ router.put('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
   if (set.length) { set.push("atualizado_em=datetime('now')"); db.prepare(`UPDATE tmkt_vendas SET ${set.join(',')} WHERE id=? AND empresa_id=?`).run(...vals, req.params.id, emp); }
   res.json({ ok: true });
 });
+// gera (ou devolve) o link de aprovação do fornecedor: ele abre, dá ciência e aprova → vai pra veiculação
+router.post('/vendas/:id/gerar-link', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const v = db.prepare('SELECT id, token FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!v) return res.status(404).json({ erro: 'Negociação não encontrada.' });
+  let t = v.token;
+  if (!t) { t = uuid().replace(/-/g, ''); db.prepare('UPDATE tmkt_vendas SET token=? WHERE id=?').run(t, v.id); }
+  res.json({ ok: true, token: t, link: `/trade.html?t=${t}` });
+});
 router.post('/vendas/:id/mover', exigePerfil(...GESTAO), (req, res) => {
   const novo = req.body.status;
   if (!STATUS.includes(novo)) return res.status(400).json({ erro: 'Status inválido.' });

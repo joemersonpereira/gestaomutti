@@ -1602,6 +1602,7 @@ function verAcompanhamento(){
     var parH=(d.parcelas||[]).map(function(p){return '<tr><td>'+(p.vencimento||'—')+'</td><td>'+h(p.forma||'')+'</td><td style="text-align:right">'+brl(p.valor)+'</td><td>'+(p.recebido?'✅ confirmado':(p.tem_comprovante?'📎 enviado':'—'))+'</td><td>'+(p.tem_comprovante?'':'<button class="btn sec" style="padding:5px 9px;font-size:12px" data-cp="'+p.numero+'">anexar</button>')+'</td></tr>';}).join('');
     app.innerHTML='<header class="mini"><h1>📋 Pedido '+h(d.codigo)+'</h1><p>'+h(d.fornecedor||'')+'</p></header>'+
       '<div class="note"><b>Situação:</b> '+h(d.status_rotulo)+(d.vigencia_ini?' · período '+h(d.vigencia_ini)+' a '+h(d.vigencia_fim||''):'')+'</div>'+
+      (d.status==='aguardando'?'<div class="card" style="padding:14px;margin-top:12px;border:1px solid #f6902a;background:#fff8f0"><b>✅ Confirmar a ação</b><div style="font-size:13px;color:#64748b;margin:4px 0 8px">Material e combinado conferidos? Confirme que está tudo OK para liberar a veiculação.</div><button class="btn" id="aceitarBtn">✅ Está tudo OK — liberar veiculação</button><div class="msg" id="acmsg"></div></div>':'')+
       '<div class="card" style="padding:14px;margin-top:12px"><b>Espaços</b><table>'+espH+'<tr><td colspan="2"><b>Total</b></td><td style="text-align:right"><b>'+brl(d.valor)+'</b></td></tr></table></div>'+
       (esc?'<div class="card" style="padding:14px;margin-top:12px"><b>Produtos da ação</b><div style="color:#475569;font-size:13px;margin-top:4px">'+esc+'</div></div>':'')+
       metaHtml(d)+selloutHtml(d)+
@@ -1632,6 +1633,7 @@ function verAcompanhamento(){
     [].forEach.call(app.querySelectorAll('[data-cp]'),function(b){b.onclick=function(){anexarComprovante(b.getAttribute('data-cp'));};});
     [].forEach.call(app.querySelectorAll('[data-reenv]'),function(b){b.onclick=function(){reenviarMaterial(b.getAttribute('data-reenv'));};});
     el('infpag').onclick=infoPagamento;
+    (function(){var _ab=el('aceitarBtn');if(_ab)_ab.onclick=function(){_ab.disabled=true;post('/acompanhamento/'+token+'/aceitar',{}).then(function(r){if(r.ok){verAcompanhamento();}else{el('acmsg').className='msg err';el('acmsg').textContent=(r.j&&r.j.erro)||'Erro.';_ab.disabled=false;}});};})();
     function loadBrief(){ get('/acompanhamento/'+token+'/briefing').then(function(r){
       var lw=el('brieflist'); if(!lw)return; var ms=(r&&r.mensagens)||[];
       lw.innerHTML=ms.map(function(m){ var gest=m.autor==='gestao'; var img=/^image\//.test(m.anexo_mime||'');

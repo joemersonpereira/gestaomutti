@@ -450,7 +450,7 @@ router.get('/trade/acompanhamento/:token', async (req, res) => {
     briefing, COALESCE(briefing_status,'rascunho') AS briefing_status, COALESCE(arte_status,'pendente') AS arte_status, arte_obs
     FROM tmkt_venda_espacos WHERE venda_id=?`).all(v.id).map(e => ({ ...e, tem_arte: !!e.tem_arte, producao: !!e.producao, producao_isenta: !!e.producao_isenta }));
   const parcelas = db.prepare(`SELECT numero, vencimento, valor, forma, recebido, (comprovante_em IS NOT NULL) AS tem_comprovante FROM tmkt_parcelas WHERE venda_id=? ORDER BY numero`).all(v.id);
-  const ROT = { rascunho: 'Rascunho', pedido: 'Pedido enviado — aguardando aprovação', negociacao: 'Em negociação', aprovado: 'Aprovado', vendido: 'Confirmado', confirmado: 'Confirmado', briefing: 'Em briefing / material', aguardando: 'Aguardando liberação', vigente: 'Em veiculação', ativo: 'Em exposição', concluido: 'Concluído', encerrado: 'Encerrado', cancelado: 'Cancelado' };
+  const ROT = { rascunho: 'Rascunho', pedido: 'Pedido enviado — aguardando aprovação', negociacao: 'Em negociação', aprovado: 'Aprovado', vendido: 'Confirmado', confirmado: 'Confirmado', briefing: 'Em briefing / material', aguardando: 'Aguardando o seu aceite — confirme para liberar a veiculação', vigente: 'Em veiculação', ativo: 'Em exposição', concluido: 'Concluído', encerrado: 'Encerrado', cancelado: 'Cancelado' };
   const eans = v.eans_monitorados ? (() => { try { return JSON.parse(v.eans_monitorados); } catch { return []; } })() : [];
   // só compara "durante a ação" se a ação já começou; senão mostra o panorama ANTES (baseline 30 dias)
   const hojeStr = new Date().toISOString().slice(0, 10);
@@ -503,6 +503,14 @@ router.get('/trade/acompanhamento/:token/comprovacao/:bid/foto', (req, res) => {
   res.setHeader('Content-Type', b.anexo_mime || 'image/jpeg');
   res.setHeader('Cache-Control', 'private, max-age=300');
   res.end(Buffer.from(b.anexo_b64, 'base64'));
+});
+// fornecedor ACEITA a ação (valida que está OK) → vai de "aguardando aceite" para "em veiculação"
+router.post('/trade/acompanhamento/:token/aceitar', (req, res) => {
+  const v = db.prepare('SELECT id, status FROM tmkt_vendas WHERE empresa_id=? AND token=?').get(EMP, req.params.token);
+  if (!v) return res.status(404).json({ erro: 'Pedido não encontrado.' });
+  if (v.status !== 'aguardando') return res.status(400).json({ erro: 'Esta ação não está aguardando o seu aceite.' });
+  db.prepare("UPDATE tmkt_vendas SET status='vigente', status_desde=datetime('now'), atualizado_em=datetime('now') WHERE id=?").run(v.id);
+  res.json({ ok: true });
 });
 // fornecedor envia a comprovação da ação montada (foto)
 router.post('/trade/acompanhamento/:token/comprovacao', (req, res) => {

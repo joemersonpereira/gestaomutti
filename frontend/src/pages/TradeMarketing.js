@@ -10,7 +10,7 @@ const COLS = [
   { id: 'negociacao', nome: 'Negociação', cor: '#D6409F' },
   { id: 'confirmado', nome: 'Confirmado', cor: '#2E5C9E' },
   { id: 'briefing', nome: 'Briefing / material', cor: '#B45309' },
-  { id: 'aguardando', nome: 'Aguardando liberar', cor: '#8A6D3B' },
+  { id: 'aguardando', nome: 'Aguardando aceite do fornecedor', cor: '#8A6D3B' },
   { id: 'vigente', nome: 'Em veiculação', cor: '#1E874B' },
   { id: 'comprovacao', nome: 'Comprovação', cor: '#2E5C9E' },
   { id: 'encerrado', nome: 'Encerrado', cor: '#555' },
@@ -1183,6 +1183,7 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
   const updParcela = (pid, obj) => API.put(`/trademkt/parcelas/${pid}`, obj).then(() => recarregar(id));
   const anexarParcela = (pid, file) => { if (!file) return; const r = new FileReader(); r.onload = () => API.post(`/trademkt/parcelas/${pid}/comprovante`, { foto: r.result, mime: file.type }).then(() => recarregar(id)); r.readAsDataURL(file); };
   const verSellout = () => API.get(`/trademkt/vendas/${id}/sellout`).then(r => setSell(r.data)).catch(e => setSell({ ok: false, motivo: e.response?.data?.erro || 'Erro' }));
+  const gerarLink = () => API.post(`/trademkt/vendas/${id}/gerar-link`).then(r => { const url = window.location.origin + r.data.link; try { navigator.clipboard.writeText(url); } catch (e) { /* */ } window.prompt('🔗 Link de aprovação do fornecedor (já copiado). Envie pra ele dar ciência e aprovar — ao aprovar, a ação vai pra veiculação:', url); }).catch(e => alert(e.response?.data?.erro || 'Erro ao gerar link'));
   const precisaSalvar = !id;
   const ABAS = [['dados', '📄 Dados & Espaços'], ['material', '🎨 Material & briefing'], ['financeiro', '💳 Financeiro'], ['sellout', '📈 Sell-out (ERP)']];
   const COLS_SELL = [
@@ -1199,7 +1200,10 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
     <div onClick={onClose} style={s.overlay}><div onClick={e => e.stopPropagation()} style={{ ...s.modal, maxWidth: 780 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <b style={{ fontSize: 15 }}>{id ? `Negociação ${v.codigo || ''}` : 'Nova negociação'} {v.status && <span style={s.tag}>{v.status}</span>}</b>
-        <button onClick={onClose} style={s.btnMini}>✕ Fechar</button>
+        <span style={{ display: 'flex', gap: 8 }}>
+          {id && <button onClick={gerarLink} style={{ ...s.btnMini, borderColor: '#2E5C9E', color: '#2E5C9E' }} title="Gera o link pro fornecedor dar ciência e aprovar — ao aprovar, vai pra veiculação">🔗 Link de aprovação</button>}
+          <button onClick={onClose} style={s.btnMini}>✕ Fechar</button>
+        </span>
       </div>
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12, borderBottom: '1px solid #eee', paddingBottom: 8 }}>
         {ABAS.map(([k, l]) => <button key={k} disabled={precisaSalvar && k !== 'dados'} onClick={() => setAba(k)} style={{ ...s.chip, ...(aba === k ? s.chipOn : {}), opacity: precisaSalvar && k !== 'dados' ? .4 : 1 }}>{l}{precisaSalvar && k !== 'dados' ? ' (salve 1º)' : ''}</button>)}
