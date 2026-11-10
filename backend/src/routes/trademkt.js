@@ -12,7 +12,7 @@ const outreach = require('../lib/trade-outreach');
 const GESTAO = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing'];
 // fluxo do Kanban (Joe 2026-10-16): rascunho → negociação → confirmado → briefing (material/arte pendente)
 // → aguardando (liberar veiculação) → vigente (em veiculação) → encerrado. 'pedido' = entrada do portal (cai em Negociação).
-const STATUS = ['rascunho', 'pedido', 'negociacao', 'confirmado', 'briefing', 'aguardando', 'vigente', 'comprovacao', 'encerrado', 'cancelado'];
+const STATUS = ['rascunho', 'pedido', 'negociacao', 'confirmado', 'briefing', 'aguardando', 'vigente', 'comprovacao', 'encerrado', 'perdido', 'cancelado'];
 router.use(auth);
 // cache de ERP por rota (sell-out e lookups /erp/*). Aplicado só nessas rotas (o router tem portal
 // público + GETs com exigePerfil, então router-wide não é seguro aqui). Sell-out do dia atrasa até 1h.
@@ -227,18 +227,18 @@ router.get('/dashboard', (req, res) => {
   const tot = lojas.reduce((a, l) => ({ total: a.total + l.total, vendidos: a.vendidos + l.vendidos, potencial: a.potencial + l.potencial, receita: a.receita + l.receita }), { total: 0, vendidos: 0, potencial: 0, receita: 0 });
   // funil por status (negociações reais), ignorando canceladas/recusadas
   const pipeline = db.prepare(`SELECT status, COUNT(*) n, COALESCE(SUM(valor),0) valor
-    FROM tmkt_vendas WHERE empresa_id=? AND status NOT IN ('cancelado','recusado') GROUP BY status`).all(emp)
+    FROM tmkt_vendas WHERE empresa_id=? AND status NOT IN ('cancelado','recusado','perdido') GROUP BY status`).all(emp)
     .reduce((m, r) => (m[r.status] = { n: r.n, valor: r.valor }, m), {});
   // financeiro: vendido (negócios fechados), a receber e recebido
   const vendidoTotal = db.prepare(`SELECT COALESCE(SUM(valor),0) v FROM tmkt_vendas WHERE empresa_id=? AND status IN ('confirmado','vendido','vigente','comprovacao','concluido','encerrado')`).get(emp).v || 0;
   // pendente = negociações ainda em aberto (não fecharam nem foram perdidas) — o pipeline em R$
   const pendenteRow = db.prepare(`SELECT COALESCE(SUM(valor),0) v, COUNT(*) n FROM tmkt_vendas WHERE empresa_id=? AND status IN ('pedido','rascunho','negociacao')`).get(emp);
   const pendenteTotal = pendenteRow.v || 0, pendenteQtd = pendenteRow.n || 0;
-  const aReceber = db.prepare(`SELECT COALESCE(SUM(p.valor),0) v FROM tmkt_parcelas p JOIN tmkt_vendas v ON v.id=p.venda_id WHERE p.empresa_id=? AND COALESCE(p.recebido,0)=0 AND v.status<>'cancelado'`).get(emp).v || 0;
+  const aReceber = db.prepare(`SELECT COALESCE(SUM(p.valor),0) v FROM tmkt_parcelas p JOIN tmkt_vendas v ON v.id=p.venda_id WHERE p.empresa_id=? AND COALESCE(p.recebido,0)=0 AND v.status NOT IN ('cancelado','perdido')`).get(emp).v || 0;
   const recebido = db.prepare(`SELECT COALESCE(SUM(recebido_valor),0) v FROM tmkt_parcelas WHERE empresa_id=? AND recebido=1`).get(emp).v || 0;
   // negociações recentes
   const recentes = db.prepare(`SELECT codigo, fornecedor_nome, valor, status, origem, criado_em FROM tmkt_vendas
-    WHERE empresa_id=? AND status NOT IN ('cancelado','recusado') ORDER BY criado_em DESC LIMIT 6`).all(emp);
+    WHERE empresa_id=? AND status NOT IN ('cancelado','recusado','perdido') ORDER BY criado_em DESC LIMIT 6`).all(emp);
   // top fornecedores (por valor fechado)
   const topForn = db.prepare(`SELECT fornecedor_nome nome, COUNT(*) n, COALESCE(SUM(valor),0) valor FROM tmkt_vendas
     WHERE empresa_id=? AND status IN ('confirmado','vendido','vigente','comprovacao','concluido','encerrado') GROUP BY fornecedor_nome ORDER BY valor DESC LIMIT 6`).all(emp);
@@ -433,7 +433,7 @@ router.post('/associacoes/acao', exigePerfil(...GESTAO), (req, res) => {
 });
 router.put('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id, b = req.body;
-  const campos = ['fornecedor_id', 'fornecedor_nome', 'loja_id', 'forma_pagamento', 'tema_id', 'tema_desc', 'plano_id', 'plano_nome', 'contrato_url', 'vigencia_ini', 'vigencia_fim', 'valor', 'status', 'observacao', 'origem', 'associacao_id', 'associacao_nome'];
+  const campos = ['fornecedor_id', 'fornecedor_nome', 'loja_id', 'forma_pagamento', 'tema_id', 'tema_desc', 'plano_id', 'plano_nome', 'contrato_url', 'vigencia_ini', 'vigencia_fim', 'valor', 'status', 'observacao', 'origem', 'associacao_id', 'associacao_nome', 'motivo_perda'];
   const set = [], vals = [];
   campos.forEach(c => { if (c in b) { set.push(`${c}=?`); vals.push(b[c] === '' ? null : b[c]); } });
   if ('eans' in b) { set.push('eans_monitorados=?'); vals.push(b.eans ? JSON.stringify(b.eans) : null); }

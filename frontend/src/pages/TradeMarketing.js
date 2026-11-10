@@ -1089,6 +1089,7 @@ function Vendas({ API, gestao }) {
   useEffect(() => { carregar(); }, [carregar]);
   if (!d) return <div style={s.card}>Carregando…</div>;
   const mover = (v, dir) => { const ids = COLS.map(c => c.id); const novo = ids[ids.indexOf(colDe(v.status)) + dir]; if (novo) API.post(`/trademkt/vendas/${v.id}/mover`, { status: novo }).then(() => carregar(busca)); };
+  const marcarPerdido = (v) => { const motivo = window.prompt(`Finalizar como PERDIDO: ${v.fornecedor_nome} (${v.codigo}).\nMotivo (ex.: produto sem demanda):`, v.motivo_perda || ''); if (motivo == null) return; API.put(`/trademkt/vendas/${v.id}`, { status: 'perdido', motivo_perda: motivo }).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Erro ao marcar como perdido')); };
   const excluir = (v) => { if (!window.confirm(`Excluir a negociação ${v.codigo} (${v.fornecedor_nome})?\nIsso remove os espaços e as parcelas. Não dá pra desfazer.`)) return; API.delete(`/trademkt/vendas/${v.id}`).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Erro ao excluir.')); };
   const total = d.vendas.reduce((x, v) => x + (v.valor || 0), 0);
   const aReceber = d.vendas.reduce((x, v) => x + (v.aReceber || 0), 0);
@@ -1103,7 +1104,7 @@ function Vendas({ API, gestao }) {
       </form>
       <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, alignItems: 'flex-start' }}>
         {COLS.map(col => {
-          const itens = d.vendas.filter(v => colDe(v.status) === col.id && v.status !== 'cancelado' && v.status !== 'recusado');
+          const itens = d.vendas.filter(v => colDe(v.status) === col.id && v.status !== 'cancelado' && v.status !== 'recusado' && v.status !== 'perdido');
           return (
             <div key={col.id} style={{ minWidth: 250, flex: '1 1 250px', maxHeight: 'calc(100vh - 250px)', minHeight: 240, overflowY: 'auto', overflowX: 'hidden' }}>
               <div style={{ ...s.colHead, background: col.cor }}>{col.nome} <span style={s.colN}>{itens.length}</span></div>
@@ -1117,10 +1118,11 @@ function Vendas({ API, gestao }) {
                     {(v.vigencia_ini || v.vigencia_fim) && <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>🗓️ {dBR(v.vigencia_ini)}–{dBR(v.vigencia_fim)}</div>}
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#1E874B', marginTop: 4 }}>{brl(v.valor)}</div>
                     {v.aReceber > 0 && <div style={{ fontSize: 11, color: '#B7791F' }}>a receber {brl(v.aReceber)}</div>}
-                    {gestao && <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                    {gestao && <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
                       <button onClick={() => mover(v, -1)} disabled={colDe(v.status) === COLS[0].id} style={s.mv}>◀</button>
                       <button onClick={() => setEdit(v.id)} style={{ ...s.mv, flex: 1 }}>Abrir</button>
                       <button onClick={() => mover(v, 1)} disabled={colDe(v.status) === 'encerrado'} style={s.mv}>▶</button>
+                      <button onClick={() => marcarPerdido(v)} title="Finalizar como perdido (com motivo)" style={{ ...s.mv, color: '#B45309' }}>✖ perdido</button>
                       <button onClick={() => excluir(v)} title="Excluir negociação" style={{ ...s.mv, color: '#C0392B' }}>🗑</button>
                     </div>}
                   </div>
@@ -1131,6 +1133,17 @@ function Vendas({ API, gestao }) {
           );
         })}
       </div>
+      {(() => { const perdidos = d.vendas.filter(v => v.status === 'perdido'); if (!perdidos.length) return null; return (
+        <details style={{ marginTop: 14 }}>
+          <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#B45309' }}>✖ Perdidos ({perdidos.length})</summary>
+          <div style={{ marginTop: 8 }}>{perdidos.map(v => (
+            <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12.5, padding: '7px 0', borderTop: '1px solid #f3f3f3', flexWrap: 'wrap', alignItems: 'center' }}>
+              <span><b>{v.fornecedor_nome}</b> <span style={{ color: '#999' }}>{v.codigo}</span>{v.valor ? ` · ${brl(v.valor)}` : ''} — <span style={{ color: '#B45309' }}>{v.motivo_perda || 'sem motivo'}</span></span>
+              {gestao && <span style={{ display: 'flex', gap: 6 }}><button onClick={() => API.post(`/trademkt/vendas/${v.id}/mover`, { status: 'negociacao' }).then(() => carregar(busca))} style={s.mv}>reabrir</button><button onClick={() => excluir(v)} style={{ ...s.mv, color: '#C0392B' }}>🗑</button></span>}
+            </div>
+          ))}</div>
+        </details>
+      ); })()}
       {edit && <EditorVenda API={API} idInicial={edit === 'novo' ? null : edit} onClose={() => setEdit(null)} onSaved={() => carregar(busca)} />}
     </div>
   );
