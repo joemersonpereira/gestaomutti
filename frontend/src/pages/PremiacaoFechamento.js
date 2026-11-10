@@ -17,6 +17,7 @@ export default function PremiacaoFechamento() {
   const [filtro, setFiltro] = useState('');
   const [soPendentes, setSoPendentes] = useState(false);
   const [contas, setContas] = useState([]);
+  const [contasAberto, setContasAberto] = useState(false);
   const [sel, setSel] = useState(new Set());
   const [pctLote, setPctLote] = useState('5');
 
@@ -188,23 +189,28 @@ export default function PremiacaoFechamento() {
 
       <FaixasVitaminas API={API} onSalvo={carregar} />
 
-      {/* contas Pay X por CNPJ */}
+      {/* contas Pay X por CNPJ — recolhido por padrão (config capturada na importação, raramente muda) */}
       <div style={s.card}>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>🏦 Contas Pay X (uma carga por CNPJ)</div>
-        <div style={{ fontSize: 11, color: '#7a8a8c', marginBottom: 10 }}>Cada conta vira uma aba no export. Produto, código e taxa saem no cabeçalho da carga — ajuste aqui se precisar. Capturadas ao importar as cargas.</div>
-        {contas.length === 0 && <div style={{ fontSize: 12, color: '#999' }}>Nenhuma conta ainda. Importe as cargas preenchidas (botão acima) para capturar os CNPJs.</div>}
-        {contas.map((c, i) => (
-          <div key={c.cnpj} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, fontWeight: 600, width: 150 }}>{c.cnpj_fmt || c.cnpj}</span>
-            <input style={{ ...s.inNum, width: 190, textAlign: 'left' }} value={c.empresa_nome || ''} placeholder="Empresa" onChange={e => setContas(cs => cs.map((x, j) => j === i ? { ...x, empresa_nome: e.target.value } : x))} />
-            <input style={{ ...s.inNum, width: 170, textAlign: 'left' }} value={c.produto || ''} placeholder="Produto" onChange={e => setContas(cs => cs.map((x, j) => j === i ? { ...x, produto: e.target.value } : x))} />
-            <input style={{ ...s.inNum, width: 60, textAlign: 'left' }} value={c.codigo || ''} placeholder="Cód" onChange={e => setContas(cs => cs.map((x, j) => j === i ? { ...x, codigo: e.target.value } : x))} />
-            <span style={{ fontSize: 11, color: '#7a8a8c' }}>Taxa</span>
-            <input style={{ ...s.inNum, width: 64 }} type="number" step="0.01" value={c.taxa_adm ?? ''} placeholder="%" onChange={e => setContas(cs => cs.map((x, j) => j === i ? { ...x, taxa_adm: e.target.value } : x))} />
-            <span style={{ fontSize: 11, color: '#7a8a8c' }}>%</span>
-            <button style={s.btnSec} onClick={() => salvarConta(contas[i])}>Salvar</button>
-          </div>
-        ))}
+        <div onClick={() => setContasAberto(a => !a)} style={{ fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+          🏦 Contas Pay X (uma carga por CNPJ) <span style={{ color: '#0E7C5A' }}>{contasAberto ? '▲' : '▼'}</span>
+          {!contasAberto && <span style={{ fontSize: 11, fontWeight: 400, color: '#7a8a8c', marginLeft: 'auto' }}>{contas.length} conta(s) · capturadas na importação</span>}
+        </div>
+        {contasAberto && <>
+          <div style={{ fontSize: 11, color: '#7a8a8c', margin: '8px 0 10px' }}>Cada conta vira uma aba no export. Produto, código e taxa saem no cabeçalho da carga — ajuste aqui se precisar. Capturadas ao importar as cargas.</div>
+          {contas.length === 0 && <div style={{ fontSize: 12, color: '#999' }}>Nenhuma conta ainda. Importe as cargas preenchidas (botão acima) para capturar os CNPJs.</div>}
+          {contas.map((c, i) => (
+            <div key={c.cnpj} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, fontWeight: 600, width: 150 }}>{c.cnpj_fmt || c.cnpj}</span>
+              <input style={{ ...s.inNum, width: 190, textAlign: 'left' }} value={c.empresa_nome || ''} placeholder="Empresa" onChange={e => setContas(cs => cs.map((x, j) => j === i ? { ...x, empresa_nome: e.target.value } : x))} />
+              <input style={{ ...s.inNum, width: 170, textAlign: 'left' }} value={c.produto || ''} placeholder="Produto" onChange={e => setContas(cs => cs.map((x, j) => j === i ? { ...x, produto: e.target.value } : x))} />
+              <input style={{ ...s.inNum, width: 60, textAlign: 'left' }} value={c.codigo || ''} placeholder="Cód" onChange={e => setContas(cs => cs.map((x, j) => j === i ? { ...x, codigo: e.target.value } : x))} />
+              <span style={{ fontSize: 11, color: '#7a8a8c' }}>Taxa</span>
+              <input style={{ ...s.inNum, width: 64 }} type="number" step="0.01" value={c.taxa_adm ?? ''} placeholder="%" onChange={e => setContas(cs => cs.map((x, j) => j === i ? { ...x, taxa_adm: e.target.value } : x))} />
+              <span style={{ fontSize: 11, color: '#7a8a8c' }}>%</span>
+              <button style={s.btnSec} onClick={() => salvarConta(contas[i])}>Salvar</button>
+            </div>
+          ))}
+        </>}
       </div>
 
       {/* resumo */}
