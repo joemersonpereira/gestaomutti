@@ -17,6 +17,8 @@ export default function PremiacaoFechamento() {
   const [filtro, setFiltro] = useState('');
   const [soPendentes, setSoPendentes] = useState(false);
   const [contas, setContas] = useState([]);
+  const [sel, setSel] = useState(new Set());
+  const [pctLote, setPctLote] = useState('5');
 
   const carregar = useCallback(() => {
     setCarregando(true);
@@ -41,11 +43,10 @@ export default function PremiacaoFechamento() {
     setMsg(`✅ ${at} ID(s)/vínculo(s) preenchidos no cadastro.` + (nao.length ? ` ⚠️ ${nao.length} CPF(s) sem colaborador no sistema (outras razões sociais ou cadastro faltando).` : '') + (erros.length ? ' ' + erros.join(' · ') : ''));
     carregar(); carregarContas();
   }
-  async function puxarErp() {
-    if (!window.confirm(`Puxar as bases direto do ERP (planos de remuneração) para ${String(mes).padStart(2, '0')}/${ano}?\n\nIsso substitui as bases deste mês pela leitura ao vivo dos planos (casa por pessoa — sem "sem cadastro"). A premiação de gestão e os descontos que você digitou são mantidos.`)) return;
-    setMsg('⏳ Puxando do ERP…');
-    try { const r = await API.post('/premiacao-fechamento/puxar-erp', { mes, ano }); setMsg(`✅ ${r.data.colaboradores} colaboradores do ERP (${r.data.linhas} bases). Escolha os % e feche o mês.`); carregar(); }
-    catch (e) { setMsg(e.response?.data?.erro || 'Erro ao puxar do ERP.'); }
+  async function aplicarLote(ids, pct) {
+    if (!ids.length) { setMsg('Nenhum colaborador para aplicar.'); return; }
+    try { await API.post('/premiacao-fechamento/item-lote', { mes, ano, colaborador_ids: ids, premiacao_pct: pct }); setMsg(`✅ ${pct}% aplicado a ${ids.length} vendedor(es).`); setSel(new Set()); carregar(); }
+    catch (e) { setMsg(e.response?.data?.erro || 'Erro ao aplicar em massa.'); }
   }
   async function salvarConta(c) {
     try { const r = await API.post('/premiacao-fechamento/contas', c); setContas(r.data.contas || []); setMsg('✅ Conta Pay X salva.'); }
@@ -113,6 +114,8 @@ export default function PremiacaoFechamento() {
   const linhas = dados.linhas
     .filter(l => !filtro || String(l.nome).toLowerCase().includes(filtro.toLowerCase()))
     .filter(l => !soPendentes || l.premiacao_venda > 0 && l.premiacao_pct == null);
+  const elegiveis = linhas.filter(l => l.premiacao_venda > 0 && !l.sem_cadastro && l.colaborador_id);
+  const toggleSel = id => setSel(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   return (
     <div style={s.wrap}>
@@ -127,8 +130,9 @@ export default function PremiacaoFechamento() {
             {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}
           </select>
           <input style={{ ...s.sel, width: 90 }} type="number" value={ano} onChange={e => setAno(Number(e.target.value))} />
-          <button style={{ ...s.upload, opacity: fechado ? 0.45 : 1 }} onClick={puxarErp} disabled={fechado} title="Calcula as 5 bases direto dos planos de remuneração do ERP, por data de venda, casando por pessoa.">⚡ Puxar do ERP (ao vivo)</button>
-          <label style={{ ...s.btnSec, opacity: fechado ? 0.45 : 1, pointerEvents: fechado ? 'none' : 'auto' }} title="Alternativa: subir os 5 relatórios Excel exportados do ERP.">
+          <button style={s.btnSec} onClick={() => carregar()} title="Recarrega as bases ao vivo do ERP (planos de remuneração).">🔄 Atualizar</button>
+          {dados.ao_vivo && <span style={{ ...s.chip, ...s.chipOn }}>⚡ Monitor ao vivo (ERP)</span>}
+          <label style={{ ...s.btnSec, opacity: fechado ? 0.45 : 1, pointerEvents: fechado ? 'none' : 'auto' }} title="Alternativa: subir os 5 relatórios Excel exportados do ERP (substitui o ao vivo deste mês).">
             ⬆️ Subir relatórios (Excel)
             <input type="file" multiple accept=".xls,.xlsx,.csv" style={{ display: 'none' }} disabled={fechado} onChange={e => subirArquivos(e.target.files)} />
           </label>
@@ -195,6 +199,12 @@ export default function PremiacaoFechamento() {
         <Stat t="Prêmio bruto" v={brl(dados.resumo.bruto)} acc="#0E7C5A" />
         <Stat t="Descontos" v={brl(dados.resumo.descontos)} acc="#A3372A" />
         <Stat t="Líquido a pagar" v={brl(dados.resumo.liquido)} acc="#0E7C5A" forte />
+        <Stat t="Premiação" v={brl(dados.resumo.premiacao)} acc="#0C6A7E" />
+        <Stat t="Perfumaria" v={brl(dados.resumo.perfumaria)} acc="#9E3B7A" />
+        <Stat t="Vitaminas" v={brl(dados.resumo.vitaminas)} acc="#0C6A7E" />
+        <Stat t="Unidades" v={brl(dados.resumo.unidades)} acc="#0C6A7E" />
+        <Stat t="Kits" v={brl(dados.resumo.kits)} acc="#0C6A7E" />
+        {dados.resumo.gestao ? <Stat t="Gestão" v={brl(dados.resumo.gestao)} acc="#8A5A12" /> : null}
         {dados.resumo.sem_cadastro ? <Stat t="Sem cadastro" v={dados.resumo.sem_cadastro} acc="#B45309" /> : null}
       </div>
 
@@ -208,12 +218,24 @@ export default function PremiacaoFechamento() {
           {carregando && <span style={{ fontSize: 12, color: '#999' }}>carregando…</span>}
           <span style={{ marginLeft: 'auto', fontSize: 12, color: '#7a8a8c' }}>{linhas.length} linha(s)</span>
         </div>
+        {!fechado && elegiveis.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8, background: '#f1f8f5', border: '1px solid #d7ebe4', borderRadius: 10, padding: '8px 10px' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#0C5A43' }}>Aplicar %:</span>
+            <select style={s.selMini} value={pctLote} onChange={e => setPctLote(e.target.value)}>
+              <option value="3">3%</option><option value="4">4%</option><option value="5">5%</option>
+            </select>
+            <button style={s.btnSec} onClick={() => aplicarLote(elegiveis.map(l => l.colaborador_id), pctLote)}>a todos os filtrados ({elegiveis.length})</button>
+            <button style={s.btnSec} onClick={() => aplicarLote([...sel], pctLote)} disabled={!sel.size}>aos selecionados ({sel.size})</button>
+            {sel.size > 0 && <button style={{ ...s.btnSec, border: 'none', color: '#7a8a8c' }} onClick={() => setSel(new Set())}>limpar seleção</button>}
+          </div>
+        )}
         {dados.linhas.length === 0 && <div style={{ fontSize: 13, color: '#999', padding: 10 }}>Nada em {String(mes).padStart(2, '0')}/{ano}. Clique em <strong>⚡ Puxar do ERP (ao vivo)</strong> para carregar as bases dos planos — ou suba os relatórios Excel.</div>}
         {dados.linhas.length > 0 && (
           <div style={{ overflowX: 'auto' }}>
             <table style={s.tbl}>
               <thead>
                 <tr>
+                  <th style={{ ...s.thC, width: 26 }}><input type="checkbox" title="Selecionar todos os filtrados" checked={elegiveis.length > 0 && elegiveis.every(l => sel.has(l.colaborador_id))} onChange={e => setSel(e.target.checked ? new Set(elegiveis.map(l => l.colaborador_id)) : new Set())} /></th>
                   <th style={s.th}>Colaborador</th>
                   <th style={s.thR}>Venda</th>
                   <th style={s.thC}>%</th>
@@ -230,7 +252,8 @@ export default function PremiacaoFechamento() {
               </thead>
               <tbody>
                 {linhas.map((l, i) => (
-                  <tr key={l.colaborador_id || 'x' + i} style={{ borderTop: '1px solid #f0f2f4', background: l.sem_cadastro ? '#FBF6EC' : 'transparent' }}>
+                  <tr key={l.colaborador_id || 'x' + i} style={{ borderTop: '1px solid #f0f2f4', background: l.sem_cadastro ? '#FBF6EC' : (sel.has(l.colaborador_id) ? '#eef7f3' : 'transparent') }}>
+                    <td style={s.tdC}>{l.premiacao_venda > 0 && !l.sem_cadastro && l.colaborador_id ? <input type="checkbox" checked={sel.has(l.colaborador_id)} onChange={() => toggleSel(l.colaborador_id)} /> : null}</td>
                     <td style={s.td}>
                       <div style={{ fontWeight: 600, fontSize: 12.5 }}>{l.nome}</div>
                       <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>

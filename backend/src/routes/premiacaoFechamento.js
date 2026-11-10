@@ -9,12 +9,14 @@ const pf = require('../lib/premiacaoFechamento');
 router.use(auth);
 const emp = req => req.usuario.empresa_id;
 const wrap = fn => (req, res) => { try { res.json(fn(req)); } catch (e) { res.status(400).json({ erro: e.message }); } };
+const awrap = fn => async (req, res) => { try { res.json(await fn(req)); } catch (e) { res.status(e.message && e.message.includes('FECHADO') ? 400 : (e.message && e.message.includes('ERP') ? 503 : 400)).json({ erro: e.message }); } };
 
 const ACESSO = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Gerente', 'Financeiro', 'RH', 'Controladoria'];
 
-router.get('/', exigePerfil(...ACESSO), wrap(req => pf.listar(emp(req), { mes: req.query.mes, ano: req.query.ano })));
+router.get('/', exigePerfil(...ACESSO), awrap(req => pf.listar(emp(req), { mes: req.query.mes, ano: req.query.ano })));
 router.post('/importar', exigePerfil(...ACESSO), wrap(req => pf.importar(emp(req), req.body)));
 router.post('/item', exigePerfil(...ACESSO), wrap(req => pf.salvarItem(emp(req), req.body)));
+router.post('/item-lote', exigePerfil(...ACESSO), wrap(req => pf.salvarItemLote(emp(req), req.body)));
 router.get('/config', exigePerfil(...ACESSO), wrap(req => ({ cfg: pf.getCfg(emp(req)) })));
 router.post('/config', exigePerfil('Diretor Geral', 'Gestor Geral', 'Supervisor', 'Financeiro'), wrap(req => ({ cfg: pf.salvarCfg(emp(req), req.body) })));
 
@@ -37,9 +39,9 @@ router.get('/contas', exigePerfil(...ACESSO), wrap(req => ({ contas: pf.listarCo
 router.post('/contas', exigePerfil('Diretor Geral', 'Gestor Geral', 'Supervisor', 'Financeiro'), wrap(req => pf.salvarConta(emp(req), req.body)));
 
 // export no modelo da operadora (Pay X Virtual com PIX) — xlsx, uma aba por loja/CNPJ
-router.get('/exportar', exigePerfil(...ACESSO), (req, res) => {
+router.get('/exportar', exigePerfil(...ACESSO), async (req, res) => {
   try {
-    const r = pf.exportarCarga(emp(req), req.query.mes, req.query.ano);
+    const r = await pf.exportarCarga(emp(req), req.query.mes, req.query.ano);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="carga_premiacao_${String(req.query.mes).padStart(2, '0')}_${req.query.ano}.xlsx"`);
     res.setHeader('X-Sem-Id', String((r.sem_id || []).length)); // quantos pagáveis sem ID Premiação
@@ -49,7 +51,7 @@ router.get('/exportar', exigePerfil(...ACESSO), (req, res) => {
 
 // fechar/reabrir o mês (trava as decisões). Reabrir só gestão/financeiro.
 const FECHA = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Financeiro'];
-router.post('/fechar', exigePerfil(...FECHA), wrap(req => pf.fechar(emp(req), { ...req.body, usuario: req.usuario })));
-router.post('/reabrir', exigePerfil(...FECHA), wrap(req => pf.fechar(emp(req), { ...req.body, usuario: req.usuario, reabrir: true })));
+router.post('/fechar', exigePerfil(...FECHA), awrap(req => pf.fechar(emp(req), { ...req.body, usuario: req.usuario })));
+router.post('/reabrir', exigePerfil(...FECHA), awrap(req => pf.fechar(emp(req), { ...req.body, usuario: req.usuario, reabrir: true })));
 
 module.exports = router;

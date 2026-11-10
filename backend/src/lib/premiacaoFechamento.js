@@ -24,7 +24,7 @@ const parsePct = v => { const n = Number(String(v == null ? '' : v).replace('%',
 const round = n => Math.round((Number(n) || 0) * 100) / 100;
 
 // ── config (valores cadastráveis) ──────────────────────────────────────────
-const CFG_PADRAO = { uv_valor_un: 0, kit_min: 100, kit_alto: 250, kit_baixo: 120, taxa_adm: 1.2 };
+const CFG_PADRAO = { uv_valor_un: 0, kit_min: 100, kit_alto: 250, kit_baixo: 120, taxa_adm: 1.2, premiacao_pct_padrao: 5, perfumaria_pct_padrao: 1.5 };
 const cpf11 = c => String(c == null ? '' : c).replace(/\D/g, '').padStart(11, '0');
 function getCfg(empresaId) {
   const rows = db.prepare('SELECT chave, valor FROM premiacao_cfg WHERE empresa_id=?').all(empresaId);
@@ -50,8 +50,14 @@ function status(empresaId, mes, ano) {
 function exigeAberto(empresaId, mes, ano) {
   if (status(empresaId, mes, ano).fechado) throw new Error('Este mês está FECHADO. Reabra antes de alterar.');
 }
-function fechar(empresaId, { mes, ano, usuario, reabrir }) {
+async function fechar(empresaId, { mes, ano, usuario, reabrir }) {
   mes = Number(mes); ano = Number(ano);
+  // Ao FECHAR: se o mês ainda não tem base salva (está no monitor ao vivo), congela um snapshot
+  // do ERP agora — assim mudanças no plano depois NÃO alteram o mês fechado (pedido do Joe).
+  if (!reabrir) {
+    const tem = db.prepare('SELECT 1 FROM premiacao_base WHERE empresa_id=? AND mes=? AND ano=? LIMIT 1').get(empresaId, Number(mes), Number(ano));
+    if (!tem) { try { await puxarDoErp(empresaId, { mes, ano }); } catch (e) { /* ERP indisponível — fecha assim mesmo */ } }
+  }
   const fechado = reabrir ? 0 : 1;
   db.prepare(`INSERT INTO premiacao_fechado (empresa_id, mes, ano, fechado, fechado_em, fechado_por)
     VALUES (?,?,?,?,?,?)
@@ -139,11 +145,13 @@ function casar(nomeNorm, cols) {
 }
 
 // ── cálculo do fechamento ───────────────────────────────────────────────────
-function listar(empresaId, { mes, ano }) {
+async function listar(empresaId, { mes, ano }) {
   mes = Number(mes); ano = Number(ano);
   const cfg = getCfg(empresaId);
+  const pctPadrao = cfg.premiacao_pct_padrao != null ? Number(cfg.premiacao_pct_padrao) : 5;
   const faixasVit = faixasVitaminas(empresaId);
   const cols = colaboradoresNorm(empresaId);
+  const st = status(empresaId, mes, ano);
 
   // bases por nome_norm → { premiacao:{valor}, perfumaria:{valor,pct}, kits:{valor}, ... }
   const bases = db.prepare('SELECT tipo, nome_norm, nome_original, valor, pct FROM premiacao_base WHERE empresa_id=? AND mes=? AND ano=?').all(empresaId, mes, ano);
@@ -168,15 +176,19 @@ function listar(empresaId, { mes, ano }) {
     const b = base || {};
     const premiacaoVenda = b.premiacao?.valor || 0;
     const perfVenda = b.perfumaria?.valor || 0;
-    const perfPct = b.perfumaria?.pct ?? null;
     const kitsQtd = b.kits?.valor || 0;
     const uniQtd = b.unidades?.valor || 0;
     const vitQtd = b.vitaminas?.valor || 0;
 
-    const premiacaoPct = it && it.premiacao_pct != null ? Number(it.premiacao_pct) : null;
+    // % padrão (5) quando há venda e nada foi escolhido ainda; o operador ajusta as exceções.
+    const premiacaoPct = it && it.premiacao_pct != null ? Number(it.premiacao_pct) : (premiacaoVenda > 0 ? pctPadrao : null);
     const premiacaoValor = premiacaoPct != null ? round(premiacaoVenda * premiacaoPct / 100) : 0;
 
-    const ehPerfumista = !!(colab && colab.perfumista) || perfVenda > 0;
+    // Perfumista = MARCADOR no cadastro. % padrão 1,5 (ou 1); ajusta/valida no fim.
+    const ehPerfumista = !!(colab && colab.perfumista);
+    const perfPct = (it && it.perfumaria_pct != null) ? Number(it.perfumaria_pct)
+      : ((b.perfumaria && b.perfumaria.pct != null) ? Number(b.perfumaria.pct)
+        : (ehPerfumista ? (cfg.perfumaria_pct_padrao != null ? Number(cfg.perfumaria_pct_padrao) : 1.5) : null));
     const perfumariaValor = ehPerfumista && perfPct != null ? round(perfVenda * perfPct / 100) : 0;
 
     const vitUn = valorUnVitamina(vitQtd, faixasVit);
@@ -224,21 +236,40 @@ function listar(empresaId, { mes, ano }) {
     if (colab) colabUsado.add(colab.id);
     montar(nome_norm, base.nome_original, base, colab);
   }
-  // gestão sem linha de relatório (gerentes/liderança que não aparecem nos relatórios de venda)
+  // SEM base salva (nem Excel nem snapshot) e mês ABERTO → MONITOR AO VIVO do ERP, automático.
+  // Casa por erp_pessoa_id (sem "sem cadastro"). Ao fechar o mês vira snapshot congelado.
+  let aoVivo = false;
+  if (!porNome.size && !st.fechado) {
+    aoVivo = true;
+    let erp = null;
+    try { erp = await basesErp(empresaId, mes, ano); } catch (e) { /* ERP indisponível → tabela vazia */ }
+    if (erp) {
+      ['premiacao', 'perfumaria', 'vitaminas', 'kits', 'unidades'].forEach(t => tiposImportados.add(t));
+      for (const colab of cols) {
+        const b = erp.get(colab.id);
+        if (!b || !(b.premiacao_venda || b.perfumaria_venda || b.kits_qtd || b.unidades_valor || b.vitaminas_qtd)) continue;
+        const base = { nome_original: colab.nome, premiacao: { valor: b.premiacao_venda }, perfumaria: { valor: b.perfumaria_venda, pct: null }, kits: { valor: b.kits_qtd }, unidades: { valor: b.unidades_valor }, vitaminas: { valor: b.vitaminas_qtd } };
+        colabUsado.add(colab.id);
+        montar(colab.nome_norm, colab.nome, base, colab);
+      }
+    }
+  }
+  // gestão sem linha de venda (gerentes/liderança que não aparecem nas vendas)
   for (const c of cols) {
     if (c.premiacao_gestao && c.ativo && !colabUsado.has(c.id)) montar(c.nome_norm, c.nome, null, c);
   }
 
   linhas.sort((a, b) => String(a.nome).localeCompare(String(b.nome)));
-  const st = status(empresaId, mes, ano);
+  const soma = campo => round(linhas.reduce((s, l) => s + (l[campo] || 0), 0));
   const resumo = {
     colaboradores: linhas.length,
     sem_cadastro: linhas.filter(l => l.sem_cadastro).length,
-    bruto: round(linhas.reduce((s, l) => s + l.bruto, 0)),
-    descontos: round(linhas.reduce((s, l) => s + l.descontos, 0)),
-    liquido: round(linhas.reduce((s, l) => s + l.liquido, 0)),
+    premiacao: soma('premiacao_valor'), perfumaria: soma('perfumaria_valor'),
+    vitaminas: soma('vitaminas_valor'), unidades: soma('unidades_valor'),
+    kits: soma('kits_valor'), gestao: soma('gestao_valor'),
+    bruto: soma('bruto'), descontos: soma('descontos'), liquido: soma('liquido'),
   };
-  return { ok: true, mes, ano, cfg, linhas, resumo, relatorios: [...tiposImportados], fechado: st.fechado, fechado_em: st.fechado_em, fechado_por: st.fechado_por };
+  return { ok: true, mes, ano, cfg, linhas, resumo, relatorios: [...tiposImportados], fechado: st.fechado, fechado_em: st.fechado_em, fechado_por: st.fechado_por, ao_vivo: aoVivo };
 }
 
 function salvarItem(empresaId, body) {
@@ -318,10 +349,10 @@ function salvarConta(empresaId, c) {
 // ── export no modelo da operadora (Pay X Virtual com PIX) ───────────────────
 // Uma aba por loja (CNPJ), com o cabeçalho que a planilha de CARGA exige e as linhas
 // CPF | Nome | Valor (líquido) | ID (id_premiacao do cadastro) | OBSERVAÇÃO.
-function exportarCarga(empresaId, mes, ano) {
+async function exportarCarga(empresaId, mes, ano) {
   const cfg = getCfg(empresaId);
   const taxaPct = cfg.taxa_adm != null ? Number(cfg.taxa_adm) : 1.2;
-  const L = listar(empresaId, { mes: Number(mes), ano: Number(ano) });
+  const L = await listar(empresaId, { mes: Number(mes), ano: Number(ano) });
   const pagaveis = L.linhas.filter(l => l.colaborador_id && l.liquido > 0);
   const semId = []; const semVinculo = [];
   const det = new Map();
@@ -389,7 +420,11 @@ function exportarCarga(empresaId, mes, ano) {
 // Usa a DATA DE VENDA (datahoraabertura) e as regras ATUAIS do plano. Depois o "puxar do ERP"
 // grava isso em premiacao_base (snapshot) — e ao fechar o mês fica congelado.
 const SELLER_JOIN = 'LEFT JOIN itemorcamento io ON io.id=iv.itemorcamentoid LEFT JOIN orcamento o ON o.id=v.orcamentoid JOIN usuario u ON u.id=COALESCE(io.usuarioid,o.usuarioid,v.usuarioid)';
-async function basesErp(empresaId, mes, ano) {
+const _basesCache = new Map();
+async function basesErp(empresaId, mes, ano, force) {
+  const chave = `${empresaId}|${mes}|${ano}`;
+  const cache = _basesCache.get(chave);
+  if (!force && cache && Date.now() - cache.at < 90 * 1000) return cache.val;
   const colabs = db.prepare('SELECT id, erp_pessoa_id, nome FROM colaboradores WHERE empresa_id=? AND erp_pessoa_id IS NOT NULL AND ativo=1').all(empresaId);
   const porPessoa = new Map(colabs.map(c => [Number(c.erp_pessoa_id), c.id]));
   const out = new Map(colabs.map(c => [c.id, { colaborador_id: c.id, nome: c.nome, premiacao_venda: 0, perfumaria_venda: 0, kits_qtd: 0, unidades_valor: 0, vitaminas_qtd: 0 }]));
@@ -418,6 +453,7 @@ async function basesErp(empresaId, mes, ano) {
   if (P('vitaminas')) setCampo(await erpQuery(qtySQL, [P('vitaminas'), ini, fim, pessoas]), 'vitaminas_qtd');
   if (P('kits')) setCampo(await erpQuery(qtySQL, [P('kits'), ini, fim, pessoas]), 'kits_qtd');
   if (P('unidades vendidas')) setCampo(await erpQuery(valSQL, [P('unidades vendidas'), ini, fim, pessoas]), 'unidades_valor');
+  _basesCache.set(chave, { at: Date.now(), val: out });
   return out;
 }
 
@@ -484,4 +520,17 @@ async function planosErp(force) {
   return _planosCache;
 }
 
-module.exports = { importar, listar, salvarItem, salvarCfg, getCfg, status, fechar, exportarCarga, importarIds, listarContas, salvarConta, planosErp, basesErp, puxarDoErp };
+// aplica o MESMO % de premiação a vários colaboradores de uma vez (preserva os outros campos).
+function salvarItemLote(empresaId, { mes, ano, colaborador_ids, premiacao_pct }) {
+  if (!Array.isArray(colaborador_ids) || !colaborador_ids.length) throw new Error('Nenhum colaborador selecionado.');
+  exigeAberto(empresaId, mes, ano);
+  const pct = premiacao_pct === '' || premiacao_pct == null ? null : Number(premiacao_pct);
+  const up = db.prepare(`INSERT INTO premiacao_item (id, empresa_id, mes, ano, colaborador_id, premiacao_pct, atualizado_em)
+    VALUES (?,?,?,?,?,?,datetime('now'))
+    ON CONFLICT(empresa_id, mes, ano, colaborador_id) DO UPDATE SET premiacao_pct=excluded.premiacao_pct, atualizado_em=datetime('now')`);
+  const tx = db.transaction(() => { for (const cid of colaborador_ids) up.run(uuidv4(), empresaId, Number(mes), Number(ano), cid, pct); });
+  tx();
+  return { ok: true, n: colaborador_ids.length };
+}
+
+module.exports = { importar, listar, salvarItem, salvarItemLote, salvarCfg, getCfg, status, fechar, exportarCarga, importarIds, listarContas, salvarConta, planosErp, basesErp, puxarDoErp };
