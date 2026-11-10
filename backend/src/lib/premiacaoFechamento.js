@@ -6,6 +6,7 @@
 const XLSX = require('xlsx');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db/connection');
+const { erpQuery } = require('../db/erp');
 
 // nome normalizado p/ casar o relatório (que TRUNCA nomes longos ~30 chars) com o cadastro
 const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
@@ -381,4 +382,45 @@ function exportarCarga(empresaId, mes, ano) {
   return { buffer, lojas: grupos.size, colaboradores: pagaveis.length, sem_id: semId, sem_vinculo: semVinculo };
 }
 
-module.exports = { importar, listar, salvarItem, salvarCfg, getCfg, status, fechar, exportarCarga, importarIds, listarContas, salvarConta };
+// ── regras dos planos de remuneração (ERP, só leitura) ──────────────────────
+// Mostra cada plano (Premiação, Perfumista, Kits, Unidades, Vitaminas) com TUDO que o compõe:
+// classificações (caminho), embalagens/produtos, grupos — e a comissão/bonificação de cada item.
+let _planosCache = null, _planosAt = 0;
+async function planosErp(force) {
+  if (!force && _planosCache && Date.now() - _planosAt < 10 * 60 * 1000) return _planosCache;
+  const rows = await erpQuery(`
+    SELECT pr.id AS plano_id, pr.nome AS plano, pr.tipo AS plano_tipo,
+      pri.tipo AS item_tipo, pri.comissao, pri.bonificacao,
+      cl.caminho AS classificacao, cl.nome AS classificacao_nome,
+      COALESCE(e.descricao, pe.descricao) AS embalagem, e.codigobarras,
+      pp.descricao AS produto, gr.nome AS grupo, fp.nome AS fabricante
+    FROM planoremuneracaoitem pri
+    JOIN planoremuneracao pr ON pr.id = pri.planoremuneracaoid
+    LEFT JOIN classificacao cl ON cl.id = pri.classificacaoid
+    LEFT JOIN embalagem e ON e.id = pri.embalagemid
+    LEFT JOIN produto pe ON pe.id = e.produtoid
+    LEFT JOIN produto pp ON pp.id = pri.produtoid
+    LEFT JOIN gruporemarcacao gr ON gr.id = pri.gruporemarcacaoid
+    LEFT JOIN fabricante fab ON fab.id = pri.fabricanteid
+    LEFT JOIN pessoa fp ON fp.id = fab.pessoaid
+    WHERE pr.status = 'A'
+    ORDER BY pr.nome, pri.tipo, 8`);
+  const map = new Map(); const planos = [];
+  for (const r of rows) {
+    let p = map.get(r.plano_id);
+    if (!p) { p = { id: r.plano_id, plano: r.plano, tipo: r.plano_tipo === 'A' ? 'Comissão' : 'Bonificação', itens: [] }; map.set(r.plano_id, p); planos.push(p); }
+    const eh = r.item_tipo === 'D' ? 'Classificação' : (r.classificacao ? 'Classificação' : r.embalagem ? 'Produto' : r.grupo ? 'Grupo' : r.fabricante ? 'Fabricante' : 'Item');
+    p.itens.push({
+      tipo: eh,
+      nome: r.classificacao || r.classificacao_nome || r.embalagem || r.produto || r.grupo || r.fabricante || '—',
+      codigo: r.codigobarras || null,
+      comissao: r.comissao == null ? null : Number(r.comissao),
+      bonificacao: r.bonificacao == null ? null : Number(r.bonificacao),
+    });
+  }
+  _planosCache = { ok: true, planos, gerado_em: new Date().toISOString() };
+  _planosAt = Date.now();
+  return _planosCache;
+}
+
+module.exports = { importar, listar, salvarItem, salvarCfg, getCfg, status, fechar, exportarCarga, importarIds, listarContas, salvarConta, planosErp };

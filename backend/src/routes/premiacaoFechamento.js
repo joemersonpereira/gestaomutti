@@ -18,6 +18,12 @@ router.post('/item', exigePerfil(...ACESSO), wrap(req => pf.salvarItem(emp(req),
 router.get('/config', exigePerfil(...ACESSO), wrap(req => ({ cfg: pf.getCfg(emp(req)) })));
 router.post('/config', exigePerfil('Diretor Geral', 'Gestor Geral', 'Supervisor', 'Financeiro'), wrap(req => ({ cfg: pf.salvarCfg(emp(req), req.body) })));
 
+// regras dos planos de remuneração (ERP, só leitura) — composição de cada plano
+router.get('/planos-erp', exigePerfil(...ACESSO), async (req, res) => {
+  try { res.json(await pf.planosErp(req.query.force === '1')); }
+  catch (e) { res.status(503).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
+
 // importar IDs e vínculos Pay X das cargas preenchidas (casa por CPF)
 router.post('/importar-ids', exigePerfil(...ACESSO), wrap(req => pf.importarIds(emp(req), req.body)));
 // contas Pay X (cabeçalho por CNPJ: empresa/produto/código/taxa)

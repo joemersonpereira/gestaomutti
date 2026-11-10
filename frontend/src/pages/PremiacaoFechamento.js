@@ -112,6 +112,8 @@ export default function PremiacaoFechamento() {
     <div style={s.wrap}>
       <Banner emoji="💵" titulo="Premiação" cor="verde" sub="Suba os relatórios do ERP, escolha os % e os descontos, e feche o prêmio por colaborador." />
 
+      <RegrasPlanos API={API} />
+
       {/* período + upload */}
       <div style={s.card}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -273,6 +275,68 @@ export default function PremiacaoFechamento() {
 }
 
 const round = n => Math.round((Number(n) || 0) * 100) / 100;
+
+// 📋 Regras dos planos de remuneração (ERP): cada plano com tudo que o compõe.
+function RegrasPlanos({ API }) {
+  const [aberto, setAberto] = useState(false);
+  const [dados, setDados] = useState(null);
+  const [erro, setErro] = useState('');
+  const [exp, setExp] = useState(null);
+  const [busca, setBusca] = useState({});
+  useEffect(() => {
+    if (aberto && dados === null) {
+      API.get('/premiacao-fechamento/planos-erp').then(r => setDados(r.data)).catch(e => setErro(e.response?.data?.erro || 'Erro ao carregar do ERP.'));
+    }
+  }, [aberto, dados, API]);
+  const valorItem = it => it.bonificacao != null ? `R$ ${Number(it.bonificacao).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : (it.comissao != null ? `${Number(it.comissao).toLocaleString('pt-BR')}%` : '');
+
+  return (
+    <div style={s.card}>
+      <button onClick={() => setAberto(a => !a)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#0E7C5A', padding: 0 }}>
+        📋 Regras dos planos de remuneração (do ERP) {aberto ? '▲' : '▼'}
+      </button>
+      {aberto && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 11, color: '#7a8a8c', marginBottom: 8 }}>O que compõe cada plano no ERP (classificações, produtos, grupos) e a comissão/bonificação de cada item. Só leitura — a fonte é o ERP.</div>
+          {erro && <div style={{ fontSize: 12, color: '#993C1D' }}>{erro}</div>}
+          {!dados && !erro && <div style={{ fontSize: 12, color: '#999' }}>Carregando do ERP…</div>}
+          {dados && dados.planos.map(p => {
+            const q = (busca[p.id] || '').toLowerCase();
+            const itens = q ? p.itens.filter(it => it.nome.toLowerCase().includes(q) || (it.codigo || '').includes(q)) : p.itens;
+            const aberta = exp === p.id;
+            return (
+              <div key={p.id} style={{ border: '1px solid #e9ecf1', borderRadius: 12, marginBottom: 8, overflow: 'hidden' }}>
+                <button onClick={() => setExp(aberta ? null : p.id)} style={{ width: '100%', textAlign: 'left', background: '#f7faf9', border: 'none', cursor: 'pointer', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontWeight: 700, fontSize: 13, color: '#13233a' }}>{p.plano}</span>
+                  <span style={{ ...s.chip, ...s.chipOn }}>{p.tipo}</span>
+                  <span style={{ fontSize: 12, color: '#7a8a8c' }}>{p.itens.length} itens</span>
+                  <span style={{ marginLeft: 'auto', color: '#0E7C5A' }}>{aberta ? '▲' : '▼'}</span>
+                </button>
+                {aberta && (
+                  <div style={{ padding: 10 }}>
+                    <input style={{ ...s.sel, width: '100%', marginBottom: 8 }} placeholder={`Buscar em ${p.plano}…`} value={busca[p.id] || ''} onChange={e => setBusca(b => ({ ...b, [p.id]: e.target.value }))} />
+                    <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid #f0f2f4', borderRadius: 8 }}>
+                      {itens.slice(0, 300).map((it, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderBottom: '1px solid #f5f6f7', fontSize: 12 }}>
+                          <span style={{ ...s.tag }}>{it.tipo}</span>
+                          <span style={{ flex: 1, color: '#13233a' }}>{it.nome}{it.codigo ? <span style={{ color: '#aaa', fontSize: 11 }}> · {it.codigo}</span> : null}</span>
+                          <span style={{ fontWeight: 700, color: '#0C5A43', whiteSpace: 'nowrap' }}>{valorItem(it)}</span>
+                        </div>
+                      ))}
+                      {itens.length === 0 && <div style={{ fontSize: 12, color: '#999', padding: 10 }}>Nada encontrado.</div>}
+                    </div>
+                    {itens.length > 300 && <div style={{ fontSize: 11, color: '#7a8a8c', marginTop: 4 }}>Mostrando 300 de {itens.length} — use a busca para refinar.</div>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {dados && <div style={{ fontSize: 10, color: '#aab', marginTop: 4 }}>Atualizado do ERP {dados.gerado_em ? new Date(dados.gerado_em).toLocaleString('pt-BR') : ''} (cache 10 min).</div>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Editor das faixas de vitaminas (R$/unidade por quantidade) — mesma tabela usada no cálculo.
 function FaixasVitaminas({ API, onSalvo }) {
