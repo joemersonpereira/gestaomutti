@@ -213,7 +213,7 @@ router.get('/dashboard', (req, res) => {
   // "vendido/ocupado" = negócio COMPROMETIDO (fechado), não só os já vigentes — senão um confirmado
   // de R$ 3.700 aparece como "tudo disponível". Mesma régua do resto do sistema (menos rascunho/pedido/negociação, que ainda não fecharam).
   const vend = db.prepare(`SELECT COALESCE(ve.loja_id, v.loja_id) loja_id, COUNT(ve.id) vendidos, COALESCE(SUM(ve.valor),0) receita
-    FROM tmkt_venda_espacos ve JOIN tmkt_vendas v ON v.id=ve.venda_id WHERE v.empresa_id=? AND v.status IN ('confirmado','briefing','aguardando','vigente','comprovacao','vendido','concluido','encerrado')
+    FROM tmkt_venda_espacos ve JOIN tmkt_vendas v ON v.id=ve.venda_id WHERE v.empresa_id=? AND v.status IN ('confirmado','briefing','aguardando','vigente','comprovacao','vendido','concluido','encerrado') AND COALESCE(v.nao_ocupa,0)=0
     GROUP BY COALESCE(ve.loja_id, v.loja_id)`).all(emp).reduce((m, r) => (m[r.loja_id] = r, m), {});
   const monitorados = db.prepare(`SELECT COALESCE(SUM(json_array_length(eans_monitorados)),0) n FROM tmkt_vendas WHERE empresa_id=? AND eans_monitorados IS NOT NULL`).get(emp).n || 0;
 
@@ -260,7 +260,7 @@ router.get('/espaco-loja', (req, res) => {
   const rows = db.prepare(`SELECT el.id, el.empresa_id, el.loja_id, el.loja_nome, el.area, el.espaco, el.tamanho, el.descricao, el.cobranca, el.quantidade, el.preco_unit, el.criado_em,
       (el.foto IS NOT NULL) tem_foto, (
       SELECT COUNT(*) FROM tmkt_venda_espacos ve JOIN tmkt_vendas v ON v.id=ve.venda_id
-      WHERE ve.espaco_id=el.id AND v.status IN ${OCUPA_STATUS}
+      WHERE ve.espaco_id=el.id AND v.status IN ${OCUPA_STATUS} AND COALESCE(v.nao_ocupa,0)=0
     ) ocupados
     FROM tmkt_espaco_loja el WHERE el.empresa_id=? ORDER BY el.loja_nome, el.area, el.espaco`).all(req.usuario.empresa_id);
   res.json({ itens: rows.map(r => ({ ...r, tem_foto: !!r.tem_foto, ocupados: r.ocupados || 0, disponiveis: Math.max(0, (r.quantidade || 0) - (r.ocupados || 0)) })) });
@@ -369,11 +369,11 @@ router.post('/vendas', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id, b = req.body;
   if (!b.fornecedor_nome) return res.status(400).json({ erro: 'Informe o fornecedor.' });
   const id = uuid();
-  db.prepare(`INSERT INTO tmkt_vendas (id,empresa_id,codigo,origem,associacao_id,associacao_nome,fornecedor_id,fornecedor_nome,loja_id,forma_pagamento,tema_id,tema_desc,plano_id,plano_nome,contrato_url,vigencia_ini,vigencia_fim,valor,status,eans_monitorados,observacao,status_desde,criado_por,criado_em)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?,datetime('now'))`)
+  db.prepare(`INSERT INTO tmkt_vendas (id,empresa_id,codigo,origem,associacao_id,associacao_nome,fornecedor_id,fornecedor_nome,loja_id,forma_pagamento,tema_id,tema_desc,plano_id,plano_nome,nao_ocupa,contrato_url,vigencia_ini,vigencia_fim,valor,status,eans_monitorados,observacao,status_desde,criado_por,criado_em)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?,datetime('now'))`)
     .run(id, emp, proximoCodigo(emp), b.origem === 'associacao' ? 'associacao' : 'direto', b.associacao_id || null, b.associacao_nome || null,
       b.fornecedor_id || null, b.fornecedor_nome, b.loja_id || null, b.forma_pagamento || null,
-      b.tema_id || null, b.tema_desc || null, b.plano_id || null, b.plano_nome || null, b.contrato_url || null, b.vigencia_ini || null, b.vigencia_fim || null,
+      b.tema_id || null, b.tema_desc || null, b.plano_id || null, b.plano_nome || null, b.nao_ocupa ? 1 : 0, b.contrato_url || null, b.vigencia_ini || null, b.vigencia_fim || null,
       Number(b.valor) || 0, STATUS.includes(b.status) ? b.status : 'rascunho',
       b.eans ? JSON.stringify(b.eans) : null, b.observacao || null, req.usuario.id);
   res.json({ ok: true, id });
@@ -437,6 +437,7 @@ router.put('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
   const set = [], vals = [];
   campos.forEach(c => { if (c in b) { set.push(`${c}=?`); vals.push(b[c] === '' ? null : b[c]); } });
   if ('eans' in b) { set.push('eans_monitorados=?'); vals.push(b.eans ? JSON.stringify(b.eans) : null); }
+  if ('nao_ocupa' in b) { set.push('nao_ocupa=?'); vals.push(b.nao_ocupa ? 1 : 0); }
   if (set.length) { set.push("atualizado_em=datetime('now')"); db.prepare(`UPDATE tmkt_vendas SET ${set.join(',')} WHERE id=? AND empresa_id=?`).run(...vals, req.params.id, emp); }
   res.json({ ok: true });
 });
@@ -461,11 +462,13 @@ router.post('/vendas/:id/espacos', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id, b = req.body;
   // Trava do slot: não deixa vender mais vagas do que o espaço-loja tem (quantidade).
   let slot = null;
-  if (b.espaco_id) {
+  // Trade "não ocupa" (só comprovação/foto) não consome vaga — pula a trava e não vira slot.
+  const vendaNaoOcupa = !!(db.prepare('SELECT COALESCE(nao_ocupa,0) n FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp) || {}).n;
+  if (b.espaco_id && !vendaNaoOcupa) {
     const el = db.prepare('SELECT quantidade FROM tmkt_espaco_loja WHERE id=? AND empresa_id=?').get(b.espaco_id, emp);
     if (el) {
       const ocupados = db.prepare(`SELECT COUNT(*) n FROM tmkt_venda_espacos ve JOIN tmkt_vendas v ON v.id=ve.venda_id
-        WHERE ve.espaco_id=? AND v.status IN ${OCUPA_STATUS}`).get(b.espaco_id).n;
+        WHERE ve.espaco_id=? AND v.status IN ${OCUPA_STATUS} AND COALESCE(v.nao_ocupa,0)=0`).get(b.espaco_id).n;
       if (ocupados >= (el.quantidade || 0)) return res.status(400).json({ erro: `Espaço esgotado — ${ocupados}/${el.quantidade} vagas já ocupadas.` });
       slot = ocupados + 1;
     }

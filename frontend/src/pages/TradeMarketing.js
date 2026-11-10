@@ -1110,7 +1110,7 @@ function Vendas({ API, gestao }) {
               <div style={s.colBody}>
                 {itens.map(v => (
                   <div key={v.id} style={s.cardA}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}><span style={{ fontSize: 11.5, fontWeight: 700, color: col.cor }}>📐 {v.codigo}</span><span style={{ display: 'flex', gap: 3 }}>{(v.origem === 'portal' || v.origem === 'recompra') ? <span style={{ ...s.tag, background: '#E7F0FB', color: '#2E5C9E' }}>🌐 {v.origem === 'recompra' ? 'recompra' : 'portal'}</span> : null}{proxVencer(v) ? <span style={{ ...s.tag, background: '#FEF3C7', color: '#B45309' }}>⏰ vence</span> : null}{v.atrasado ? <span style={{ ...s.tag, background: '#FBEAEA', color: '#C0392B' }}>atraso</span> : null}{col.id === 'comprovacao' ? <span style={{ ...s.tag, background: v.tem_comprovacao ? '#E6F4EC' : '#FBF0DA', color: v.tem_comprovacao ? '#1E874B' : '#B45309' }}>{v.tem_comprovacao ? '✅ comprovado' : '⚠️ comprovar'}</span> : null}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}><span style={{ fontSize: 11.5, fontWeight: 700, color: col.cor }}>📐 {v.codigo}</span><span style={{ display: 'flex', gap: 3 }}>{(v.origem === 'portal' || v.origem === 'recompra') ? <span style={{ ...s.tag, background: '#E7F0FB', color: '#2E5C9E' }}>🌐 {v.origem === 'recompra' ? 'recompra' : 'portal'}</span> : null}{proxVencer(v) ? <span style={{ ...s.tag, background: '#FEF3C7', color: '#B45309' }}>⏰ vence</span> : null}{v.atrasado ? <span style={{ ...s.tag, background: '#FBEAEA', color: '#C0392B' }}>atraso</span> : null}{col.id === 'comprovacao' ? <span style={{ ...s.tag, background: v.tem_comprovacao ? '#E6F4EC' : '#FBF0DA', color: v.tem_comprovacao ? '#1E874B' : '#B45309' }}>{v.tem_comprovacao ? '✅ comprovado' : '⚠️ comprovar'}</span> : null}{v.nao_ocupa ? <span style={{ ...s.tag, background: '#EEF2FF', color: '#6D4AA8' }}>📸 não ocupa</span> : null}</span></div>
                     <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 4 }}>{v.fornecedor_nome}</div>
                     <div style={{ fontSize: 11.5, color: '#666' }}>{v.espacos} espaço(s){v.tema_desc ? ` · ${v.tema_desc}` : ''}</div>
                     {v.plano_nome && <div style={{ fontSize: 10.5, color: '#6D4AA8', marginTop: 2 }}>📋 {v.plano_nome}</div>}
@@ -1220,6 +1220,12 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
           <label style={s.lbl}>Forma pgto<select value={v.forma_pagamento || ''} onChange={e => set('forma_pagamento', e.target.value)} style={s.inp}><option value="">—</option>{['Boleto', 'Depósito', 'Desconto em boleto', 'Bonificação', 'Brinde'].map(f => <option key={f}>{f}</option>)}</select></label>
           <label style={s.lbl}>Valor total R$<input type="number" value={v.valor} onChange={e => set('valor', e.target.value)} style={{ ...s.inp, width: 120 }} /></label>
           <label style={s.lbl}>Status<select value={v.status} onChange={e => set('status', e.target.value)} style={s.inp}>{COLS.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}<option value="cancelado">Cancelado</option></select></label>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }} title="Trade só pra comprovação/foto — não ocupa a vaga do espaço (continua disponível pra venda real).">
+            <input type="checkbox" checked={!!v.nao_ocupa} onChange={e => set('nao_ocupa', e.target.checked)} />
+            📸 Não ocupa o espaço <span style={{ color: '#94a3b8' }}>(só comprovação/foto — a vaga continua disponível)</span>
+          </label>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <label style={{ ...s.lbl, flex: 1, minWidth: 200 }}>URL do contrato assinado<input value={v.contrato_url || ''} onChange={e => set('contrato_url', e.target.value)} placeholder="cole a URL" style={s.inp} /></label>
