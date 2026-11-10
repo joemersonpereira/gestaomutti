@@ -52,7 +52,7 @@ function syncEstagiario(empresaId, colabId) {
 router.get('/', (req, res) => {
   const { loja_id, funcao_id } = req.query;
   let q = `
-    SELECT c.id, c.nome, c.email, c.cpf, c.salario, c.admissao, c.nascimento, c.ativo, c.senha_provisoria, c.chefe_setor, c.lideranca, c.conferente, c.is_estagiario, c.is_socio,
+    SELECT c.id, c.nome, c.email, c.cpf, c.salario, c.admissao, c.nascimento, c.ativo, c.senha_provisoria, c.chefe_setor, c.lideranca, c.conferente, c.perfumista, c.is_estagiario, c.is_socio,
       f.nome as funcao, l.nome as loja, c.loja_id, c.funcao_id, c.departamento, c.empresa_registro, c.empresa_atuacao,
       c.telefone, c.endereco, c.apelido, c.contato_emergencia_nome, c.contato_emergencia_telefone, (c.foto IS NOT NULL) as tem_foto,
       c.cep, c.endereco_numero, c.complemento, c.bairro, c.cidade, c.uf, c.num_calcado, c.tam_blusa, c.tam_calca, c.tam_jaleco, c.inicio_loja,
@@ -112,6 +112,7 @@ router.post('/', exigePerfil('Gestor Geral', 'Diretor Geral', 'RH'), (req, res) 
   salvarLojasExtra(req.usuario.empresa_id, id, loja_id, req.body.lojas_extra);
   if (req.body.lideranca) db.prepare(`UPDATE colaboradores SET lideranca=1 WHERE id=?`).run(id);
   if (req.body.conferente) db.prepare(`UPDATE colaboradores SET conferente=1 WHERE id=?`).run(id);
+  if (req.body.perfumista) db.prepare(`UPDATE colaboradores SET perfumista=1 WHERE id=?`).run(id);
   if (req.body.inicio_loja) db.prepare(`UPDATE colaboradores SET inicio_loja=? WHERE id=?`).run(String(req.body.inicio_loja).slice(0, 10), id);
   // Dados pessoais (telefone, endereço, contato de emergência, apelido, foto)
   db.prepare(`UPDATE colaboradores SET telefone=?, endereco=?, apelido=?, contato_emergencia_nome=?, contato_emergencia_telefone=?, foto=?,
@@ -155,6 +156,7 @@ router.patch('/:id', exigePerfil('Gestor Geral', 'Diretor Geral', 'RH'), (req, r
   if (req.body.lojas_extra !== undefined) salvarLojasExtra(req.usuario.empresa_id, c.id, loja_id ?? c.loja_id, req.body.lojas_extra);
   if (req.body.lideranca !== undefined) db.prepare(`UPDATE colaboradores SET lideranca=? WHERE id=?`).run(req.body.lideranca ? 1 : 0, c.id);
   if (req.body.conferente !== undefined) db.prepare(`UPDATE colaboradores SET conferente=? WHERE id=?`).run(req.body.conferente ? 1 : 0, c.id);
+  if (req.body.perfumista !== undefined) db.prepare(`UPDATE colaboradores SET perfumista=? WHERE id=?`).run(req.body.perfumista ? 1 : 0, c.id);
   if (req.body.inicio_loja !== undefined) db.prepare(`UPDATE colaboradores SET inicio_loja=? WHERE id=?`).run(req.body.inicio_loja ? String(req.body.inicio_loja).slice(0, 10) : null, c.id);
   ['telefone', 'endereco', 'apelido', 'contato_emergencia_nome', 'contato_emergencia_telefone', 'foto',
     'cep', 'endereco_numero', 'complemento', 'bairro', 'cidade', 'uf', 'num_calcado', 'tam_blusa', 'tam_calca', 'tam_jaleco',
