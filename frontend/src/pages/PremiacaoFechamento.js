@@ -208,8 +208,8 @@ export default function PremiacaoFechamento() {
           {carregando && <span style={{ fontSize: 12, color: '#999' }}>carregando…</span>}
           <span style={{ marginLeft: 'auto', fontSize: 12, color: '#7a8a8c' }}>{linhas.length} linha(s)</span>
         </div>
-        {dados.relatorios.length === 0 && <div style={{ fontSize: 13, color: '#999', padding: 10 }}>Nenhum relatório importado para {String(mes).padStart(2, '0')}/{ano}. Suba os arquivos acima.</div>}
-        {dados.relatorios.length > 0 && (
+        {dados.linhas.length === 0 && <div style={{ fontSize: 13, color: '#999', padding: 10 }}>Nada em {String(mes).padStart(2, '0')}/{ano}. Clique em <strong>⚡ Puxar do ERP (ao vivo)</strong> para carregar as bases dos planos — ou suba os relatórios Excel.</div>}
+        {dados.linhas.length > 0 && (
           <div style={{ overflowX: 'auto' }}>
             <table style={s.tbl}>
               <thead>
