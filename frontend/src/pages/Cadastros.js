@@ -79,12 +79,14 @@ function SyncAlpha({ API, onAplicado, lojas = [], funcoes = [] }) {
     if (!window.confirm(`Importar ${selecao.length} pessoa(s)?\n\nEntram ATIVAS (como no Alpha), com a loja e função que você escolheu. Ficam SEM senha (sem login) até o RH definir o acesso.`)) return;
     API.post('/colaboradores/sync-alpha/importar', { selecao }).then(r => { setMsg(`✅ ${r.data.importados} importado(s) (ativos; defina o acesso quando for usar).`); setPrev(null); setAberto(false); onAplicado && onAplicado(); }).catch(e => setMsg(e.response?.data?.erro || 'Erro.'));
   };
+  const preencherCpf = () => { setMsg('⏳ Preenchendo CPFs do ERP…'); API.post('/colaboradores/sync-alpha/backfill-cpf', {}).then(r => { setMsg(`✅ ${r.data.preenchidos} CPF(s) preenchido(s) do ERP${r.data.candidatos != null ? ` (de ${r.data.candidatos} sem CPF com vínculo)` : ''}.`); onAplicado && onAplicado(); }).catch(e => setMsg(e.response?.data?.erro || 'Erro ao preencher CPFs.')); };
   return (
     <div style={{ ...s.card, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <b style={{ fontSize: 13 }}>🔄 Conferência com o Alpha 7</b>
         <span style={{ fontSize: 12, color: '#777' }}>mantém ativo só quem está ativo no ERP (vínculo por CPF)</span>
         <div style={{ flex: 1 }} />
+        <button style={{ ...s.btn, background: '#8A5A12' }} onClick={preencherCpf} title="Preenche o CPF (do ERP) de quem tem vínculo mas está sem CPF.">🧩 Preencher CPFs do ERP</button>
         <button style={s.btn} onClick={conferir} disabled={carregando}>{carregando ? 'Conferindo…' : 'Conferir agora'}</button>
       </div>
       {msg && <div style={{ fontSize: 12, color: msg.startsWith('✅') ? '#3B6D11' : '#993C1D' }}>{msg}</div>}

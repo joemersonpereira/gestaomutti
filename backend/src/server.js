@@ -150,6 +150,20 @@ setTimeout(() => {
   } catch { /* ignora */ }
 }, 8000);
 
+// Backfill de CPF do ERP: preenche o CPF de quem tem vínculo (erp_pessoa_id/erp_usuario_id) mas
+// está sem CPF. Idempotente — depois de preencher, as próximas execuções não acham candidatos.
+// Correção única no boot (após 12s); dali em diante o sync do Alpha mantém.
+setTimeout(() => {
+  try {
+    const db = require('./db/connection');
+    const { backfillCpf } = require('./lib/syncColaboradoresErp');
+    const empresas = [...new Set(db.prepare('SELECT empresa_id FROM lojas').all().map(r => r.empresa_id))];
+    empresas.forEach(eid => backfillCpf(eid)
+      .then(r => { if (r && r.preenchidos) console.log(`[backfill-cpf] ${eid}: ${r.preenchidos} CPF(s) preenchido(s) do ERP`); })
+      .catch(() => {}));
+  } catch { /* ignora */ }
+}, 12000);
+
 // Pendências de ponto (Tangerino): cria tarefa p/ o colaborador corrigir e desconta pontos a cada 24h sem correção.
 // Roda no boot (após 20s) e a cada 1h.
 function rodarPendenciasPonto() {
