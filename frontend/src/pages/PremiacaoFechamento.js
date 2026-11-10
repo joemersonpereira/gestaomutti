@@ -141,7 +141,7 @@ export default function PremiacaoFechamento() {
             {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}
           </select>
           <input style={{ ...s.sel, width: 90 }} type="number" value={ano} onChange={e => setAno(Number(e.target.value))} />
-          <button style={s.btnSec} onClick={() => carregar()} title="Recarrega a tela (lê o retrato atual).">🔄 Atualizar</button>
+          <button style={s.btnSec} onClick={() => { if (fechado) return carregar(); setCarregando(true); API.post('/premiacao-fechamento/puxar-erp', { mes, ano }).then(() => carregar()).catch(e => { setCarregando(false); alert(e.response?.data?.erro || 'Erro ao atualizar do ERP'); }); }} title="Puxa os dados frescos do ERP (planos de remuneração) e atualiza o retrato.">🔄 Atualizar</button>
           {dados.ao_vivo
             ? <span style={{ ...s.chip, ...s.chipOn }} title="Ainda sem retrato do dia — calculando ao vivo do ERP.">⚡ Monitor ao vivo (ERP)</span>
             : dados.atualizado_em
