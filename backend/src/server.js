@@ -84,6 +84,7 @@ app.use('/api/pedemeia', require('./routes/pedemeia'));
 app.use('/api/acordos', require('./routes/acordos'));
 app.use('/api/trademkt', require('./routes/trademkt'));
 app.use('/api/validacao-financeira', require('./routes/validacaoFinanceira'));
+app.use('/api/premiacao-fechamento', require('./routes/premiacaoFechamento'));
 app.use('/api/ponto', require('./routes/ponto'));
 app.use('/api/pontorep', require('./routes/pontoRepp'));
 app.use('/api/estagios', require('./routes/estagios'));

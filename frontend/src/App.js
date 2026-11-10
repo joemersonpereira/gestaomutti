@@ -23,6 +23,7 @@ import Marketing from './pages/Marketing';
 import PainelSupervisor from './pages/PainelSupervisor';
 import PainelDiretoria from './pages/PainelDiretoria';
 import PremiacaoEquipe from './pages/PremiacaoEquipe';
+import PremiacaoFechamento from './pages/PremiacaoFechamento';
 import Ranking from './pages/Ranking';
 import Relatorios from './pages/Relatorios';
 import Folgas from './pages/Folgas';
@@ -133,6 +134,7 @@ const MODULOS = [
   { id: 'supervisor', label: '🌐 Supervisor', C: PainelSupervisor, perfis: ['Supervisor', 'Gestor Geral', 'Diretor Geral'] },
   { id: 'diretoria', label: '🎯 Painel da Gestão', C: PainelDiretoria, perfis: ['Diretor Geral', 'Gestor Geral'] },
   { id: 'premiacao-equipe', label: '💵 Premiação da equipe', C: PremiacaoEquipe, perfis: ['Gerente', 'Supervisor', 'Gestor Geral', 'Diretor Geral'] },
+  { id: 'premiacao-fechamento', label: '💵 Fechamento de Premiação', C: PremiacaoFechamento, perfis: ['Gerente', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Financeiro', 'RH'] },
   { id: 'ranking', label: '🏆 Ranking trimestral', C: Ranking, perfis: ['Diretor Geral'] },
   { id: 'relatorios', label: '📑 Relatórios', C: Relatorios, perfis: [...GESTAO, 'RH', 'Marketing', 'Financeiro', 'Controladoria'] },
   { id: 'controladoria', label: '🔍 Controladoria', C: Controladoria, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
@@ -211,7 +213,7 @@ const NAV = [
     { nome: 'Logística', itens: ['conferentes', 'devolucoes', 'almoxarifado'] },
   ] },
   { camada: 'Gestão', grupos: [
-    { nome: 'Supervisão', itens: ['supervisor', 'auditoria', 'premiacao-equipe', 'metas'], subs: [
+    { nome: 'Supervisão', itens: ['supervisor', 'auditoria', 'premiacao-fechamento', 'premiacao-equipe', 'metas'], subs: [
       { nome: 'Atendimento Online', itens: ['entrega'] },
     ] },
     { nome: 'Direção', itens: ['diretoria', 'avaliacao-admin', 'ranking'] },
