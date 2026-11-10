@@ -141,8 +141,12 @@ export default function PremiacaoFechamento() {
             {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}
           </select>
           <input style={{ ...s.sel, width: 90 }} type="number" value={ano} onChange={e => setAno(Number(e.target.value))} />
-          <button style={s.btnSec} onClick={() => carregar()} title="Recarrega as bases ao vivo do ERP (planos de remuneração).">🔄 Atualizar</button>
-          {dados.ao_vivo && <span style={{ ...s.chip, ...s.chipOn }}>⚡ Monitor ao vivo (ERP)</span>}
+          <button style={s.btnSec} onClick={() => carregar()} title="Recarrega a tela (lê o retrato atual).">🔄 Atualizar</button>
+          {dados.ao_vivo
+            ? <span style={{ ...s.chip, ...s.chipOn }} title="Ainda sem retrato do dia — calculando ao vivo do ERP.">⚡ Monitor ao vivo (ERP)</span>
+            : dados.atualizado_em
+              ? <span style={{ fontSize: 11.5, color: '#7a8a8c' }}>📸 Atualizado em {new Date(dados.atualizado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} · retrato diário 15h{!fechado && <> · <button onClick={() => { setCarregando(true); API.post('/premiacao-fechamento/puxar-erp', { mes, ano }).then(() => carregar()).catch(e => { setCarregando(false); alert(e.response?.data?.erro || 'Erro ao atualizar do ERP'); }); }} style={{ border: 'none', background: 'none', color: '#0E7C5A', cursor: 'pointer', fontWeight: 700, padding: 0, fontSize: 11.5 }}>atualizar agora</button></>}</span>
+              : null}
           <label style={{ ...s.btnSec, opacity: fechado ? 0.45 : 1, pointerEvents: fechado ? 'none' : 'auto' }} title="Alternativa: subir os 5 relatórios Excel exportados do ERP (substitui o ao vivo deste mês).">
             ⬆️ Subir relatórios (Excel)
             <input type="file" multiple accept=".xls,.xlsx,.csv" style={{ display: 'none' }} disabled={fechado} onChange={e => subirArquivos(e.target.files)} />

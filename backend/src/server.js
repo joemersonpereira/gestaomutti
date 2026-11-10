@@ -237,6 +237,36 @@ function rodarEmailInbox() {
 setTimeout(rodarEmailInbox, 40000);
 setInterval(rodarEmailInbox, 3 * 60 * 1000);
 
+// Retrato DIÁRIO da premiação às 15:00 (horário da Bahia): tira o monitor do "ao vivo" pesado.
+// Grava o snapshot do mês corrente (puxarDoErp) 1x/dia após as 15h; e no boot se ainda não houver
+// retrato. Não mexe em mês FECHADO nem em mês populado por Excel (base sem carimbo de retrato do ERP).
+function rodarSnapshotPremiacao() {
+  try {
+    const db = require('./db/connection');
+    const pf = require('./lib/premiacaoFechamento');
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bahia', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false }).formatToParts(new Date()).map(x => [x.type, x.value]));
+    const hoje = `${p.year}-${p.month}-${p.day}`, hora = Number(p.hour), mes = Number(p.month), ano = Number(p.year);
+    const empresas = [...new Set(db.prepare('SELECT empresa_id FROM lojas').all().map(r => r.empresa_id))];
+    empresas.forEach(eid => {
+      try {
+        if (pf.status(eid, mes, ano).fechado) return;                       // mês fechado: congelado, não mexe
+        const temBase = db.prepare('SELECT 1 FROM premiacao_base WHERE empresa_id=? AND mes=? AND ano=? LIMIT 1').get(eid, mes, ano);
+        const snapTs = db.prepare('SELECT 1 FROM configuracoes WHERE empresa_id=? AND chave=?').get(eid, `premiacao_snap_ts|${mes}|${ano}`);
+        if (temBase && !snapTs) return;                                     // base veio do Excel (sem retrato do ERP): não sobrescrever
+        const feito = db.prepare("SELECT valor FROM configuracoes WHERE empresa_id=? AND chave='premiacao_snap_dia'").get(eid);
+        const jaHoje = feito && feito.valor === hoje;
+        if (!((hora >= 15 && !jaHoje) || !temBase)) return;                 // 1x/dia após 15h, ou se ainda não há retrato
+        pf.puxarDoErp(eid, { mes, ano }).then(r => {
+          if (r && r.ok) console.log(`[premiacao-snapshot] ${eid}: ${r.linhas} linha(s) ${String(mes).padStart(2, '0')}/${ano}`);
+          if (hora >= 15) db.prepare("INSERT INTO configuracoes (empresa_id,chave,valor) VALUES (?,'premiacao_snap_dia',?) ON CONFLICT(empresa_id,chave) DO UPDATE SET valor=excluded.valor").run(eid, hoje);
+        }).catch(() => {});
+      } catch { /* ignora por empresa */ }
+    });
+  } catch { /* ignora */ }
+}
+setTimeout(rodarSnapshotPremiacao, 25000);            // boot: garante um retrato inicial (tela leve)
+setInterval(rodarSnapshotPremiacao, 10 * 60 * 1000); // checa a cada 10 min; roda 1x/dia após 15h
+
 // Foto MENSAL dos indicadores de compra (ruptura/cobertura/excesso/vencendo) por comprador.
 // Sobrescreve o mês corrente a cada rodada; quando o mês vira, a última foto fica congelada.
 function rodarSnapshotCompras() {

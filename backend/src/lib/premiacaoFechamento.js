@@ -328,7 +328,9 @@ async function listar(empresaId, { mes, ano }) {
     kits: soma('kits_valor'), gestao: soma('gestao_valor'),
     bruto: soma('bruto'), descontos: soma('descontos'), liquido: soma('liquido'),
   };
-  return { ok: true, mes, ano, cfg, linhas, resumo, relatorios: [...tiposImportados], fechado: st.fechado, fechado_em: st.fechado_em, fechado_por: st.fechado_por, ao_vivo: aoVivo };
+  let atualizado_em = null;
+  try { const rsnap = db.prepare("SELECT valor FROM configuracoes WHERE empresa_id=? AND chave=?").get(empresaId, `premiacao_snap_ts|${mes}|${ano}`); atualizado_em = rsnap ? rsnap.valor : null; } catch {}
+  return { ok: true, mes, ano, cfg, linhas, resumo, relatorios: [...tiposImportados], fechado: st.fechado, fechado_em: st.fechado_em, fechado_por: st.fechado_por, ao_vivo: aoVivo, atualizado_em };
 }
 
 function salvarItem(empresaId, body) {
@@ -586,6 +588,8 @@ async function puxarDoErp(empresaId, { mes, ano }) {
     return n;
   });
   const n = tx();
+  // marca a hora do retrato (ERP) — a tela mostra "atualizado em…" e o job diário usa isso
+  try { db.prepare("INSERT INTO configuracoes (empresa_id,chave,valor) VALUES (?,?,?) ON CONFLICT(empresa_id,chave) DO UPDATE SET valor=excluded.valor").run(empresaId, `premiacao_snap_ts|${mes}|${ano}`, new Date().toISOString()); } catch {}
   return { ok: true, colaboradores: bases.size, linhas: n, mes, ano };
 }
 
