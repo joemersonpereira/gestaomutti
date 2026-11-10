@@ -12,7 +12,7 @@ const outreach = require('../lib/trade-outreach');
 const GESTAO = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing'];
 // fluxo do Kanban (Joe 2026-10-16): rascunho → negociação → confirmado → briefing (material/arte pendente)
 // → aguardando (liberar veiculação) → vigente (em veiculação) → encerrado. 'pedido' = entrada do portal (cai em Negociação).
-const STATUS = ['rascunho', 'pedido', 'negociacao', 'confirmado', 'briefing', 'aguardando', 'vigente', 'encerrado', 'cancelado'];
+const STATUS = ['rascunho', 'pedido', 'negociacao', 'confirmado', 'briefing', 'aguardando', 'vigente', 'comprovacao', 'encerrado', 'cancelado'];
 router.use(auth);
 // cache de ERP por rota (sell-out e lookups /erp/*). Aplicado só nessas rotas (o router tem portal
 // público + GETs com exigePerfil, então router-wide não é seguro aqui). Sell-out do dia atrasa até 1h.
@@ -213,7 +213,7 @@ router.get('/dashboard', (req, res) => {
   // "vendido/ocupado" = negócio COMPROMETIDO (fechado), não só os já vigentes — senão um confirmado
   // de R$ 3.700 aparece como "tudo disponível". Mesma régua do resto do sistema (menos rascunho/pedido/negociação, que ainda não fecharam).
   const vend = db.prepare(`SELECT COALESCE(ve.loja_id, v.loja_id) loja_id, COUNT(ve.id) vendidos, COALESCE(SUM(ve.valor),0) receita
-    FROM tmkt_venda_espacos ve JOIN tmkt_vendas v ON v.id=ve.venda_id WHERE v.empresa_id=? AND v.status IN ('confirmado','briefing','aguardando','vigente','vendido','concluido','encerrado')
+    FROM tmkt_venda_espacos ve JOIN tmkt_vendas v ON v.id=ve.venda_id WHERE v.empresa_id=? AND v.status IN ('confirmado','briefing','aguardando','vigente','comprovacao','vendido','concluido','encerrado')
     GROUP BY COALESCE(ve.loja_id, v.loja_id)`).all(emp).reduce((m, r) => (m[r.loja_id] = r, m), {});
   const monitorados = db.prepare(`SELECT COALESCE(SUM(json_array_length(eans_monitorados)),0) n FROM tmkt_vendas WHERE empresa_id=? AND eans_monitorados IS NOT NULL`).get(emp).n || 0;
 
@@ -230,7 +230,7 @@ router.get('/dashboard', (req, res) => {
     FROM tmkt_vendas WHERE empresa_id=? AND status NOT IN ('cancelado','recusado') GROUP BY status`).all(emp)
     .reduce((m, r) => (m[r.status] = { n: r.n, valor: r.valor }, m), {});
   // financeiro: vendido (negócios fechados), a receber e recebido
-  const vendidoTotal = db.prepare(`SELECT COALESCE(SUM(valor),0) v FROM tmkt_vendas WHERE empresa_id=? AND status IN ('confirmado','vendido','vigente','concluido','encerrado')`).get(emp).v || 0;
+  const vendidoTotal = db.prepare(`SELECT COALESCE(SUM(valor),0) v FROM tmkt_vendas WHERE empresa_id=? AND status IN ('confirmado','vendido','vigente','comprovacao','concluido','encerrado')`).get(emp).v || 0;
   // pendente = negociações ainda em aberto (não fecharam nem foram perdidas) — o pipeline em R$
   const pendenteRow = db.prepare(`SELECT COALESCE(SUM(valor),0) v, COUNT(*) n FROM tmkt_vendas WHERE empresa_id=? AND status IN ('pedido','rascunho','negociacao')`).get(emp);
   const pendenteTotal = pendenteRow.v || 0, pendenteQtd = pendenteRow.n || 0;
@@ -241,7 +241,7 @@ router.get('/dashboard', (req, res) => {
     WHERE empresa_id=? AND status NOT IN ('cancelado','recusado') ORDER BY criado_em DESC LIMIT 6`).all(emp);
   // top fornecedores (por valor fechado)
   const topForn = db.prepare(`SELECT fornecedor_nome nome, COUNT(*) n, COALESCE(SUM(valor),0) valor FROM tmkt_vendas
-    WHERE empresa_id=? AND status IN ('confirmado','vendido','vigente','concluido','encerrado') GROUP BY fornecedor_nome ORDER BY valor DESC LIMIT 6`).all(emp);
+    WHERE empresa_id=? AND status IN ('confirmado','vendido','vigente','comprovacao','concluido','encerrado') GROUP BY fornecedor_nome ORDER BY valor DESC LIMIT 6`).all(emp);
   res.json({
     kpis: {
       total: tot.total, vendidos: tot.vendidos, disponiveis: tot.total - tot.vendidos,
@@ -255,7 +255,7 @@ router.get('/dashboard', (req, res) => {
 
 // Espaços por loja (quantidade + preço) — o "AreasEEspacosDaLoja" do TradeMkt.
 // Vagas ocupadas por espaço-loja = venda_espacos de vendas ativas (não cancelada/encerrada).
-const OCUPA_STATUS = "('pedido','rascunho','negociacao','confirmado','briefing','aguardando','vigente','vendido','concluido')";
+const OCUPA_STATUS = "('pedido','rascunho','negociacao','confirmado','briefing','aguardando','vigente','comprovacao','vendido','concluido')";
 router.get('/espaco-loja', (req, res) => {
   const rows = db.prepare(`SELECT el.id, el.empresa_id, el.loja_id, el.loja_nome, el.area, el.espaco, el.tamanho, el.descricao, el.cobranca, el.quantidade, el.preco_unit, el.criado_em,
       (el.foto IS NOT NULL) tem_foto, (
@@ -347,7 +347,8 @@ router.get('/vendas', (req, res) => {
   if (req.query.busca) { cond.push('(fornecedor_nome LIKE ? OR codigo LIKE ?)'); const b = `%${req.query.busca}%`; args.push(b, b); }
   const rows = db.prepare(`SELECT * FROM tmkt_vendas WHERE ${cond.join(' AND ')} ORDER BY criado_em DESC`).all(...args);
   const espCount = db.prepare('SELECT COUNT(*) n FROM tmkt_venda_espacos WHERE venda_id=?');
-  res.json({ status: STATUS, vendas: rows.map(v => ({ ...v, espacos: espCount.get(v.id).n, ...resumoVenda(v) })) });
+  const compCount = db.prepare("SELECT COUNT(*) n FROM tmkt_venda_briefing WHERE venda_id=? AND tipo='comprovacao'");
+  res.json({ status: STATUS, vendas: rows.map(v => ({ ...v, espacos: espCount.get(v.id).n, tem_comprovacao: compCount.get(v.id).n > 0, ...resumoVenda(v) })) });
 });
 router.get('/vendas/:id', (req, res) => {
   const emp = req.usuario.empresa_id;
