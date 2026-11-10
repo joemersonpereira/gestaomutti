@@ -204,7 +204,7 @@ const NAV = [
       { nome: 'Trade & Fornecedores', itens: ['acordos', 'trademkt'] },
     ] },
     { nome: 'Marketing', itens: ['marketing', 'mkt-calendario'] },
-    { nome: 'Gente & Gestão', itens: ['cadastros', 'visao360', 'capacitacao', 'indicadores-colab', 'afastamentos', 'ponto', 'ponto-repp', 'ocorrencias', 'documentos-rh', 'beneficios', 'clima', 'desligamentos', 'canal-escuta', 'painel-rh'] },
+    { nome: 'Gente & Gestão', itens: ['cadastros', 'premiacao-fechamento', 'visao360', 'capacitacao', 'indicadores-colab', 'afastamentos', 'ponto', 'ponto-repp', 'ocorrencias', 'documentos-rh', 'beneficios', 'clima', 'desligamentos', 'canal-escuta', 'painel-rh'] },
     { nome: 'Administrativo', itens: ['financeiro', 'contas-receber', 'conciliacao-cartao', 'tesouraria', 'estagio-rh', 'banco-talentos', 'estagios'], subs: [
       { nome: 'Controladoria', itens: ['controladoria'] },
       { nome: 'Contabilidade', itens: ['contabilidade', 'fornecedores', 'auditoria-contabil'] },
@@ -213,7 +213,7 @@ const NAV = [
     { nome: 'Logística', itens: ['conferentes', 'devolucoes', 'almoxarifado'] },
   ] },
   { camada: 'Gestão', grupos: [
-    { nome: 'Supervisão', itens: ['supervisor', 'auditoria', 'premiacao-fechamento', 'premiacao-equipe', 'metas'], subs: [
+    { nome: 'Supervisão', itens: ['supervisor', 'auditoria', 'premiacao-equipe', 'metas'], subs: [
       { nome: 'Atendimento Online', itens: ['entrega'] },
     ] },
     { nome: 'Direção', itens: ['diretoria', 'avaliacao-admin', 'ranking'] },
