@@ -369,25 +369,73 @@ const PARSERS = { REDE: parseRede, BRASILCARD: parseBrasilCard, BRASILCARD_DET: 
 
 // ── entrada única ──────────────────────────────────────────────────────────
 // buffer = conteúdo do arquivo (xlsx/xls/csv). Devolve { ok, layout, operadora, linhas[], descartadas[] }.
+// decodifica um buffer de TEXTO: tenta UTF-8; se vier caractere de substituição (byte inválido),
+// cai para latin1 (Windows-1252), que é o encoding em que as operadoras exportam o CSV.
+function decodificarTexto(buffer) {
+  if (buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) return buffer.slice(3).toString('utf8'); // BOM
+  const utf8 = buffer.toString('utf8');
+  return utf8.includes('�') ? buffer.toString('latin1') : utf8;
+}
+
+// CSV/TSV → matriz de strings (mesma forma que o sheet_to_json devolve). Lido à mão DE PROPÓSITO:
+// o XLSX converte a data do CSV em serial e reexibe "7/10/26" (dd/mm trocado), que o dataHora
+// descarta — por isso a Cielo subia "sem transação aprovada". Aqui a string da data fica intacta.
+function lerCsv(buffer) {
+  const texto = decodificarTexto(buffer).replace(/\r\n?/g, '\n');
+  const linhasBrutas = texto.split('\n');
+  // separador = o mais frequente nas primeiras linhas com conteúdo (Cielo usa ';')
+  const amostra = linhasBrutas.filter(l => l.trim()).slice(0, 25).join('\n');
+  const conta = ch => (amostra.split(ch).length - 1);
+  const sep = [[';', conta(';')], [',', conta(',')], ['\t', conta('\t')]].sort((a, b) => b[1] - a[1])[0][0];
+  return linhasBrutas.map(linha => {
+    const campos = []; let cur = '', emAspas = false;
+    for (let i = 0; i < linha.length; i++) {
+      const ch = linha[i];
+      if (emAspas) {
+        if (ch === '"') { if (linha[i + 1] === '"') { cur += '"'; i++; } else emAspas = false; }
+        else cur += ch;
+      } else if (ch === '"') emAspas = true;
+      else if (ch === sep) { campos.push(cur); cur = ''; }
+      else cur += ch;
+    }
+    campos.push(cur);
+    return campos.map(c => c.trim());
+  });
+}
+
 function lerArquivo(buffer, { nomeArquivo = '' } = {}) {
-  let wb;
-  try { wb = XLSX.read(buffer, { cellDates: true, raw: false }); }
-  catch (e) { return { ok: false, erro: 'Não consegui abrir o arquivo (' + e.message + ').' }; }
-  // A Alelo exporta a aba de dados sem cabecalho — quem identifica o arquivo sao as abas.
-  const abaExtrato = wb.SheetNames.find(n => chave(n) === 'extrato');
-  if (abaExtrato && wb.SheetNames.some(n => chave(n).startsWith('instruc'))) {
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[abaExtrato], { header: 1, raw: false, defval: '' });
-    const linhas = parseAlelo(rows);
-    if (linhas.length) {
-      const fora = linhas.filter(l => l.status !== 'OK');
-      return { ok: true, layout: 'ALELO_EXTRATO', operadora: 'Alelo', aba: abaExtrato, arquivo: nomeArquivo,
-        avisos: fora.length ? [fora.length + ' transacao(oes) nao aprovadas no arquivo — fora do confronto.'] : [],
-        linhas: linhas.filter(l => l.status === 'OK'), descartadas: fora };
+  // xlsx = ZIP ("PK"), xls = OLE2 (D0 CF). Qualquer outra coisa é texto (CSV/TSV) e vai pro leitor
+  // de texto — nunca pro XLSX, que estraga data e encoding do CSV.
+  const ehBinario = (buffer[0] === 0x50 && buffer[1] === 0x4B) || (buffer[0] === 0xD0 && buffer[1] === 0xCF);
+  // alguns portais exportam ".xls" que é HTML (tabela) — isso tem que ir pro XLSX (ele lê HTML),
+  // não pro leitor de CSV. Detecta pela "cara" do começo do arquivo.
+  const inicio = buffer.slice(0, 4096).toString('latin1').toLowerCase();
+  const ehHtml = /<table|<html|<tr[\s>]/.test(inicio);
+  let wb = null, sheets;
+  if (ehBinario || ehHtml) {
+    try { wb = XLSX.read(buffer, { cellDates: true, raw: false }); }
+    catch (e) { return { ok: false, erro: 'Não consegui abrir o arquivo (' + e.message + ').' }; }
+    sheets = wb.SheetNames.map(aba => ({ aba, rows: XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: false, defval: '' }) }));
+  } else {
+    sheets = [{ aba: 'csv', rows: lerCsv(buffer) }];
+  }
+
+  // A Alelo exporta a aba de dados sem cabecalho — quem identifica o arquivo sao as abas. (só xlsx)
+  if (wb) {
+    const abaExtrato = wb.SheetNames.find(n => chave(n) === 'extrato');
+    if (abaExtrato && wb.SheetNames.some(n => chave(n).startsWith('instruc'))) {
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[abaExtrato], { header: 1, raw: false, defval: '' });
+      const linhas = parseAlelo(rows);
+      if (linhas.length) {
+        const fora = linhas.filter(l => l.status !== 'OK');
+        return { ok: true, layout: 'ALELO_EXTRATO', operadora: 'Alelo', aba: abaExtrato, arquivo: nomeArquivo,
+          avisos: fora.length ? [fora.length + ' transacao(oes) nao aprovadas no arquivo — fora do confronto.'] : [],
+          linhas: linhas.filter(l => l.status === 'OK'), descartadas: fora };
+      }
     }
   }
 
-  for (const aba of wb.SheetNames) {
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: false, defval: '' });
+  for (const { aba, rows } of sheets) {
     const det = detectar(rows);
     if (!det) continue;
     // Banese/Mulvi RESUMIDO (totais por modalidade, sem NSU) não dá p/ conciliar venda a venda —
