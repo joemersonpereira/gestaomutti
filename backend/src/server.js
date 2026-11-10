@@ -170,14 +170,19 @@ setTimeout(() => {
 setTimeout(() => {
   try {
     const db = require('./db/connection');
-    const { importar } = require('./lib/syncColaboradoresErp');
-    const jaFez = db.prepare("SELECT 1 FROM configuracoes WHERE empresa_id=? AND chave='alpha_import_bootstrap'");
-    const marca = db.prepare("INSERT INTO configuracoes (empresa_id,chave,valor) VALUES (?,'alpha_import_bootstrap','1') ON CONFLICT(empresa_id,chave) DO UPDATE SET valor='1'");
+    const { importar, reativarAtivosErp } = require('./lib/syncColaboradoresErp');
+    const jaFez = db.prepare("SELECT 1 FROM configuracoes WHERE empresa_id=? AND chave='alpha_sync_bootstrap2'");
+    const marca = db.prepare("INSERT INTO configuracoes (empresa_id,chave,valor) VALUES (?,'alpha_sync_bootstrap2','1') ON CONFLICT(empresa_id,chave) DO UPDATE SET valor='1'");
     const empresas = [...new Set(db.prepare('SELECT empresa_id FROM lojas').all().map(r => r.empresa_id))];
     empresas.forEach(eid => {
       if (jaFez.get(eid)) return;
       importar(eid)
-        .then(r => { if (r) console.log(`[alpha-import] ${eid}: ${r.importados} cadastro(s) importado(s) do Alpha 7`); try { marca.run(eid); } catch { /* */ } })
+        .then(async r => {
+          if (r) console.log(`[alpha-import] ${eid}: ${r.importados} cadastro(s) importado(s) do Alpha 7`);
+          const rr = await reativarAtivosErp(eid).catch(() => null);
+          if (rr) console.log(`[alpha-reativar] ${eid}: ${rr.reativados} reativado(s) (ativos no ERP)`);
+          try { marca.run(eid); } catch { /* */ }
+        })
         .catch(() => {});
     });
   } catch { /* ignora */ }

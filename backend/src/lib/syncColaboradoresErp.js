@@ -181,4 +181,15 @@ async function backfillCpf(empresaId) {
   return { preenchidos: n, candidatos: sem.length };
 }
 
-module.exports = { prever, aplicar, cpfsEstagio, marcarEstagioAuto, importar, backfillCpf };
+// Reativa (ativo=1) quem está INATIVO no app mas ATIVO no Alpha 7 (por CPF). Só adiciona — não
+// desativa ninguém. Resolve os importados antigos que ficaram inativos e sumiam da premiação.
+async function reativarAtivosErp(empresaId) {
+  const p = await prever(empresaId);
+  const upd = db.prepare('UPDATE colaboradores SET ativo=1 WHERE id=? AND empresa_id=?');
+  let n = 0;
+  const tx = db.transaction(() => { (p.aReativar || []).forEach(c => { upd.run(c.id, empresaId); n++; }); });
+  tx();
+  return { reativados: n };
+}
+
+module.exports = { prever, aplicar, cpfsEstagio, marcarEstagioAuto, importar, backfillCpf, reativarAtivosErp };
