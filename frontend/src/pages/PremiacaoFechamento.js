@@ -43,6 +43,16 @@ export default function PremiacaoFechamento() {
     setMsg(`✅ ${at} ID(s)/vínculo(s) preenchidos no cadastro.` + (nao.length ? ` ⚠️ ${nao.length} CPF(s) sem colaborador no sistema (outras razões sociais ou cadastro faltando).` : '') + (erros.length ? ' ' + erros.join(' · ') : ''));
     carregar(); carregarContas();
   }
+  async function subirDifCaixa(files) {
+    const f = (files || [])[0]; if (!f) return;
+    setMsg('⏳ Lendo diferenças de caixa…');
+    try {
+      const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+      const r = await API.post('/premiacao-fechamento/dif-caixa', { conteudoBase64: b64, nomeArquivo: f.name, mes, ano });
+      setMsg(`✅ ${r.data.aplicados} diferença(s) de caixa descontada(s).` + (r.data.nao_achados && r.data.nao_achados.length ? ` ⚠️ ${r.data.nao_achados.length} não casaram (nome/CPF).` : ''));
+      carregar();
+    } catch (e) { setMsg(e.response?.data?.erro || 'Erro ao subir diferenças de caixa.'); }
+  }
   async function aplicarLote(ids, pct) {
     if (!ids.length) { setMsg('Nenhum colaborador para aplicar.'); return; }
     try { await API.post('/premiacao-fechamento/item-lote', { mes, ano, colaborador_ids: ids, premiacao_pct: pct }); setMsg(`✅ ${pct}% aplicado a ${ids.length} vendedor(es).`); setSel(new Set()); carregar(); }
@@ -150,6 +160,10 @@ export default function PremiacaoFechamento() {
           <label style={{ ...s.btnSec, opacity: fechado ? 0.45 : 1, pointerEvents: fechado ? 'none' : 'auto' }}>
             🎟️ Importar IDs/vínculos (cargas)
             <input type="file" multiple accept=".xls,.xlsx" style={{ display: 'none' }} disabled={fechado} onChange={e => subirIds(e.target.files)} />
+          </label>
+          <label style={{ ...s.btnSec, opacity: fechado ? 0.45 : 1, pointerEvents: fechado ? 'none' : 'auto' }} title="Sobe uma planilha (CPF ou Nome + coluna de diferença/valor) e desconta a diferença de caixa de cada colaborador.">
+            💸 Diferenças de caixa
+            <input type="file" accept=".xls,.xlsx,.csv" style={{ display: 'none' }} disabled={fechado} onChange={e => subirDifCaixa(e.target.files)} />
           </label>
           <button style={s.btnSec} onClick={exportarCarga} disabled={!dados.linhas.length}>⬇️ Exportar cargas (ZIP · 1 por CNPJ)</button>
           {fechado

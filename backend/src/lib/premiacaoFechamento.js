@@ -347,6 +347,51 @@ function salvarItem(empresaId, body) {
   return { ok: true };
 }
 
+// ── subir planilha de DIFERENÇAS DE CAIXA → desconta por colaborador ─────────
+// Leitor flexível: acha a linha de cabeçalho e as colunas de CPF/Nome e de diferença/valor;
+// casa por CPF (11 díg) ou nome; grava em premiacao_item.dif_caixa (valor absoluto = desconto).
+function importarDifCaixa(empresaId, { conteudoBase64, nomeArquivo, mes, ano }) {
+  mes = Number(mes); ano = Number(ano);
+  exigeAberto(empresaId, mes, ano);
+  const buf = Buffer.from(String(conteudoBase64 || '').replace(/^data:[^,]+,/, ''), 'base64');
+  if (!buf.length) throw new Error('Arquivo vazio.');
+  let wb;
+  try { wb = XLSX.read(buf, { raw: true }); } catch (e) { throw new Error('Não consegui abrir (' + e.message + ').'); }
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
+  const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+  let hi = -1, iCpf = -1, iNome = -1, iVal = -1;
+  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+    const r = (rows[i] || []).map(norm);
+    const fCpf = r.findIndex(c => c.includes('CPF'));
+    const fNome = r.findIndex(c => c.includes('NOME') || c.includes('COLABORADOR') || c.includes('VENDEDOR') || c.includes('FUNCIONARIO'));
+    const fVal = r.findIndex(c => c.includes('DIFER') || c.includes('VALOR') || c.includes('CAIXA') || c.includes('QUEBRA') || c.includes('DESCONT') || c.includes('FALTA') || c.includes('SOBRA'));
+    if ((fCpf >= 0 || fNome >= 0) && fVal >= 0) { hi = i; iCpf = fCpf; iNome = fNome; iVal = fVal; break; }
+  }
+  if (hi < 0) throw new Error('Não achei as colunas. Precisa de uma coluna de CPF ou Nome, e uma de diferença/valor.');
+  const cols = db.prepare('SELECT id, nome, cpf FROM colaboradores WHERE empresa_id=?').all(empresaId);
+  const porCpf = new Map(cols.filter(c => c.cpf).map(c => [cpf11(c.cpf), c.id]));
+  const colsNorm = cols.map(c => ({ id: c.id, nn: norm(c.nome) }));
+  const up = db.prepare(`INSERT INTO premiacao_item (id, empresa_id, mes, ano, colaborador_id, dif_caixa, atualizado_em)
+    VALUES (?,?,?,?,?,?,datetime('now'))
+    ON CONFLICT(empresa_id, mes, ano, colaborador_id) DO UPDATE SET dif_caixa=excluded.dif_caixa, atualizado_em=datetime('now')`);
+  let aplicados = 0; const naoAchados = [];
+  const tx = db.transaction(() => {
+    for (let i = hi + 1; i < rows.length; i++) {
+      const r = rows[i] || [];
+      const valor = Math.abs(num(r[iVal]));
+      const cpf = iCpf >= 0 ? cpf11(r[iCpf]) : '';
+      const nomeOrig = iNome >= 0 ? String(r[iNome] || '').trim() : '';
+      if (!valor && !cpf && !nomeOrig) continue;
+      let id = (cpf && cpf !== '00000000000') ? porCpf.get(cpf) : null;
+      if (!id && nomeOrig) { const nn = norm(nomeOrig); const cand = colsNorm.filter(c => c.nn === nn || c.nn.startsWith(nn) || nn.startsWith(c.nn)); if (cand.length === 1) id = cand[0].id; }
+      if (id) { up.run(uuidv4(), empresaId, mes, ano, id, valor); aplicados++; }
+      else if (valor) naoAchados.push(nomeOrig || cpf);
+    }
+  });
+  tx();
+  return { ok: true, aplicados, nao_achados: naoAchados, arquivo: nomeArquivo || '' };
+}
+
 // ── importar os ID Premiação em massa (das cargas preenchidas pela operadora) ─
 // Lê as planilhas de carga (CPF/CNPJ | Nome | Valor | ID | OBS), casa por CPF (11 díg, zero à
 // esquerda) e grava colaboradores.id_premiacao. Devolve quem casou e quem não achou.
@@ -590,4 +635,4 @@ function salvarItemLote(empresaId, { mes, ano, colaborador_ids, premiacao_pct })
   return { ok: true, n: colaborador_ids.length };
 }
 
-module.exports = { importar, listar, salvarItem, salvarItemLote, salvarCfg, getCfg, status, fechar, exportarCarga, importarIds, listarContas, salvarConta, planosErp, basesErp, puxarDoErp };
+module.exports = { importar, listar, salvarItem, salvarItemLote, salvarCfg, getCfg, status, fechar, exportarCarga, importarIds, importarDifCaixa, listarContas, salvarConta, planosErp, basesErp, puxarDoErp };

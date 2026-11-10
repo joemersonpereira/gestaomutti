@@ -34,6 +34,8 @@ router.post('/puxar-erp', exigePerfil(...ACESSO), async (req, res) => {
 
 // importar IDs e vínculos Pay X das cargas preenchidas (casa por CPF)
 router.post('/importar-ids', exigePerfil(...ACESSO), wrap(req => pf.importarIds(emp(req), req.body)));
+// subir planilha de diferencas de caixa (desconta por colaborador)
+router.post('/dif-caixa', exigePerfil(...ACESSO), wrap(req => pf.importarDifCaixa(emp(req), req.body)));
 // contas Pay X (cabeçalho por CNPJ: empresa/produto/código/taxa)
 router.get('/contas', exigePerfil(...ACESSO), wrap(req => ({ contas: pf.listarContas(emp(req)) })));
 router.post('/contas', exigePerfil('Diretor Geral', 'Gestor Geral', 'Supervisor', 'Financeiro'), wrap(req => pf.salvarConta(emp(req), req.body)));
