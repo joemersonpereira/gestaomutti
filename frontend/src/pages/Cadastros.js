@@ -142,6 +142,7 @@ function Colaboradores({ API }) {
   const [filtroPend, setFiltroPend] = useState('');
   const [filtroAtivo, setFiltroAtivo] = useState('ativo'); // ativo (padrão) | inativo | todos
   const [mostrarForm, setMostrarForm] = useState(false);
+  const [mostrarDup, setMostrarDup] = useState(false);
   const [desligarAlvo, setDesligarAlvo] = useState(null);
   useEffect(() => { const p = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('rh_pend_filtro'); if (p) { setFiltroPend(p); sessionStorage.removeItem('rh_pend_filtro'); } }, []);
   const lerImgFile = file => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); });
@@ -242,6 +243,7 @@ function Colaboradores({ API }) {
       {/* Toolbar: novo + busca + filtro por loja */}
       <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 5 }}>
         {!mostrarForm && !editId && <button onClick={novoColaborador} style={{ ...s.btn, background: '#185FA5' }}>➕ Novo colaborador</button>}
+        {!mostrarForm && !editId && <button onClick={() => setMostrarDup(v => !v)} style={{ ...s.btn, background: mostrarDup ? '#8A5A12' : '#fff', color: mostrarDup ? '#fff' : '#8A5A12', border: '1px solid #8A5A12' }}>🧹 Duplicados</button>}
         <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔎 Buscar por nome ou e-mail…" style={{ ...s.campo, flex: 1, minWidth: 200, marginBottom: 0 }} />
         <select value={filtroAtivo} onChange={e => setFiltroAtivo(e.target.value)} style={{ ...s.campo, width: 'auto', marginBottom: 0 }}>
           <option value="ativo">✓ Ativos</option>
@@ -254,6 +256,8 @@ function Colaboradores({ API }) {
         </select>
         {filtroPend && <span style={{ fontSize: 12, fontWeight: 600, color: '#8A6D1D', background: '#FBF3DA', borderRadius: 16, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>⚠️ {PEND_L[filtroPend] || filtroPend}<button onClick={() => setFiltroPend('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8A6D1D', fontWeight: 700 }}>✕</button></span>}
       </div>
+
+      {mostrarDup && !mostrarForm && !editId && <Duplicados API={API} onMudou={carregar} onFechar={() => setMostrarDup(false)} />}
 
       {(mostrarForm || editId) && (
       <div style={s.card}>
@@ -2078,3 +2082,59 @@ const s = {
   senhaBox: { background: '#EAF3DE', border: '1px solid #3B6D11', borderRadius: 8, padding: 10, fontSize: 13, color: '#2f5e0e', marginBottom: 8, lineHeight: 1.5 },
   btn: { fontSize: 13, padding: '8px 14px', background: '#0d6b5e', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' },
 };
+
+// 🧹 Cadastros duplicados: acha por CPF/nome, mantém um e desativa os outros (transfere marcadores).
+function Duplicados({ API, onMudou, onFechar }) {
+  const [grupos, setGrupos] = useState(null);
+  const [sel, setSel] = useState({});
+  const [msg, setMsg] = useState('');
+  const carregar = useCallback(() => {
+    API.get('/colaboradores/duplicados').then(r => {
+      const gs = r.data.grupos || [];
+      setGrupos(gs);
+      const s0 = {}; gs.forEach((g, i) => { const at = g.membros.find(m => m.ativo); s0[i] = (at || g.membros[0]).id; });
+      setSel(s0);
+    }).catch(() => setMsg('Erro ao buscar duplicados.'));
+  }, [API]);
+  useEffect(() => { carregar(); }, [carregar]);
+
+  async function mesclar(g, i) {
+    const manter_id = sel[i];
+    const remover_ids = g.membros.filter(m => m.id !== manter_id).map(m => m.id);
+    if (!remover_ids.length) return;
+    if (!window.confirm(`Manter 1 cadastro e DESATIVAR ${remover_ids.length} duplicado(s)? Os marcadores, ID Premiação e vínculo Pay X são transferidos para o mantido, que fica ativo.`)) return;
+    try { await API.post('/colaboradores/mesclar', { manter_id, remover_ids }); setMsg('✅ Duplicado(s) resolvido(s).'); carregar(); if (onMudou) onMudou(); }
+    catch (e) { setMsg(e.response?.data?.erro || 'Erro ao mesclar.'); }
+  }
+
+  return (
+    <div style={{ ...s.card, borderLeft: '4px solid #8A5A12' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>🧹 Cadastros duplicados</div>
+        <button onClick={onFechar} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: '#999' }}>✕</button>
+      </div>
+      <div style={{ fontSize: 12, color: '#777', margin: '4px 0 8px' }}>Mesmo CPF (ou, sem CPF, mesmo nome). Marque qual <strong>manter</strong> — os outros são desativados e os marcadores vão para o mantido.</div>
+      {msg && <div style={{ fontSize: 12, marginBottom: 8, color: msg.startsWith('✅') ? '#3B6D11' : '#993C1D' }}>{msg}</div>}
+      {grupos === null && <div style={{ fontSize: 12, color: '#999' }}>Procurando…</div>}
+      {grupos && grupos.length === 0 && <div style={{ fontSize: 13, color: '#3B6D11' }}>Nenhum cadastro duplicado encontrado. 🎉</div>}
+      {grupos && grupos.map((g, i) => (
+        <div key={i} style={{ border: '1px solid #eee', borderRadius: 10, padding: 10, marginTop: 10 }}>
+          <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>{g.tipo === 'cpf' ? 'Mesmo CPF' : 'Mesmo nome'} · {g.chave}</div>
+          {g.membros.map(m => (
+            <label key={m.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 0', fontSize: 12.5, flexWrap: 'wrap' }}>
+              <input type="radio" name={'dup' + i} checked={sel[i] === m.id} onChange={() => setSel(st => ({ ...st, [i]: m.id }))} />
+              <span style={{ fontWeight: 600 }}>{m.nome}</span>
+              <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 5, background: m.ativo ? '#EAF3DE' : '#FCEBEB', color: m.ativo ? '#3B6D11' : '#993C1D' }}>{m.ativo ? 'ativo' : 'inativo'}</span>
+              {m.funcao && <span style={{ fontSize: 11, color: '#777' }}>{m.funcao}</span>}
+              {m.loja && <span style={{ fontSize: 11, color: '#999' }}>{m.loja}</span>}
+              {m.id_premiacao && <span style={{ fontSize: 10, color: '#8A5A12' }}>ID {m.id_premiacao}</span>}
+              {m.payx_cnpj && <span style={{ fontSize: 10, color: '#0C5A43' }}>Pay X</span>}
+              {m.erp_pessoa_id && <span style={{ fontSize: 10, color: '#185FA5' }}>ERP</span>}
+            </label>
+          ))}
+          <button onClick={() => mesclar(g, i)} style={{ ...s.btn, background: '#8A5A12', marginTop: 6, fontSize: 12, padding: '6px 12px' }}>Manter o marcado · desativar os outros</button>
+        </div>
+      ))}
+    </div>
+  );
+}
