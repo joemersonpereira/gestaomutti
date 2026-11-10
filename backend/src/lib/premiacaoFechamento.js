@@ -364,10 +364,12 @@ function importarDifCaixa(empresaId, { conteudoBase64, nomeArquivo, mes, ano }) 
     const r = (rows[i] || []).map(norm);
     const fCpf = r.findIndex(c => c.includes('CPF'));
     const fNome = r.findIndex(c => c.includes('NOME') || c.includes('COLABORADOR') || c.includes('VENDEDOR') || c.includes('FUNCIONARIO'));
-    const fVal = r.findIndex(c => c.includes('DIFER') || c.includes('VALOR') || c.includes('CAIXA') || c.includes('QUEBRA') || c.includes('DESCONT') || c.includes('FALTA') || c.includes('SOBRA'));
+    // prefere a coluna "DIFERENÇA FINAL" (já líquida dos pontos); senão, qualquer diferença/valor.
+    let fVal = r.findIndex(c => c.includes('FINAL'));
+    if (fVal < 0) fVal = r.findIndex(c => c.includes('DIFER') || c.includes('VALOR') || c.includes('QUEBRA') || c.includes('FALTA') || c.includes('SOBRA'));
     if ((fCpf >= 0 || fNome >= 0) && fVal >= 0) { hi = i; iCpf = fCpf; iNome = fNome; iVal = fVal; break; }
   }
-  if (hi < 0) throw new Error('Não achei as colunas. Precisa de uma coluna de CPF ou Nome, e uma de diferença/valor.');
+  if (hi < 0) throw new Error('Não achei as colunas. Precisa de COLABORADOR (ou CPF) e uma coluna de DIFERENÇA FINAL (ou diferença/valor).');
   const cols = db.prepare('SELECT id, nome, cpf FROM colaboradores WHERE empresa_id=?').all(empresaId);
   const porCpf = new Map(cols.filter(c => c.cpf).map(c => [cpf11(c.cpf), c.id]));
   const colsNorm = cols.map(c => ({ id: c.id, nn: norm(c.nome) }));

@@ -148,8 +148,8 @@ export default function PremiacaoFechamento() {
           </label>
           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
             {['premiacao', 'perfumaria', 'kits', 'unidades', 'vitaminas'].map(t => {
-              const tem = (dados.relatorios || []).includes(t);
-              return <span key={t} style={{ ...s.chip, ...(tem ? s.chipOn : {}) }}>{tem ? '✓ ' : '○ '}{TIPO_LBL[t]}</span>;
+              const tem = !!(dados.resumo && dados.resumo[t] > 0);
+              return <span key={t} style={{ ...s.chip, ...(tem ? s.chipOn : {}) }} title={tem ? 'Tem valor neste mês' : 'Sem valor (R$ 0) neste mês'}>{tem ? '✓ ' : '○ '}{TIPO_LBL[t]}</span>;
             })}
           </div>
         </div>
