@@ -1231,6 +1231,23 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>🏬 Áreas e espaços da negociação {totalEsp ? <span style={{ fontWeight: 400, color: '#1E874B' }}>· {brl(totalEsp)}{nLojas > 1 ? ` · ${nLojas} lojas` : ''}</span> : ''}</div>
               {(v.espacos || []).map(e => <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '5px 0', borderTop: '1px solid #f5f5f5' }}><span>{e.loja_nome ? <b style={{ color: '#2E5C9E' }}>{e.loja_nome}</b> : ''} · {e.area_desc ? e.area_desc + ' · ' : ''}{e.espaco_desc}{e.slot ? <span style={{ color: '#8A6D3B' }}> · vaga {e.slot}</span> : ''} — {brl(e.valor)}</span><button onClick={() => delEspaco(e.id)} style={s.mv}>✕</button></div>)}
               {(v.espacos || []).length === 0 && <div style={{ fontSize: 11.5, color: '#aaa', padding: '4px 0' }}>Nenhum espaço ainda — adicione de uma ou mais lojas abaixo.</div>}
+              {totalEsp > 0 && (() => {
+                const porLoja = {};
+                (v.espacos || []).forEach(e => { const k = e.loja_nome || '— sem loja —'; porLoja[k] = (porLoja[k] || 0) + (e.valor || 0); });
+                const rows = Object.entries(porLoja).sort((a, b) => b[1] - a[1]);
+                return (
+                  <div style={{ marginTop: 10, background: '#F3F8F5', border: '1px solid #DCEAE2', borderRadius: 8, padding: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#0E7C5A', marginBottom: 8 }}>📊 Representatividade por loja</div>
+                    {rows.map(([loja, val]) => { const pct = Math.round(val / totalEsp * 100); return (
+                      <div key={loja} style={{ marginBottom: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}><span><b style={{ color: '#2E5C9E' }}>{loja}</b></span><span style={{ color: '#555' }}>{brl(val)} · <b style={{ color: '#0E7C5A' }}>{pct}%</b></span></div>
+                        <div style={{ height: 6, background: '#E3ECE7', borderRadius: 4, marginTop: 3, overflow: 'hidden' }}><div style={{ width: pct + '%', height: '100%', background: '#0E7C5A' }} /></div>
+                      </div>
+                    ); })}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, fontWeight: 700, borderTop: '1px solid #DCEAE2', marginTop: 6, paddingTop: 6 }}><span>Total da negociação</span><span>{brl(totalEsp)}</span></div>
+                  </div>
+                );
+              })()}
               <div style={{ marginTop: 10, background: '#F7FAFF', border: '1px solid #E3ECF7', borderRadius: 8, padding: 10 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#2E5C9E', marginBottom: 6 }}>➕ Incluir espaço (pode ser de várias lojas)</div>
                 <select value={espLojaSel} onChange={e => setEspLojaSel(e.target.value)} style={{ ...s.inp, marginBottom: 6 }}><option value="">Escolha a loja…</option>{lojasComEspaco.map(l => <option key={l} value={l}>{l}</option>)}</select>
