@@ -23,7 +23,6 @@ export default function PremiacaoFechamento() {
     API.get('/premiacao-fechamento', { params: { mes, ano } }).then(r => {
       setDados(r.data); setCfg({ ...cfg, ...r.data.cfg });
     }).catch(() => setMsg('Erro ao carregar.')).finally(() => setCarregando(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [API, mes, ano]);
   useEffect(() => { carregar(); }, [carregar]);
   const carregarContas = useCallback(() => { API.get('/premiacao-fechamento/contas').then(r => setContas(r.data.contas || [])).catch(() => {}); }, [API]);
