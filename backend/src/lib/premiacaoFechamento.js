@@ -40,6 +40,24 @@ function salvarCfg(empresaId, patch) {
   return getCfg(empresaId);
 }
 
+// ── status do mês (aberto/fechado) ──────────────────────────────────────────
+function status(empresaId, mes, ano) {
+  const r = db.prepare('SELECT fechado, fechado_em, fechado_por FROM premiacao_fechado WHERE empresa_id=? AND mes=? AND ano=?').get(empresaId, Number(mes), Number(ano));
+  return { fechado: !!(r && r.fechado), fechado_em: (r && r.fechado_em) || null, fechado_por: (r && r.fechado_por) || null };
+}
+function exigeAberto(empresaId, mes, ano) {
+  if (status(empresaId, mes, ano).fechado) throw new Error('Este mês está FECHADO. Reabra antes de alterar.');
+}
+function fechar(empresaId, { mes, ano, usuario, reabrir }) {
+  mes = Number(mes); ano = Number(ano);
+  const fechado = reabrir ? 0 : 1;
+  db.prepare(`INSERT INTO premiacao_fechado (empresa_id, mes, ano, fechado, fechado_em, fechado_por)
+    VALUES (?,?,?,?,?,?)
+    ON CONFLICT(empresa_id, mes, ano) DO UPDATE SET fechado=excluded.fechado, fechado_em=excluded.fechado_em, fechado_por=excluded.fechado_por`)
+    .run(empresaId, mes, ano, fechado, fechado ? new Date().toISOString() : null, fechado ? ((usuario && usuario.nome) || '') : null);
+  return { ok: true, ...status(empresaId, mes, ano) };
+}
+
 // faixas de vitaminas (R$/unidade) — mesma tabela da aba de vitaminas
 function faixasVitaminas(empresaId) {
   try {
@@ -88,6 +106,7 @@ function importar(empresaId, { conteudoBase64, nomeArquivo }) {
   const buf = Buffer.from(String(conteudoBase64 || '').replace(/^data:[^,]+,/, ''), 'base64');
   if (!buf.length) throw new Error('Arquivo vazio.');
   const r = lerRelatorio(buf);
+  exigeAberto(empresaId, r.mes, r.ano);
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM premiacao_base WHERE empresa_id=? AND mes=? AND ano=? AND tipo=?').run(empresaId, r.mes, r.ano, r.tipo);
     const ins = db.prepare(`INSERT INTO premiacao_base (id, empresa_id, mes, ano, tipo, nome_norm, nome_original, valor, pct)
@@ -208,6 +227,7 @@ function listar(empresaId, { mes, ano }) {
   }
 
   linhas.sort((a, b) => String(a.nome).localeCompare(String(b.nome)));
+  const st = status(empresaId, mes, ano);
   const resumo = {
     colaboradores: linhas.length,
     sem_cadastro: linhas.filter(l => l.sem_cadastro).length,
@@ -215,12 +235,13 @@ function listar(empresaId, { mes, ano }) {
     descontos: round(linhas.reduce((s, l) => s + l.descontos, 0)),
     liquido: round(linhas.reduce((s, l) => s + l.liquido, 0)),
   };
-  return { ok: true, mes, ano, cfg, linhas, resumo, relatorios: [...tiposImportados] };
+  return { ok: true, mes, ano, cfg, linhas, resumo, relatorios: [...tiposImportados], fechado: st.fechado, fechado_em: st.fechado_em, fechado_por: st.fechado_por };
 }
 
 function salvarItem(empresaId, body) {
   const { mes, ano, colaborador_id } = body;
   if (!colaborador_id) throw new Error('Colaborador obrigatório.');
+  exigeAberto(empresaId, mes, ano);
   const num = v => (v === '' || v == null ? null : Number(v));
   db.prepare(`INSERT INTO premiacao_item (id, empresa_id, mes, ano, colaborador_id, premiacao_pct, meta_bateu, gestao_valor, dif_caixa, outros_desc, obs, atualizado_em)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
@@ -233,4 +254,60 @@ function salvarItem(empresaId, body) {
   return { ok: true };
 }
 
-module.exports = { importar, listar, salvarItem, salvarCfg, getCfg };
+// ── export no modelo da operadora (Pay X Virtual com PIX) ───────────────────
+// Uma aba por loja (CNPJ), com o cabeçalho que a planilha de CARGA exige e as linhas
+// CPF | Nome | Valor (líquido) | ID (id_premiacao do cadastro) | OBSERVAÇÃO.
+const TAXA_ADM = 0.012; // 1,20%
+function exportarCarga(empresaId, mes, ano) {
+  const L = listar(empresaId, { mes: Number(mes), ano: Number(ano) });
+  const pagaveis = L.linhas.filter(l => l.colaborador_id && l.liquido > 0);
+  const semId = [];
+  // detalhes do colaborador (CPF, ID premiação, loja)
+  const det = new Map();
+  if (pagaveis.length) {
+    const ids = pagaveis.map(l => l.colaborador_id);
+    const q = db.prepare(`SELECT c.id, c.cpf, c.id_premiacao, c.loja_id, l.razao_social, l.cnpj AS loja_cnpj, l.nome AS loja_nome
+      FROM colaboradores c LEFT JOIN lojas l ON l.id=c.loja_id WHERE c.id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+    q.forEach(r => det.set(r.id, r));
+  }
+  const porLoja = new Map();
+  for (const l of pagaveis) {
+    const d = det.get(l.colaborador_id) || {};
+    if (!d.id_premiacao) semId.push(l.nome);
+    const key = d.loja_id || 'sem-loja';
+    const g = porLoja.get(key) || { empresa: (d.razao_social || d.loja_nome || 'FARMACIA').trim(), cnpj: d.loja_cnpj || '', linhas: [] };
+    g.linhas.push({ cpf: String(d.cpf || '').replace(/\D/g, ''), nome: l.nome, valor: l.liquido, id: d.id_premiacao || '', obs: '' });
+    porLoja.set(key, g);
+  }
+
+  const wb = XLSX.utils.book_new();
+  const nomesUsados = new Set();
+  for (const [key, g] of porLoja) {
+    const soma = round(g.linhas.reduce((s, x) => s + x.valor, 0));
+    const taxa = round(soma * TAXA_ADM);
+    const aoa = [
+      ['SOLICITAÇÃO DE PREMIAÇÕES – CARREGAMENTO'],
+      ['Empresa', g.empresa],
+      [],
+      ['CNPJ', g.cnpj],
+      ['Produto', 'PAYX VIRTUAL COM PIX'],
+      ['Código', 38],
+      ['Taxa Adm. (%)', '1.20%', '', taxa],
+      ['Valor da premiação', soma, 'Modelo', 1],
+      ['Total da fatura', round(soma + taxa)],
+      ['CPF/CNPJ', 'Nome', 'Valor', 'ID', 'OBSERVAÇÃO'],
+      ...g.linhas.map(x => [x.cpf, x.nome, x.valor, x.id, x.obs]),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    let nome = (g.cnpj || '').replace(/\D/g, '') || String(key).slice(0, 28);
+    nome = nome.slice(0, 31); let n = nome, i = 2;
+    while (nomesUsados.has(n)) { n = nome.slice(0, 28) + '_' + i++; }
+    nomesUsados.add(n);
+    XLSX.utils.book_append_sheet(wb, ws, n);
+  }
+  if (!porLoja.size) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Sem colaboradores com líquido a pagar e cadastro neste mês.']]), 'vazio');
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  return { buffer, lojas: porLoja.size, colaboradores: pagaveis.length, sem_id: semId };
+}
+
+module.exports = { importar, listar, salvarItem, salvarCfg, getCfg, status, fechar, exportarCarga };

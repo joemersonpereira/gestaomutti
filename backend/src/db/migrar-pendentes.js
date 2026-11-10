@@ -87,6 +87,8 @@ const PENDENTES = [
   './migrations/318_colaborador_premiacao_gestao',
   './migrations/319_colaborador_premiacao_caixa',
   './migrations/320_premiacao_fechamento',
+  './migrations/321_premiacao_fechado',
+  './migrations/322_colaborador_id_premiacao',
 ];
 
 console.log('=== Rodando migrações pendentes (065–073) ===\n');

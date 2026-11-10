@@ -45,6 +45,7 @@ export default function PremiacaoFechamento() {
   }
 
   async function salvarLinha(l, patch) {
+    if (fechado) return;
     const body = {
       mes, ano, colaborador_id: l.colaborador_id,
       premiacao_pct: l.premiacao_pct, meta_bateu: l.meta_bateu, gestao_valor: l.gestao_valor,
@@ -67,6 +68,22 @@ export default function PremiacaoFechamento() {
     catch { setMsg('Erro ao salvar valores.'); }
   }
 
+  const fechado = !!dados.fechado;
+  async function fecharMes(reabrir) {
+    if (!reabrir && !window.confirm('Fechar o mês trava todas as decisões e os relatórios deste período. Continuar?')) return;
+    try { await API.post('/premiacao-fechamento/' + (reabrir ? 'reabrir' : 'fechar'), { mes, ano }); setMsg(reabrir ? '🔓 Mês reaberto.' : '🔒 Mês fechado.'); carregar(); }
+    catch (e) { setMsg(e.response?.data?.erro || 'Erro ao mudar o status.'); }
+  }
+  async function exportarCarga() {
+    try {
+      const r = await API.get('/premiacao-fechamento/exportar', { params: { mes, ano }, responseType: 'blob' });
+      const semId = Number(r.headers['x-sem-id'] || 0);
+      const a = document.createElement('a'); a.href = URL.createObjectURL(r.data);
+      a.download = `carga_premiacao_${String(mes).padStart(2, '0')}_${ano}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
+      setMsg(semId ? `✅ Carga gerada. ⚠️ ${semId} colaborador(es) pagáveis SEM ID Premiação no cadastro — preencha o ID para não sair em branco.` : '✅ Carga gerada no modelo Pay X Virtual.');
+    } catch { setMsg('Erro ao exportar a carga.'); }
+  }
+
   const linhas = dados.linhas
     .filter(l => !filtro || String(l.nome).toLowerCase().includes(filtro.toLowerCase()))
     .filter(l => !soPendentes || l.premiacao_venda > 0 && l.premiacao_pct == null);
@@ -82,9 +99,9 @@ export default function PremiacaoFechamento() {
             {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}
           </select>
           <input style={{ ...s.sel, width: 90 }} type="number" value={ano} onChange={e => setAno(Number(e.target.value))} />
-          <label style={s.upload}>
+          <label style={{ ...s.upload, opacity: fechado ? 0.45 : 1, pointerEvents: fechado ? 'none' : 'auto' }}>
             ⬆️ Subir relatórios (Premiação, Perfumaria, Kits, Unidades, Vitaminas)
-            <input type="file" multiple accept=".xls,.xlsx,.csv" style={{ display: 'none' }} onChange={e => subirArquivos(e.target.files)} />
+            <input type="file" multiple accept=".xls,.xlsx,.csv" style={{ display: 'none' }} disabled={fechado} onChange={e => subirArquivos(e.target.files)} />
           </label>
           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
             {['premiacao', 'perfumaria', 'kits', 'unidades', 'vitaminas'].map(t => {
@@ -93,7 +110,16 @@ export default function PremiacaoFechamento() {
             })}
           </div>
         </div>
-        {msg && <div style={{ fontSize: 12, marginTop: 8, color: msg.startsWith('✅') ? '#0C5A43' : '#993C1D' }}>{msg}</div>}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+          {fechado
+            ? <span style={{ ...s.chip, background: '#FBE7E2', borderColor: '#A3372A', color: '#A3372A', fontWeight: 700 }}>🔒 Mês fechado{dados.fechado_por ? ' · ' + dados.fechado_por : ''}</span>
+            : <span style={{ ...s.chip, ...s.chipOn }}>🔓 Em aberto</span>}
+          <button style={s.btnSec} onClick={exportarCarga} disabled={!dados.relatorios.length}>⬇️ Exportar carga (Pay X Virtual)</button>
+          {fechado
+            ? <button style={s.btnSec} onClick={() => fecharMes(true)}>🔓 Reabrir mês</button>
+            : <button style={s.btn} onClick={() => fecharMes(false)} disabled={!dados.relatorios.length}>🔒 Fechar mês</button>}
+        </div>
+        {msg && <div style={{ fontSize: 12, marginTop: 8, color: msg.startsWith('✅') || msg.startsWith('🔒') || msg.startsWith('🔓') ? '#0C5A43' : '#993C1D' }}>{msg}</div>}
       </div>
 
       {/* valores cadastráveis */}
@@ -167,7 +193,7 @@ export default function PremiacaoFechamento() {
                     <td style={s.tdR}>{l.premiacao_venda ? brl(l.premiacao_venda) : '—'}</td>
                     <td style={s.tdC}>
                       {l.premiacao_venda > 0 && !l.sem_cadastro ? (
-                        <select style={s.selMini} value={l.premiacao_pct ?? ''} onChange={e => salvarLinha(l, { premiacao_pct: e.target.value === '' ? null : Number(e.target.value) })}>
+                        <select style={s.selMini} disabled={fechado} value={l.premiacao_pct ?? ''} onChange={e => salvarLinha(l, { premiacao_pct: e.target.value === '' ? null : Number(e.target.value) })}>
                           <option value="">—</option><option value="3">3%</option><option value="4">4%</option><option value="5">5%</option>
                         </select>
                       ) : '—'}
@@ -181,14 +207,14 @@ export default function PremiacaoFechamento() {
                       {l.gestao && !l.sem_cadastro ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'center' }}>
                           <label style={{ fontSize: 10, color: '#444', display: 'flex', gap: 3, alignItems: 'center' }}>
-                            <input type="checkbox" checked={!!l.meta_bateu} onChange={e => salvarLinha(l, { meta_bateu: e.target.checked })} /> bateu
+                            <input type="checkbox" disabled={fechado} checked={!!l.meta_bateu} onChange={e => salvarLinha(l, { meta_bateu: e.target.checked })} /> bateu
                           </label>
-                          <input style={{ ...s.inNum, width: 74 }} type="number" placeholder="R$" value={l.gestao_valor || ''} onChange={e => salvarLinha(l, { gestao_valor: Number(e.target.value) || 0 })} />
+                          <input style={{ ...s.inNum, width: 74 }} type="number" disabled={fechado} placeholder="R$" value={l.gestao_valor || ''} onChange={e => salvarLinha(l, { gestao_valor: Number(e.target.value) || 0 })} />
                         </div>
                       ) : '—'}
                     </td>
-                    <td style={s.tdR}>{!l.sem_cadastro ? <input style={s.inNum} type="number" placeholder="0" value={l.dif_caixa || ''} onChange={e => salvarLinha(l, { dif_caixa: Number(e.target.value) || 0 })} /> : '—'}</td>
-                    <td style={s.tdR}>{!l.sem_cadastro ? <input style={s.inNum} type="number" placeholder="0" value={l.outros_desc || ''} onChange={e => salvarLinha(l, { outros_desc: Number(e.target.value) || 0 })} /> : '—'}</td>
+                    <td style={s.tdR}>{!l.sem_cadastro ? <input style={s.inNum} type="number" disabled={fechado} placeholder="0" value={l.dif_caixa || ''} onChange={e => salvarLinha(l, { dif_caixa: Number(e.target.value) || 0 })} /> : '—'}</td>
+                    <td style={s.tdR}>{!l.sem_cadastro ? <input style={s.inNum} type="number" disabled={fechado} placeholder="0" value={l.outros_desc || ''} onChange={e => salvarLinha(l, { outros_desc: Number(e.target.value) || 0 })} /> : '—'}</td>
                     <td style={{ ...s.tdR, fontWeight: 800, color: '#13233a' }}>{brl(l.liquido)}</td>
                   </tr>
                 ))}
@@ -283,6 +309,7 @@ const s = {
   inNum: { width: 80, padding: '5px 7px', fontSize: 12, border: '1px solid #dfe3e8', borderRadius: 8, textAlign: 'right', boxSizing: 'border-box' },
   upload: { fontSize: 12.5, fontWeight: 700, padding: '9px 15px', borderRadius: 10, cursor: 'pointer', color: '#fff', background: 'linear-gradient(135deg,#0E7C5A,#0C6A7E)', boxShadow: '0 8px 16px -8px rgba(14,124,90,.5)' },
   btn: { fontSize: 13, fontWeight: 700, padding: '9px 16px', background: 'linear-gradient(135deg,#0E7C5A,#0C6A7E)', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer' },
+  btnSec: { fontSize: 12.5, fontWeight: 600, padding: '8px 14px', background: '#fff', color: '#0E7C5A', border: '1px solid #0E7C5A', borderRadius: 10, cursor: 'pointer' },
   chip: { fontSize: 11, padding: '5px 10px', borderRadius: 999, border: '1px solid #dfe3e8', color: '#8a979a', background: '#fff' },
   chipOn: { background: '#E7F4EF', borderColor: '#0E7C5A', color: '#0C5A43', fontWeight: 600 },
   tbl: { width: '100%', borderCollapse: 'collapse', fontSize: 12 },
