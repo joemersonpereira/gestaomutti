@@ -447,6 +447,8 @@ router.post('/vendas/:id/mover', exigePerfil(...GESTAO), (req, res) => {
 });
 router.delete('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id;
+  const temRecebido = db.prepare('SELECT 1 FROM tmkt_parcelas WHERE venda_id=? AND empresa_id=? AND recebido=1 LIMIT 1').get(req.params.id, emp);
+  if (temRecebido) return res.status(400).json({ erro: 'Esta negociação já tem recebimento lançado — cancele (não exclua), para não perder o histórico financeiro.' });
   db.prepare('DELETE FROM tmkt_venda_espacos WHERE venda_id=? AND empresa_id=?').run(req.params.id, emp);
   db.prepare('DELETE FROM tmkt_parcelas WHERE venda_id=? AND empresa_id=?').run(req.params.id, emp);
   db.prepare('DELETE FROM tmkt_vendas WHERE id=? AND empresa_id=?').run(req.params.id, emp);

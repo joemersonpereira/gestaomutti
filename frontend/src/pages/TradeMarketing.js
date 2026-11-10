@@ -1088,6 +1088,7 @@ function Vendas({ API, gestao }) {
   useEffect(() => { carregar(); }, [carregar]);
   if (!d) return <div style={s.card}>Carregando…</div>;
   const mover = (v, dir) => { const ids = COLS.map(c => c.id); const novo = ids[ids.indexOf(colDe(v.status)) + dir]; if (novo) API.post(`/trademkt/vendas/${v.id}/mover`, { status: novo }).then(() => carregar(busca)); };
+  const excluir = (v) => { if (!window.confirm(`Excluir a negociação ${v.codigo} (${v.fornecedor_nome})?\nIsso remove os espaços e as parcelas. Não dá pra desfazer.`)) return; API.delete(`/trademkt/vendas/${v.id}`).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Erro ao excluir.')); };
   const total = d.vendas.reduce((x, v) => x + (v.valor || 0), 0);
   const aReceber = d.vendas.reduce((x, v) => x + (v.aReceber || 0), 0);
   return (
@@ -1118,6 +1119,7 @@ function Vendas({ API, gestao }) {
                       <button onClick={() => mover(v, -1)} disabled={colDe(v.status) === COLS[0].id} style={s.mv}>◀</button>
                       <button onClick={() => setEdit(v.id)} style={{ ...s.mv, flex: 1 }}>Abrir</button>
                       <button onClick={() => mover(v, 1)} disabled={colDe(v.status) === 'encerrado'} style={s.mv}>▶</button>
+                      <button onClick={() => excluir(v)} title="Excluir negociação" style={{ ...s.mv, color: '#C0392B' }}>🗑</button>
                     </div>}
                   </div>
                 ))}
