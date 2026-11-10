@@ -181,7 +181,8 @@ function listar(empresaId, { mes, ano }) {
 
     const vitUn = valorUnVitamina(vitQtd, faixasVit);
     const vitaminasValor = round(vitQtd * vitUn);
-    const unidadesValor = round(uniQtd * (cfg.uv_valor_un || 0));
+    // Unidades Vendidas: o valor da base JÁ É o R$ da bonificação (Σ qtd×R$/un por produto), usado direto.
+    const unidadesValor = round(uniQtd);
 
     const ehCaixa = !!(colab && colab.premiacao_caixa);
     const kitsValor = ehCaixa && kitsQtd > 0 ? (kitsQtd >= cfg.kit_min ? cfg.kit_alto : cfg.kit_baixo) : 0;
@@ -382,6 +383,66 @@ function exportarCarga(empresaId, mes, ano) {
   return { buffer, lojas: grupos.size, colaboradores: pagaveis.length, sem_id: semId, sem_vinculo: semVinculo };
 }
 
+// ── base AO VIVO direto dos planos de remuneração do ERP ────────────────────
+// Calcula por colaborador (casando por erp_pessoa_id): Premiação/Perfumaria (Σ venda das
+// classificações do plano), Vitaminas/Kits (Σ qtd dos produtos do plano), Unidades (Σ qtd×R$/un).
+// Usa a DATA DE VENDA (datahoraabertura) e as regras ATUAIS do plano. Depois o "puxar do ERP"
+// grava isso em premiacao_base (snapshot) — e ao fechar o mês fica congelado.
+const SELLER_JOIN = 'LEFT JOIN itemorcamento io ON io.id=iv.itemorcamentoid LEFT JOIN orcamento o ON o.id=v.orcamentoid JOIN usuario u ON u.id=COALESCE(io.usuarioid,o.usuarioid,v.usuarioid)';
+async function basesErp(empresaId, mes, ano) {
+  const colabs = db.prepare('SELECT id, erp_pessoa_id, nome FROM colaboradores WHERE empresa_id=? AND erp_pessoa_id IS NOT NULL AND ativo=1').all(empresaId);
+  const porPessoa = new Map(colabs.map(c => [Number(c.erp_pessoa_id), c.id]));
+  const out = new Map(colabs.map(c => [c.id, { colaborador_id: c.id, nome: c.nome, premiacao_venda: 0, perfumaria_venda: 0, kits_qtd: 0, unidades_valor: 0, vitaminas_qtd: 0 }]));
+  if (!porPessoa.size) return out;
+  const mm = String(mes).padStart(2, '0');
+  const ini = `${ano}-${mm}-01`;
+  const fim = mes === 12 ? `${ano + 1}-01-01` : `${ano}-${String(mes + 1).padStart(2, '0')}-01`;
+  const pessoas = [...porPessoa.keys()];
+  const planos = await erpQuery("SELECT id, nome FROM planoremuneracao WHERE status='A'");
+  const P = n => { const p = planos.find(x => (x.nome || '').trim().toLowerCase() === n); return p && p.id; };
+  const setCampo = (rows, campo) => { for (const r of rows) { const id = porPessoa.get(Number(r.pessoaid)); if (id) out.get(id)[campo] = Number(r.v) || 0; } };
+  const comSQL = `SELECT u.pessoaid, COALESCE(SUM(iv.valortotal),0) v FROM itemvenda iv JOIN venda v ON v.id=iv.vendaid ${SELLER_JOIN}
+    JOIN embalagem e ON e.id=iv.embalagemid JOIN classificacaoproduto cp ON cp.produtoid=e.produtoid
+    WHERE cp.classificacaoid IN (SELECT classificacaoid FROM planoremuneracaoitem WHERE planoremuneracaoid=$1 AND classificacaoid IS NOT NULL)
+      AND v.status='F' AND iv.status='F' AND v.datahoraabertura>=$2 AND v.datahoraabertura<$3 AND u.pessoaid = ANY($4::bigint[]) GROUP BY u.pessoaid`;
+  const qtySQL = `SELECT u.pessoaid, COALESCE(SUM(iv.quantidade),0) v FROM itemvenda iv JOIN venda v ON v.id=iv.vendaid ${SELLER_JOIN}
+    JOIN embalagem e ON e.id=iv.embalagemid
+    WHERE EXISTS(SELECT 1 FROM planoremuneracaoitem pri WHERE pri.planoremuneracaoid=$1 AND (pri.embalagemid=iv.embalagemid OR pri.produtoid=e.produtoid))
+      AND v.status='F' AND iv.status='F' AND v.datahoraabertura>=$2 AND v.datahoraabertura<$3 AND u.pessoaid = ANY($4::bigint[]) GROUP BY u.pessoaid`;
+  const valSQL = `SELECT u.pessoaid, COALESCE(SUM(iv.quantidade*pri.bonificacao),0) v FROM itemvenda iv JOIN venda v ON v.id=iv.vendaid ${SELLER_JOIN}
+    JOIN embalagem e ON e.id=iv.embalagemid
+    JOIN LATERAL (SELECT bonificacao FROM planoremuneracaoitem pri WHERE pri.planoremuneracaoid=$1 AND (pri.embalagemid=iv.embalagemid OR pri.produtoid=e.produtoid) LIMIT 1) pri ON true
+    WHERE v.status='F' AND iv.status='F' AND v.datahoraabertura>=$2 AND v.datahoraabertura<$3 AND u.pessoaid = ANY($4::bigint[]) GROUP BY u.pessoaid`;
+  if (P('premiação')) setCampo(await erpQuery(comSQL, [P('premiação'), ini, fim, pessoas]), 'premiacao_venda');
+  if (P('perfumista')) setCampo(await erpQuery(comSQL, [P('perfumista'), ini, fim, pessoas]), 'perfumaria_venda');
+  if (P('vitaminas')) setCampo(await erpQuery(qtySQL, [P('vitaminas'), ini, fim, pessoas]), 'vitaminas_qtd');
+  if (P('kits')) setCampo(await erpQuery(qtySQL, [P('kits'), ini, fim, pessoas]), 'kits_qtd');
+  if (P('unidades vendidas')) setCampo(await erpQuery(valSQL, [P('unidades vendidas'), ini, fim, pessoas]), 'unidades_valor');
+  return out;
+}
+
+// Puxa as bases do ERP e grava em premiacao_base (snapshot) — por nome exato do colaborador, então
+// o listar casa 100% (sem "sem cadastro"). Bloqueado se o mês estiver fechado.
+async function puxarDoErp(empresaId, { mes, ano }) {
+  mes = Number(mes); ano = Number(ano);
+  exigeAberto(empresaId, mes, ano);
+  const bases = await basesErp(empresaId, mes, ano);
+  const normNome = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM premiacao_base WHERE empresa_id=? AND mes=? AND ano=?').run(empresaId, mes, ano);
+    const ins = db.prepare('INSERT INTO premiacao_base (id, empresa_id, mes, ano, tipo, nome_norm, nome_original, valor, pct) VALUES (?,?,?,?,?,?,?,?,?)');
+    let n = 0;
+    for (const b of bases.values()) {
+      const nn = normNome(b.nome);
+      const linhas = [['premiacao', b.premiacao_venda, null], ['perfumaria', b.perfumaria_venda, null], ['vitaminas', b.vitaminas_qtd, null], ['kits', b.kits_qtd, null], ['unidades', b.unidades_valor, null]];
+      for (const [tipo, valor, pct] of linhas) if (valor) { ins.run(uuidv4(), empresaId, mes, ano, tipo, nn, b.nome, valor, pct); n++; }
+    }
+    return n;
+  });
+  const n = tx();
+  return { ok: true, colaboradores: bases.size, linhas: n, mes, ano };
+}
+
 // ── regras dos planos de remuneração (ERP, só leitura) ──────────────────────
 // Mostra cada plano (Premiação, Perfumista, Kits, Unidades, Vitaminas) com TUDO que o compõe:
 // classificações (caminho), embalagens/produtos, grupos — e a comissão/bonificação de cada item.
@@ -423,4 +484,4 @@ async function planosErp(force) {
   return _planosCache;
 }
 
-module.exports = { importar, listar, salvarItem, salvarCfg, getCfg, status, fechar, exportarCarga, importarIds, listarContas, salvarConta, planosErp };
+module.exports = { importar, listar, salvarItem, salvarCfg, getCfg, status, fechar, exportarCarga, importarIds, listarContas, salvarConta, planosErp, basesErp, puxarDoErp };

@@ -41,6 +41,12 @@ export default function PremiacaoFechamento() {
     setMsg(`✅ ${at} ID(s)/vínculo(s) preenchidos no cadastro.` + (nao.length ? ` ⚠️ ${nao.length} CPF(s) sem colaborador no sistema (outras razões sociais ou cadastro faltando).` : '') + (erros.length ? ' ' + erros.join(' · ') : ''));
     carregar(); carregarContas();
   }
+  async function puxarErp() {
+    if (!window.confirm(`Puxar as bases direto do ERP (planos de remuneração) para ${String(mes).padStart(2, '0')}/${ano}?\n\nIsso substitui as bases deste mês pela leitura ao vivo dos planos (casa por pessoa — sem "sem cadastro"). A premiação de gestão e os descontos que você digitou são mantidos.`)) return;
+    setMsg('⏳ Puxando do ERP…');
+    try { const r = await API.post('/premiacao-fechamento/puxar-erp', { mes, ano }); setMsg(`✅ ${r.data.colaboradores} colaboradores do ERP (${r.data.linhas} bases). Escolha os % e feche o mês.`); carregar(); }
+    catch (e) { setMsg(e.response?.data?.erro || 'Erro ao puxar do ERP.'); }
+  }
   async function salvarConta(c) {
     try { const r = await API.post('/premiacao-fechamento/contas', c); setContas(r.data.contas || []); setMsg('✅ Conta Pay X salva.'); }
     catch { setMsg('Erro ao salvar a conta.'); }
@@ -121,8 +127,9 @@ export default function PremiacaoFechamento() {
             {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}
           </select>
           <input style={{ ...s.sel, width: 90 }} type="number" value={ano} onChange={e => setAno(Number(e.target.value))} />
-          <label style={{ ...s.upload, opacity: fechado ? 0.45 : 1, pointerEvents: fechado ? 'none' : 'auto' }}>
-            ⬆️ Subir relatórios (Premiação, Perfumaria, Kits, Unidades, Vitaminas)
+          <button style={{ ...s.upload, opacity: fechado ? 0.45 : 1 }} onClick={puxarErp} disabled={fechado} title="Calcula as 5 bases direto dos planos de remuneração do ERP, por data de venda, casando por pessoa.">⚡ Puxar do ERP (ao vivo)</button>
+          <label style={{ ...s.btnSec, opacity: fechado ? 0.45 : 1, pointerEvents: fechado ? 'none' : 'auto' }} title="Alternativa: subir os 5 relatórios Excel exportados do ERP.">
+            ⬆️ Subir relatórios (Excel)
             <input type="file" multiple accept=".xls,.xlsx,.csv" style={{ display: 'none' }} disabled={fechado} onChange={e => subirArquivos(e.target.files)} />
           </label>
           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>

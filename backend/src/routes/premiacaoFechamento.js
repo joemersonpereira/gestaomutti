@@ -24,6 +24,12 @@ router.get('/planos-erp', exigePerfil(...ACESSO), async (req, res) => {
   catch (e) { res.status(503).json({ erro: 'ERP indisponível: ' + e.message }); }
 });
 
+// puxar as bases AO VIVO do ERP (planos de remuneração) para o mês — grava o snapshot
+router.post('/puxar-erp', exigePerfil(...ACESSO), async (req, res) => {
+  try { res.json(await pf.puxarDoErp(emp(req), req.body)); }
+  catch (e) { res.status(e.message && e.message.includes('FECHADO') ? 400 : 503).json({ erro: e.message }); }
+});
+
 // importar IDs e vínculos Pay X das cargas preenchidas (casa por CPF)
 router.post('/importar-ids', exigePerfil(...ACESSO), wrap(req => pf.importarIds(emp(req), req.body)));
 // contas Pay X (cabeçalho por CNPJ: empresa/produto/código/taxa)
