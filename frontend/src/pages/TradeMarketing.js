@@ -1183,7 +1183,15 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
   const updParcela = (pid, obj) => API.put(`/trademkt/parcelas/${pid}`, obj).then(() => recarregar(id));
   const anexarParcela = (pid, file) => { if (!file) return; const r = new FileReader(); r.onload = () => API.post(`/trademkt/parcelas/${pid}/comprovante`, { foto: r.result, mime: file.type }).then(() => recarregar(id)); r.readAsDataURL(file); };
   const verSellout = () => API.get(`/trademkt/vendas/${id}/sellout`).then(r => setSell(r.data)).catch(e => setSell({ ok: false, motivo: e.response?.data?.erro || 'Erro' }));
-  const gerarLink = () => API.post(`/trademkt/vendas/${id}/gerar-link`).then(r => { const url = window.location.origin + r.data.link; try { navigator.clipboard.writeText(url); } catch (e) { /* */ } window.prompt('🔗 Link de aprovação do fornecedor (já copiado). Envie pra ele dar ciência e aprovar — ao aprovar, a ação vai pra veiculação:', url); }).catch(e => alert(e.response?.data?.erro || 'Erro ao gerar link'));
+  const gerarLink = (via, tipo) => API.post(`/trademkt/vendas/${id}/gerar-link`).then(r => {
+    const url = window.location.origin + r.data.link;
+    try { navigator.clipboard.writeText(url); } catch (e) { /* */ }
+    const msg = tipo === 'aprovacao'
+      ? `Olá! Segue o link para autorização da veiculação do trade junto ao Grupo Mutti: ${url}`
+      : `Olá! Segue os dados de sell-out e execução do seu trade junto ao Grupo Mutti: ${url}`;
+    if (via === 'whatsapp') window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+    else window.prompt('🔗 Link do fornecedor (já copiado). Sem login — ele vê o sell-out, a comprovação e, quando aguardando, dá ciência e aprova (vai pra veiculação):', url);
+  }).catch(e => alert(e.response?.data?.erro || 'Erro ao gerar link'));
   const precisaSalvar = !id;
   const ABAS = [['dados', '📄 Dados & Espaços'], ['material', '🎨 Material & briefing'], ['financeiro', '💳 Financeiro'], ['sellout', '📈 Sell-out (ERP)']];
   const COLS_SELL = [
@@ -1200,8 +1208,9 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
     <div onClick={onClose} style={s.overlay}><div onClick={e => e.stopPropagation()} style={{ ...s.modal, maxWidth: 780 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <b style={{ fontSize: 15 }}>{id ? `Negociação ${v.codigo || ''}` : 'Nova negociação'} {v.status && <span style={s.tag}>{v.status}</span>}</b>
-        <span style={{ display: 'flex', gap: 8 }}>
-          {id && <button onClick={gerarLink} style={{ ...s.btnMini, borderColor: '#2E5C9E', color: '#2E5C9E' }} title="Gera o link pro fornecedor dar ciência e aprovar — ao aprovar, vai pra veiculação">🔗 Link de aprovação</button>}
+        <span style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {id && <button onClick={() => gerarLink('whatsapp', v.status === 'aguardando' ? 'aprovacao' : 'sellout')} style={{ ...s.btnMini, borderColor: '#25D366', color: '#128C7E' }} title={v.status === 'aguardando' ? 'Manda no WhatsApp o link pro fornecedor autorizar a veiculação' : 'Manda no WhatsApp o link do sell-out/execução pro fornecedor'}>📲 WhatsApp</button>}
+          {id && <button onClick={() => gerarLink('copiar')} style={{ ...s.btnMini, borderColor: '#2E5C9E', color: '#2E5C9E' }} title="Copia o link do fornecedor (sell-out + comprovação + aprovação)">🔗 Copiar link</button>}
           <button onClick={onClose} style={s.btnMini}>✕ Fechar</button>
         </span>
       </div>
