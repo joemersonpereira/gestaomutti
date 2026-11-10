@@ -213,8 +213,8 @@ export default function PremiacaoFechamento() {
         </>}
       </div>
 
-      {/* resumo */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+      {/* resumo — todos os cards numa linha só (rola na horizontal em telas estreitas) */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', overflowX: 'auto', marginBottom: 12, paddingBottom: 2 }}>
         <Stat t="Colaboradores" v={dados.resumo.colaboradores || 0} />
         <Stat t="Prêmio bruto" v={brl(dados.resumo.bruto)} acc="#0E7C5A" />
         <Stat t="Descontos" v={brl(dados.resumo.descontos)} acc="#A3372A" />
@@ -451,9 +451,9 @@ function Campo({ label, v, on, step }) {
 }
 function Stat({ t, v, acc, forte }) {
   return (
-    <div style={{ background: '#fff', border: '1px solid #e9ecf1', borderRadius: 14, padding: '12px 16px', minWidth: 150, boxShadow: '0 1px 3px rgba(16,24,40,.05)', borderLeft: `4px solid ${acc || '#cbd3d6'}` }}>
-      <div style={{ fontSize: 11, color: '#7a8a8c', fontWeight: 600 }}>{t}</div>
-      <div style={{ fontSize: forte ? 22 : 18, fontWeight: 800, color: acc || '#13233a', marginTop: 2 }}>{v}</div>
+    <div style={{ flex: '1 1 0', minWidth: 112, background: '#fff', border: '1px solid #e9ecf1', borderRadius: 14, padding: '10px 12px', boxShadow: '0 1px 3px rgba(16,24,40,.05)', borderLeft: `4px solid ${acc || '#cbd3d6'}` }}>
+      <div style={{ fontSize: 10.5, color: '#7a8a8c', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t}</div>
+      <div style={{ fontSize: forte ? 19 : 16, fontWeight: 800, color: acc || '#13233a', marginTop: 2, whiteSpace: 'nowrap' }}>{v}</div>
     </div>
   );
 }
