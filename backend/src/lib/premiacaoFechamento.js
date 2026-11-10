@@ -403,8 +403,11 @@ function importarIds(empresaId, { conteudoBase64, nomeArquivo }) {
   if (!buf.length) throw new Error('Arquivo vazio.');
   let wb;
   try { wb = XLSX.read(buf, { raw: false }); } catch (e) { throw new Error('Não consegui abrir (' + e.message + ').'); }
-  const cols = db.prepare('SELECT id, cpf FROM colaboradores WHERE empresa_id=?').all(empresaId);
+  const cols = db.prepare('SELECT id, cpf, nome FROM colaboradores WHERE empresa_id=?').all(empresaId);
   const porCpf = new Map(cols.filter(c => c.cpf).map(c => [cpf11(c.cpf), c.id]));
+  const normNm = s => String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+  const porNome = new Map();
+  for (const c of cols) { const k = normNm(c.nome); if (k) porNome.set(k, porNome.has(k) ? '__DUP__' : c.id); }
   const updId = db.prepare('UPDATE colaboradores SET id_premiacao=?, payx_cnpj=? WHERE id=?');
   const upsertConta = db.prepare(`INSERT INTO payx_conta (empresa_id, cnpj, cnpj_fmt, empresa_nome, produto, codigo, taxa_adm)
     VALUES (?,?,?,?,?,?,?)
@@ -426,10 +429,13 @@ function importarIds(empresaId, { conteudoBase64, nomeArquivo }) {
       contas.push(cnpjFmt);
       for (let i = hi + 1; i < rows.length; i++) {
         const cpf = cpf11(rows[i][0]); const id = String(rows[i][3] || '').trim();
-        if (cpf === '00000000000' || !id) continue;
-        const colabId = porCpf.get(cpf);
+        const nomeC = String(rows[i][1] || '').trim();
+        if (!id || (cpf === '00000000000' && !nomeC)) continue;
+        let colabId = cpf !== '00000000000' ? porCpf.get(cpf) : null;
+        // fallback por NOME (quando o CPF está diferente ou vazio no cadastro)
+        if (!colabId && nomeC) { const byName = porNome.get(normNm(nomeC)); if (byName && byName !== '__DUP__') colabId = byName; }
         if (colabId) { updId.run(id, cnpj, colabId); atualizados++; }
-        else naoAchados.push(String(rows[i][1] || '').trim() || cpf);
+        else naoAchados.push(nomeC || cpf);
       }
     }
   });
