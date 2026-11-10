@@ -475,6 +475,25 @@ router.get('/trade/acompanhamento/:token', async (req, res) => {
     escopo_tipo: v.escopo_tipo, escopo_ref: v.escopo_ref ? JSON.parse(v.escopo_ref) : [], observacao: v.observacao, espacos, parcelas,
     sellout, produtos_definidos: eans.length, meta, comprovacoes_gestao: compsGestao });
 });
+// "Minhas ações": negociações vinculadas ao CPF da pessoa logada (acesso CNPJ+CPF) — gera o token de
+// acompanhamento se faltar, pra ela abrir o acompanhamento (sell-out + comprovação) de cada ação.
+router.get('/trade/minhas-acoes', exigeAcesso, (req, res) => {
+  const tok = String(req.get('x-acesso') || req.query.acesso || '');
+  const sess = db.prepare('SELECT cpf FROM tmkt_acesso_sessao WHERE token=? AND empresa_id=?').get(tok, EMP);
+  const cpf = sess && sess.cpf;
+  if (!cpf) return res.json({ acoes: [] });
+  const vendas = db.prepare(`SELECT id, codigo, fornecedor_nome, status, valor, vigencia_ini, vigencia_fim, plano_nome, token
+    FROM tmkt_vendas WHERE empresa_id=? AND replace(replace(replace(COALESCE(contato_cpf,''),'.',''),'-',''),' ','')=?
+      AND status NOT IN ('cancelado','perdido','recusado') ORDER BY criado_em DESC`).all(EMP, cpf);
+  const espCount = db.prepare('SELECT COUNT(*) n FROM tmkt_venda_espacos WHERE venda_id=?');
+  const genTok = db.prepare('UPDATE tmkt_vendas SET token=? WHERE id=? AND empresa_id=?');
+  const acoes = vendas.map(v => {
+    let t = v.token;
+    if (!t) { t = uuid().replace(/-/g, ''); try { genTok.run(t, v.id, EMP); } catch (e) { /* ignora */ } }
+    return { codigo: v.codigo, fornecedor: v.fornecedor_nome, status: v.status, valor: v.valor, vigencia_ini: v.vigencia_ini, vigencia_fim: v.vigencia_fim, plano: v.plano_nome, espacos: espCount.get(v.id).n, token: t };
+  });
+  res.json({ acoes });
+});
 // foto da comprovação da execução (anexada pela gestão no briefing) — acessível ao fornecedor pelo token do pedido
 router.get('/trade/acompanhamento/:token/comprovacao/:bid/foto', (req, res) => {
   const v = db.prepare('SELECT id FROM tmkt_vendas WHERE empresa_id=? AND token=?').get(EMP, req.params.token);
