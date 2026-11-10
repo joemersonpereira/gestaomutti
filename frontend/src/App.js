@@ -134,7 +134,7 @@ const MODULOS = [
   { id: 'supervisor', label: '🌐 Supervisor', C: PainelSupervisor, perfis: ['Supervisor', 'Gestor Geral', 'Diretor Geral'] },
   { id: 'diretoria', label: '🎯 Painel da Gestão', C: PainelDiretoria, perfis: ['Diretor Geral', 'Gestor Geral'] },
   { id: 'premiacao-equipe', label: '💵 Premiação da equipe', C: PremiacaoEquipe, perfis: ['Gerente', 'Supervisor', 'Gestor Geral', 'Diretor Geral'] },
-  { id: 'premiacao-fechamento', label: '💵 Fechamento de Premiação', C: PremiacaoFechamento, perfis: ['Gerente', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Financeiro', 'RH'] },
+  { id: 'premiacao-fechamento', label: '💵 Premiação', C: PremiacaoFechamento, perfis: ['Gerente', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Financeiro', 'RH'] },
   { id: 'ranking', label: '🏆 Ranking trimestral', C: Ranking, perfis: ['Diretor Geral'] },
   { id: 'relatorios', label: '📑 Relatórios', C: Relatorios, perfis: [...GESTAO, 'RH', 'Marketing', 'Financeiro', 'Controladoria'] },
   { id: 'controladoria', label: '🔍 Controladoria', C: Controladoria, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },

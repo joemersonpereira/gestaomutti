@@ -110,7 +110,7 @@ export default function PremiacaoFechamento() {
 
   return (
     <div style={s.wrap}>
-      <Banner emoji="💵" titulo="Fechamento de Premiação" cor="verde" sub="Suba os relatórios do ERP, escolha os % e os descontos, e feche o prêmio por colaborador." />
+      <Banner emoji="💵" titulo="Premiação" cor="verde" sub="Suba os relatórios do ERP, escolha os % e os descontos, e feche o prêmio por colaborador." />
 
       {/* período + upload */}
       <div style={s.card}>
