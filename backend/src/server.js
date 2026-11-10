@@ -164,6 +164,25 @@ setTimeout(() => {
   } catch { /* ignora */ }
 }, 12000);
 
+// Atualização geral ÚNICA: importa os cadastros ativos do Alpha 7 que ainda não estão no app
+// (idempotente, pula quem já existe; entram com a loja/função sugeridas do ERP, sem login).
+// Guardada por flag em configuracoes — roda só 1x; depois o RH usa a tela de Conferência.
+setTimeout(() => {
+  try {
+    const db = require('./db/connection');
+    const { importar } = require('./lib/syncColaboradoresErp');
+    const jaFez = db.prepare("SELECT 1 FROM configuracoes WHERE empresa_id=? AND chave='alpha_import_bootstrap'");
+    const marca = db.prepare("INSERT INTO configuracoes (empresa_id,chave,valor) VALUES (?,'alpha_import_bootstrap','1') ON CONFLICT(empresa_id,chave) DO UPDATE SET valor='1'");
+    const empresas = [...new Set(db.prepare('SELECT empresa_id FROM lojas').all().map(r => r.empresa_id))];
+    empresas.forEach(eid => {
+      if (jaFez.get(eid)) return;
+      importar(eid)
+        .then(r => { if (r) console.log(`[alpha-import] ${eid}: ${r.importados} cadastro(s) importado(s) do Alpha 7`); try { marca.run(eid); } catch { /* */ } })
+        .catch(() => {});
+    });
+  } catch { /* ignora */ }
+}, 15000);
+
 // Pendências de ponto (Tangerino): cria tarefa p/ o colaborador corrigir e desconta pontos a cada 24h sem correção.
 // Roda no boot (após 20s) e a cada 1h.
 function rodarPendenciasPonto() {
