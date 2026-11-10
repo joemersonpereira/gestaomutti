@@ -93,6 +93,7 @@ const PENDENTES = [
   './migrations/324_premiacao_ids_bootstrap',
   './migrations/325_fampesa_terceirizada',
   './migrations/326_premiacao_ids_reaplica',
+  './migrations/327_fampesa_nome_padroniza',
 ];
 
 console.log('=== Rodando migrações pendentes (065–073) ===\n');
