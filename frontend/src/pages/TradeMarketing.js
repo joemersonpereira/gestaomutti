@@ -1240,6 +1240,11 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
             📸 Não ocupa o espaço <span style={{ color: '#94a3b8' }}>(só comprovação/foto — a vaga continua disponível)</span>
           </label>
         </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={{ ...s.lbl, minWidth: 220, flex: 1 }}>Pessoa de contato <span style={{ fontWeight: 400, color: '#94a3b8' }}>(acesso ao portal)</span><input value={v.contato_nome || ''} onChange={e => set('contato_nome', e.target.value)} placeholder="nome do responsável do fornecedor" style={s.inp} /></label>
+          <label style={s.lbl}>CPF<input value={v.contato_cpf || ''} onChange={e => set('contato_cpf', e.target.value)} placeholder="só números" style={{ ...s.inp, width: 150 }} /></label>
+        </div>
+        {v.contato_cpf && <div style={{ fontSize: 11, color: '#7C3AED', marginTop: -4, marginBottom: 2 }}>🔑 Com esse CPF, a pessoa entra no Portal do fornecedor (CNPJ do fornecedor + o CPF dela) pra acompanhar a ação — sell-out e comprovação.</div>}
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <label style={{ ...s.lbl, flex: 1, minWidth: 200 }}>URL do contrato assinado<input value={v.contrato_url || ''} onChange={e => set('contrato_url', e.target.value)} placeholder="cole a URL" style={s.inp} /></label>
           {id && <button type="button" onClick={() => setVerContrato(true)} style={s.btnMini} title="Preenche o modelo com os dados desta negociação">📄 Gerar contrato do modelo</button>}

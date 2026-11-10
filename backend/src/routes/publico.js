@@ -71,9 +71,10 @@ router.post('/trade/acesso', async (req, res) => {
       if (r && r.length) { temCnpj = true; via = 'alpha'; }
     } catch (e) { /* ERP fora do ar → só a allowlist vale */ }
   }
-  // (b) CPF da pessoa existe no Alpha?
+  // (b) CPF da pessoa existe no Alpha? OU foi liberado (ex.: contato vinculado a uma negociação)
   let temCpf = false;
-  if (habilitado()) {
+  if (db.prepare('SELECT 1 FROM tmkt_acesso_liberado WHERE empresa_id=? AND documento=? AND ativo=1').get(EMP, cpf11)) temCpf = true;
+  if (!temCpf && habilitado()) {
     try { const r = await erpQuery(`SELECT 1 FROM pessoa WHERE cpf IN ($1,$2) LIMIT 1`, [cpf11, cpf]); temCpf = !!(r && r.length); } catch (e) { /* ERP fora do ar */ }
   }
   if (temCnpj && temCpf) {

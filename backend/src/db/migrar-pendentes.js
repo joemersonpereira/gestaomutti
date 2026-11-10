@@ -97,6 +97,7 @@ const PENDENTES = [
   './migrations/328_tmkt_venda_plano',
   './migrations/329_tmkt_venda_nao_ocupa',
   './migrations/330_tmkt_venda_perdido',
+  './migrations/331_tmkt_venda_contato',
 ];
 
 console.log('=== Rodando migrações pendentes (065–073) ===\n');

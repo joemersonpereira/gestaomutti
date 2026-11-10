@@ -365,6 +365,18 @@ router.get('/vendas/:id', (req, res) => {
   Object.assign(v, resumoVenda(v));
   res.json({ venda: v });
 });
+// Libera o CPF da pessoa de contato no Portal do fornecedor (acompanha a ação: sell-out + comprovação).
+// O CNPJ do fornecedor já costuma passar pelo Alpha; aqui garantimos o CPF na allowlist.
+function liberarAcessoContato(emp, cpf11, nome) {
+  if (!cpf11 || cpf11.length !== 11) return;
+  try {
+    db.prepare(`INSERT INTO tmkt_acesso_liberado (empresa_id, documento, nome, observacao, ativo, criado_por, criado_em)
+      VALUES (?,?,?,?,1,'trade',datetime('now'))
+      ON CONFLICT(empresa_id, documento) DO UPDATE SET nome=COALESCE(excluded.nome, tmkt_acesso_liberado.nome), ativo=1`)
+      .run(emp, cpf11, nome || null, 'contato de negociação de trade');
+  } catch (e) { /* ignora */ }
+}
+
 router.post('/vendas', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id, b = req.body;
   if (!b.fornecedor_nome) return res.status(400).json({ erro: 'Informe o fornecedor.' });
@@ -376,6 +388,11 @@ router.post('/vendas', exigePerfil(...GESTAO), (req, res) => {
       b.tema_id || null, b.tema_desc || null, b.plano_id || null, b.plano_nome || null, b.nao_ocupa ? 1 : 0, b.contrato_url || null, b.vigencia_ini || null, b.vigencia_fim || null,
       Number(b.valor) || 0, STATUS.includes(b.status) ? b.status : 'rascunho',
       b.eans ? JSON.stringify(b.eans) : null, b.observacao || null, req.usuario.id);
+  const contatoCpf = String(b.contato_cpf || '').replace(/\D/g, '');
+  if (contatoCpf || b.contato_nome) {
+    db.prepare('UPDATE tmkt_vendas SET contato_cpf=?, contato_nome=? WHERE id=? AND empresa_id=?').run(contatoCpf || null, b.contato_nome || null, id, emp);
+    liberarAcessoContato(emp, contatoCpf, b.contato_nome);
+  }
   res.json({ ok: true, id });
 });
 
@@ -438,6 +455,8 @@ router.put('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
   campos.forEach(c => { if (c in b) { set.push(`${c}=?`); vals.push(b[c] === '' ? null : b[c]); } });
   if ('eans' in b) { set.push('eans_monitorados=?'); vals.push(b.eans ? JSON.stringify(b.eans) : null); }
   if ('nao_ocupa' in b) { set.push('nao_ocupa=?'); vals.push(b.nao_ocupa ? 1 : 0); }
+  if ('contato_nome' in b) { set.push('contato_nome=?'); vals.push(b.contato_nome || null); }
+  if ('contato_cpf' in b) { const c = String(b.contato_cpf || '').replace(/\D/g, ''); set.push('contato_cpf=?'); vals.push(c || null); if (c.length === 11) liberarAcessoContato(emp, c, b.contato_nome); }
   if (set.length) { set.push("atualizado_em=datetime('now')"); db.prepare(`UPDATE tmkt_vendas SET ${set.join(',')} WHERE id=? AND empresa_id=?`).run(...vals, req.params.id, emp); }
   res.json({ ok: true });
 });
