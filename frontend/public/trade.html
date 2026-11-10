@@ -1592,6 +1592,14 @@ function verAcompanhamento(){
         (d.comprovacao_enviada?'<div class="msg ok">✅ Foto já enviada. Obrigado!</div>':
           '<div style="font-size:13px;color:#64748b;margin:6px 0">Envie a foto da ação montada'+(d.comprovacao_prazo_dias?' (prazo de '+d.comprovacao_prazo_dias+' dias)':'')+'.</div><input type="file" id="cfoto" accept="image/*" capture="environment"><div class="msg" id="cmsg"></div><button class="btn" id="cenv" style="margin-top:8px">Enviar comprovação</button>')+
       '</div>'+
+      (d.comprovacoes_gestao&&d.comprovacoes_gestao.length?
+        '<div class="card" style="padding:14px;margin-top:12px"><b>✅ Comprovação da execução (Grupo Mutti)</b>'+
+        '<div style="font-size:12px;color:#64748b;margin:4px 0 8px">Fotos da ação executada, registradas pela nossa equipe.</div>'+
+        '<div style="display:flex;gap:10px;flex-wrap:wrap">'+d.comprovacoes_gestao.map(function(c){
+          return '<div style="width:150px">'+(c.foto?'<a href="'+c.foto+'" target="_blank"><img src="'+c.foto+'" style="width:150px;height:110px;object-fit:cover;border-radius:10px;border:1px solid #e2e8f0"></a>':'')+
+            (c.texto?'<div style="font-size:11px;color:#475569;margin-top:3px">'+h(c.texto)+'</div>':'')+
+            '<div style="font-size:10px;color:#94a3b8">'+h((c.criado_em||'').slice(0,10))+'</div></div>';
+        }).join('')+'</div></div>':'')+
       '<div class="card" style="padding:14px;margin-top:12px"><b>💬 Briefing</b>'+
         '<div style="font-size:12px;color:#64748b;margin:4px 0 8px">Converse com a nossa equipe, anexe arquivos e acompanhe a comprovação da ação.</div>'+
         '<div id="brieflist" style="display:grid;gap:8px;max-height:300px;overflow:auto"></div>'+

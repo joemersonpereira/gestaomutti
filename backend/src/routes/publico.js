@@ -466,11 +466,24 @@ router.get('/trade/acompanhamento/:token', async (req, res) => {
     meta = { valor: v.meta_compra_valor, tipo: v.meta_escopo_tipo, periodicidade: v.meta_periodicidade || 'mensal', refs,
       comprado, pct: v.meta_compra_valor ? Math.round(comprado / v.meta_compra_valor * 100) : null, periodo: per };
   }
+  // comprovação da EXECUÇÃO que a gestão anexou (fotos no briefing, tipo='comprovacao') — o fornecedor vê a prova da ação
+  const compsGestao = db.prepare(`SELECT id, texto, criado_em, autor_nome, (anexo_b64 IS NOT NULL) AS tem_foto FROM tmkt_venda_briefing WHERE venda_id=? AND tipo='comprovacao' ORDER BY criado_em DESC`).all(v.id)
+    .map(c => ({ id: c.id, texto: c.texto, criado_em: c.criado_em, autor: c.autor_nome, foto: c.tem_foto ? `/api/publico/trade/acompanhamento/${req.params.token}/comprovacao/${c.id}/foto` : null }));
   res.json({ ok: true, codigo: v.codigo, fornecedor: v.fornecedor_nome, status: v.status, status_rotulo: ROT[v.status] || v.status,
     valor: v.valor, forma_pagamento: v.forma_pagamento, vigencia_ini: v.vigencia_ini, vigencia_fim: v.vigencia_fim,
     comprovacao_prazo_dias: v.comprovacao_prazo_dias, comprovacao_ate: v.comprovacao_ate, comprovacao_enviada: !!v.comprovacao_em,
     escopo_tipo: v.escopo_tipo, escopo_ref: v.escopo_ref ? JSON.parse(v.escopo_ref) : [], observacao: v.observacao, espacos, parcelas,
-    sellout, produtos_definidos: eans.length, meta });
+    sellout, produtos_definidos: eans.length, meta, comprovacoes_gestao: compsGestao });
+});
+// foto da comprovação da execução (anexada pela gestão no briefing) — acessível ao fornecedor pelo token do pedido
+router.get('/trade/acompanhamento/:token/comprovacao/:bid/foto', (req, res) => {
+  const v = db.prepare('SELECT id FROM tmkt_vendas WHERE empresa_id=? AND token=?').get(EMP, req.params.token);
+  if (!v) return res.status(404).end();
+  const b = db.prepare("SELECT anexo_b64, anexo_mime FROM tmkt_venda_briefing WHERE id=? AND venda_id=? AND tipo='comprovacao'").get(req.params.bid, v.id);
+  if (!b || !b.anexo_b64) return res.status(404).end();
+  res.setHeader('Content-Type', b.anexo_mime || 'image/jpeg');
+  res.setHeader('Cache-Control', 'private, max-age=300');
+  res.end(Buffer.from(b.anexo_b64, 'base64'));
 });
 // fornecedor envia a comprovação da ação montada (foto)
 router.post('/trade/acompanhamento/:token/comprovacao', (req, res) => {
