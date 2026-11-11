@@ -2726,7 +2726,8 @@ function PremiacaoVendedor({ API, gestao }) {
 // Lateral da área de trabalho do colaborador: navegação entre as páginas de trade + as pendências
 // dele sempre à vista (premiação/meta do mês, metas de atividade, cobranças de prospecção, atividades
 // e agenda dos próximos contatos). Fica fixa em altura cheia; o conteúdo se ajusta ao lado.
-const LAT_NAV = [['vendas', '🗂️', 'Negociações'], ['dashboard', '📊', 'Dashboard'], ['metas', '🎯', 'Metas'], ['leads', '📇', 'Leads'], ['porloja', '🏬', 'Espaços'], ['cobranca', '💰', 'Cobrança']];
+// key com prefixo "@" = navega pra outro MENU do sistema (evento global mutti-nav), não troca de aba interna.
+const LAT_NAV = [['vendas', '🗂️', 'Negociações'], ['dashboard', '📊', 'Dashboard'], ['metas', '🎯', 'Metas'], ['leads', '📇', 'Leads'], ['porloja', '🏬', 'Espaços'], ['@agenda', '📅', 'Calendário']];
 
 // ── Calendário da empresa: eventos "empresa" todos veem; "pessoais" só o dono. ──
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -2869,7 +2870,7 @@ function PainelMeta({ API, aba, onNav, aberto, setAberto }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><b style={{ fontSize: 13 }}>📣 Minha área de trade</b><button onClick={() => setAberto(false)} title="recolher" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16 }}>⟩</button></div>
       {/* Navegação para as páginas da ferramenta */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-        {LAT_NAV.map(([k, ic, l]) => <button key={k} onClick={() => onNav && onNav(k)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 9px', borderRadius: 10, border: '1px solid ' + (aba === k ? 'transparent' : '#e8edf0'), background: aba === k ? BRAND_GRAD : '#f7f9fa', color: aba === k ? '#fff' : '#334', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}><span>{ic}</span>{l}</button>)}
+        {LAT_NAV.map(([k, ic, l]) => { const ext = k[0] === '@'; const on = !ext && aba === k; return <button key={k} onClick={() => ext ? window.dispatchEvent(new CustomEvent('mutti-nav', { detail: k.slice(1) })) : (onNav && onNav(k))} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 9px', borderRadius: 10, border: '1px solid ' + (on ? 'transparent' : '#e8edf0'), background: on ? BRAND_GRAD : '#f7f9fa', color: on ? '#fff' : '#334', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}><span>{ic}</span>{l}</button>; })}
       </div>
       {!d && <div style={{ fontSize: 12, color: '#999' }}>Carregando…</div>}
       {d && <>

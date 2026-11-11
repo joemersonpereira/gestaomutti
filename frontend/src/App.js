@@ -210,9 +210,9 @@ const NAV = [
       { nome: 'Retail & Ads', itens: ['acordos', 'trademkt'] },
     ] },
     { nome: 'Marketing', itens: ['marketing', 'mkt-calendario'] },
-    { nome: 'Gente & Gestão', itens: ['cadastros', 'visao360', 'capacitacao', 'indicadores-colab', 'afastamentos', 'ponto', 'ponto-repp', 'ocorrencias', 'documentos-rh', 'beneficios', 'clima', 'desligamentos', 'canal-escuta', 'painel-rh', 'estagio-rh', 'estagios', 'banco-talentos'] },
+    { nome: 'Gente & Gestão', itens: ['cadastros', 'visao360', 'capacitacao', 'indicadores-colab', 'afastamentos', 'ponto', 'ponto-repp', 'ocorrencias', 'documentos-rh', 'beneficios', 'clima', 'desligamentos', 'canal-escuta', 'painel-rh', 'estagio-rh', 'banco-talentos'] },
     { nome: 'Administrativo', itens: [], subs: [
-      { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'tesouraria', 'conciliacao-cartao', 'contas-receber'] },
+      { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'tesouraria', 'conciliacao-cartao', 'contas-receber', 'estagios'] },
       { nome: 'Controladoria', itens: ['controladoria'] },
       { nome: 'Suporte', itens: ['suporte', 'fiscal'] },
     ] },

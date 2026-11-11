@@ -494,14 +494,17 @@
 "use strict";
 var API='/api/publico/trade';
 var app=document.getElementById('app');
-// rede de segurança: se algo falhar (fetch/JSON/render) e a tela ficar vazia, mostra aviso em vez de página em branco
-function _fallbackVazio(){ try{ if(app && !app.textContent.trim()) app.innerHTML='<div class="note" style="margin:24px auto;max-width:520px">Não foi possível carregar agora. Atualize a página (F5) ou tente de novo em instantes. Se persistir, confira o link.</div>'; }catch(e){} }
+// Storage blindado: alguns navegadores (cookies/dados do site bloqueados, modo restrito) ESTOURAM ao
+// tocar em sessionStorage — se isso rodar no topo sem try/catch, o script inteiro morre e a tela fica branca.
+function _ss(k,v){ try{ if(v===undefined) return sessionStorage.getItem(k); if(v===null){ sessionStorage.removeItem(k); return; } sessionStorage.setItem(k,v); }catch(e){ return null; } }
+// rede de segurança: se algo falhar (fetch/JSON/render) e a tela ficar só com o "Carregando…", mostra aviso em vez de página em branco
+function _fallbackVazio(){ try{ var t=app?app.textContent.trim():''; if(app && (!t || t==='Carregando…')) app.innerHTML='<div class="note" style="margin:24px auto;max-width:520px">Não foi possível carregar agora. Atualize a página (F5) ou tente de novo em instantes. Se persistir, confira o link.</div>'; }catch(e){} }
 window.addEventListener('unhandledrejection',_fallbackVazio);
 window.addEventListener('error',_fallbackVazio);
 var token=new URLSearchParams(location.search).get('t');
-var acesso=sessionStorage.getItem('trade_acesso')||'';
+var acesso=_ss('trade_acesso')||'';
 var _urlAc=new URLSearchParams(location.search).get('acesso');
-if(_urlAc){ acesso=_urlAc; try{sessionStorage.setItem('trade_acesso',_urlAc);}catch(e){} }
+if(_urlAc){ acesso=_urlAc; _ss('trade_acesso',_urlAc); }
 var carrinho={}, espacos=[], escopo=[], planos=[], encReservas={}, encAgenda={}, _slotArt=null, fLoja='', fArea='', fTab='destaques', fBusca='', fBandeira='', _planoCompra=null;
 // Modo edição (WYSIWYG): a gestão embute esta página em iframe com ?edit=1; os espaços viram
 // clicáveis p/ criar/editar e avisam o pai (gestão) por postMessage, em vez do fluxo do fornecedor.
@@ -849,7 +852,7 @@ function addZap(){
 function boot(){
   Promise.all([get('/catalogo'), get('/planos').catch(function(){return{};})]).then(function(rs){
     var d=rs[0]||{}, dp=rs[1]||{};
-    if(d&&d.erro_acesso){ acesso=''; sessionStorage.removeItem('trade_acesso'); return telaAcesso(); }
+    if(d&&d.erro_acesso){ acesso=''; _ss('trade_acesso',null); return telaAcesso(); }
     espacos=d.espacos||[]; planos=dp.planos||[]; render();
   });
 }
@@ -882,7 +885,7 @@ function telaAcesso(){
     if((b.cpf||'').replace(/\D/g,'').length!==11){m.className='msg err';m.textContent='Informe um CPF válido (11 dígitos).';return;}
     el('gentrar').disabled=true;m.className='msg';m.textContent='Verificando…';
     post('/acesso',b).then(function(r){
-      if(r.ok&&r.j&&r.j.token){ acesso=r.j.token; sessionStorage.setItem('trade_acesso',acesso); boot(); return; }
+      if(r.ok&&r.j&&r.j.token){ acesso=r.j.token; _ss('trade_acesso',acesso); boot(); return; }
       el('gentrar').disabled=false;
       if(r.j&&r.j.erro_acesso){ gateBloqueado(r.j.erro); }
       else { m.className='msg err'; m.textContent=(r.j&&r.j.erro)||'Não foi possível validar. Tente novamente.'; }
