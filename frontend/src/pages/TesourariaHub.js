@@ -36,6 +36,8 @@ export default function TesourariaHub() {
   return (
     <div style={s.wrap}>
       <Banner emoji="🏦" titulo="Tesouraria" cor="roxo" sub={ehGestao ? 'Controle de caixa da gestão — fechamento do dia por loja junto com as apurações e o orçamento. Sem tarefa pro operador.' : 'Fechamento do dia — anexe os depósitos, despesas e recargas da sua loja e acompanhe os caixas e diferenças do dia.'} />
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div style={{ flex: 1, minWidth: 320 }}>
       {abas.length > 1 && <div style={s.tabs}>
         {abas.map(([k, l]) => (
           <button key={k} onClick={() => setAba(k)} style={{ ...s.tab, ...(aba === k ? s.tabOn : {}) }}>{l}</button>
@@ -52,9 +54,55 @@ export default function TesourariaHub() {
         {aba === 'ranking' && ehGestao && <CaixaDestaquePontos API={API} />}
         {!NATIVAS.includes(aba) && <Tesouraria embed soControle tabFixa={aba} />}
       </div>
+      </div>
+      {ehGestao && <LateralTesouraria API={API} onAba={setAba} />}
+      </div>
     </div>
   );
 }
+
+// Lateral da Tesouraria (Joe 2026-11-11) — pendências do dia pro responsável: lojas com caixa fechado
+// que ainda não anexaram depósito/despesa. Dados ao vivo do /dia-geral de hoje.
+function LateralTesouraria({ API, onAba }) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const [g, setG] = useState(null);
+  useEffect(() => { API.get('/tesouraria/dia-geral?data=' + hoje).then(r => setG(r.data.lojas || [])).catch(() => setG(null)); }, [API, hoje]);
+  if (!g) return null;
+  const comCaixa = g.filter(x => x.total_caixas > 0);
+  const fechadas = comCaixa.filter(x => x.todos_fechados);
+  const faltaDeposito = fechadas.filter(x => x.n_depositos === 0);
+  const faltaDespesa = fechadas.filter(x => x.n_despesas === 0);
+  const comDif = comCaixa.filter(x => x.n_relevantes > 0);
+  return (
+    <div style={{ width: 280, flexShrink: 0 }}>
+      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 14, position: 'sticky', top: 12 }}>
+        <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 2 }}>🏦 Minha área</div>
+        <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 10 }}>Hoje · {hoje.split('-').reverse().join('/')}</div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <div style={lt.stat}><div style={lt.statN}>{fechadas.length}/{comCaixa.length}</div><div style={lt.statL}>lojas fechadas</div></div>
+          <div style={lt.stat}><div style={{ ...lt.statN, color: comDif.length ? '#b91c1c' : '#15803d' }}>{comDif.length}</div><div style={lt.statL}>c/ dif. relevante</div></div>
+        </div>
+        {faltaDeposito.length > 0 && <div style={{ ...lt.alerta, cursor: 'pointer' }} onClick={() => onAba('fechamento')}>
+          <b style={{ color: '#b45309' }}>⚠️ Falta depósito ({faltaDeposito.length})</b>
+          {faltaDeposito.slice(0, 6).map(x => <div key={x.loja_id} style={lt.item}>{x.loja_nome}</div>)}
+        </div>}
+        {faltaDespesa.length > 0 && <div style={{ ...lt.alerta, background: '#fff7f5', borderColor: '#f1b4ab', cursor: 'pointer' }} onClick={() => onAba('fechamento')}>
+          <b style={{ color: '#A3372A' }}>🧾 Sem despesa anexada ({faltaDespesa.length})</b>
+          {faltaDespesa.slice(0, 6).map(x => <div key={x.loja_id} style={lt.item}>{x.loja_nome}</div>)}
+        </div>}
+        {faltaDeposito.length === 0 && faltaDespesa.length === 0 && <div style={{ fontSize: 12.5, color: '#15803d', fontWeight: 600 }}>✅ Anexos do dia em dia.</div>}
+        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 10, borderTop: '1px solid #f1f5f9', paddingTop: 8 }}>Metas de tempo (conferência, lançamento) entram quando o fluxo de conferência registrar os horários.</div>
+      </div>
+    </div>
+  );
+}
+const lt = {
+  stat: { flex: 1, background: '#f8fafc', border: '1px solid #eef2f0', borderRadius: 10, padding: '7px 9px', textAlign: 'center' },
+  statN: { fontSize: 17, fontWeight: 800, color: '#0f172a' },
+  statL: { fontSize: 10.5, color: '#64748b' },
+  alerta: { border: '1px solid #fde68a', background: '#fffbeb', borderRadius: 10, padding: '8px 10px', fontSize: 12, marginBottom: 8 },
+  item: { fontSize: 11.5, color: '#475569', marginTop: 2 },
+};
 
 // Critérios de PONTOS do Caixa Destaque (Joe 2026-11-11) — substitui a escala de nota + premiação R$250.
 // Mostra claramente o que é AUTOMÁTICO (sai do ERP/ponto) e o que é AVULSO (lançado pela gestão).

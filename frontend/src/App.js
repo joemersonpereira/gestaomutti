@@ -41,6 +41,7 @@ import PainelCompras from './pages/PainelCompras';
 import Financeiro from './pages/Financeiro';
 import ValidacaoFinanceira from './pages/ValidacaoFinanceira';
 import ContasReceber from './pages/ContasReceber';
+import Convenio from './pages/Convenio';
 import ConciliacaoCartoes from './pages/ConciliacaoCartoes';
 import Entrega from './pages/Entrega';
 import Etiquetas from './pages/Etiquetas';
@@ -120,6 +121,7 @@ const MODULOS = [
   { id: 'cobranca-trade', label: '💰 Cobrança (Trade)', C: CobrancaTrade, perfis: ['Financeiro', 'Controladoria', 'Diretor Geral', 'Gestor Geral', 'Supervisor', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing', 'Tesouraria'] },
   { id: 'financeiro', label: '💼 Financeiro', C: Financeiro, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
   { id: 'contas-receber', label: '📥 Contas a Receber', C: ContasReceber, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro'] },
+  { id: 'convenio', label: '🏢 Convênio', C: Convenio, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro'] },
   { id: 'validacao-financeira', label: '💰 Validação Financeira', C: ValidacaoFinanceira, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Tesouraria', 'Contabilidade', 'Comercial', 'Marketing', 'Supervisor', 'Comprador Beleza', 'Comprador Bem-estar'] },
   { id: 'conciliacao-cartao', label: '💳 Conciliação de Cartões', C: ConciliacaoCartoes, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro', 'Contabilidade'] },
   { id: 'estagios', label: '🧾 Faturas', C: EstagiosFaturas, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'RH'] },
@@ -211,7 +213,7 @@ const NAV = [
     ] },
     { nome: 'Marketing', itens: ['marketing', 'mkt-calendario'] },
     { nome: 'Gente & Gestão', itens: ['cadastros', 'visao360', 'capacitacao', 'indicadores-colab', 'afastamentos', 'ponto', 'ponto-repp', 'ocorrencias', 'documentos-rh', 'beneficios', 'clima', 'desligamentos', 'canal-escuta', 'painel-rh', 'estagio-rh', 'banco-talentos'] },
-    { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'tesouraria', 'conciliacao-cartao', 'contas-receber', 'estagios'], subs: [
+    { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'tesouraria', 'conciliacao-cartao', 'contas-receber', 'convenio', 'estagios'], subs: [
       { nome: 'Controladoria', itens: ['controladoria'] },
     ] },
     { nome: 'Contabilidade', itens: ['contabilidade', 'fornecedores', 'auditoria-contabil'] },

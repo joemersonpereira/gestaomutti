@@ -73,6 +73,7 @@ app.use('/api/compras', require('./routes/compras'));
 app.use('/api/financeiro', require('./routes/financeiro'));
 app.use('/api/tesouraria', require('./routes/tesouraria'));
 app.use('/api/contas-receber', require('./routes/contasReceber'));
+app.use('/api/convenio', require('./routes/convenio'));
 app.use('/api/conciliacao-cartao', require('./routes/conciliacaoCartao'));
 app.use('/api/entrega', require('./routes/entrega'));
 app.use('/api/etiquetas', require('./routes/etiquetas'));
