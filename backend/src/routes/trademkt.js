@@ -235,6 +235,91 @@ router.get('/vendas/:id/contrato/evidencia/:tipo', exigePerfil(...GESTAO), (req,
   res.set('Content-Type', m[1]); res.send(Buffer.from(m[2], 'base64'));
 });
 
+// ── TERMO DE AUTORIZAÇÃO DE VEICULAÇÃO (assinatura no Briefing) — migr 350 tmkt_veic_termo ──
+// Mesma estrutura de assinatura do contrato, mas o fornecedor AUTORIZA a veiculação da campanha
+// conforme a comprovação. Ao assinar (publico.js) → negociação vai p/ 'vigente' + alerta + PDF.
+function veicRow(emp, vendaId) { return db.prepare('SELECT * FROM tmkt_veic_termo WHERE empresa_id=? AND venda_id=?').get(emp, vendaId); }
+async function gerarVeicTexto(emp, v) {
+  const ced = cedenteDe(emp);
+  const ct = db.prepare("SELECT contratante_nome, representante_nome, representante_cpf FROM tmkt_contrato WHERE empresa_id=? AND venda_id=?").get(emp, v.id);
+  const esp = db.prepare('SELECT loja_nome, area_desc, espaco_desc, slot, valor FROM tmkt_venda_espacos WHERE venda_id=? ORDER BY loja_nome, area_desc').all(v.id);
+  const lojas = [...new Set(esp.map(e => e.loja_nome).filter(Boolean))].join(', ') || '—';
+  const espTxt = esp.length ? esp.map(e => `  • ${e.loja_nome ? e.loja_nome + ' — ' : ''}${e.area_desc ? e.area_desc + ' · ' : ''}${e.espaco_desc}${e.slot ? ' (vaga ' + e.slot + ')' : ''}`).join('\n') : '  (nenhum)';
+  const foNome = (ct && ct.contratante_nome) || v.fornecedor_nome || '—';
+  const fmtCpf = d => { d = String(d || '').replace(/\D/g, ''); return d.length === 11 ? d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : d; };
+  const rep = (ct && ct.representante_nome) ? `${ct.representante_nome}${ct.representante_cpf ? ', CPF ' + fmtCpf(ct.representante_cpf) : ''}` : '—';
+  return `TERMO DE AUTORIZAÇÃO DE VEICULAÇÃO — ${v.codigo || ''}
+
+CEDENTE: ${ced.nome} — CNPJ ${ced.cnpj}
+CESSIONÁRIO (fornecedor): ${foNome}
+Neste ato representado por ${rep}.
+
+O CESSIONÁRIO, por seu representante, AUTORIZA a veiculação da campanha/ação objeto do Contrato ${v.codigo || ''}, nos espaços e lojas abaixo, DE ACORDO COM A COMPROVAÇÃO de execução apresentada pelo Grupo Mutti, ratificando as condições do contrato firmado.
+
+Lojas: ${lojas}
+Espaços:
+${espTxt}
+
+Vigência: ${dBRr(v.vigencia_ini)} a ${dBRr(v.vigencia_fim)}.
+Emitido em ${dBRr(new Date().toISOString())}.`;
+}
+router.get('/vendas/:id/veiculacao', async (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const v = db.prepare('SELECT * FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!v) return res.status(404).json({ erro: 'Venda não encontrada.' });
+  const t = veicRow(emp, v.id);
+  const ct = db.prepare("SELECT representante_nome, representante_cpf FROM tmkt_contrato WHERE empresa_id=? AND venda_id=?").get(emp, v.id);
+  const texto = (t && t.status === 'assinado' && t.corpo) ? t.corpo : await gerarVeicTexto(emp, v);
+  res.json({
+    texto, codigo: v.codigo, cedente: cedenteDe(emp),
+    status: t?.status || 'rascunho', token: t?.token || null,
+    representante_nome: (t?.representante_nome || ct?.representante_nome || ''), representante_cpf: (t?.representante_cpf || ct?.representante_cpf || ''),
+    tem_comprovacao: !!v.comprovacao_em,
+    assinante_nome: t?.assinante_nome || null, assinante_doc: t?.assinante_doc || null, ip: t?.ip || null, assinado_em: t?.assinado_em || null,
+    tem_selfie: !!(t && t.selfie_img), tem_documento: !!(t && t.documento_img), tem_assinatura: !!(t && t.assinatura_img), tem_pdf: !!(t && t.pdf_b64),
+  });
+});
+router.post('/vendas/:id/veiculacao/solicitar', exigePerfil(...GESTAO), async (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const v = db.prepare('SELECT * FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!v) return res.status(404).json({ erro: 'Venda não encontrada.' });
+  let t = veicRow(emp, v.id);
+  if (t && t.status === 'assinado') return res.status(400).json({ erro: 'Termo já assinado.' });
+  const ct = db.prepare("SELECT representante_nome, representante_cpf FROM tmkt_contrato WHERE empresa_id=? AND venda_id=?").get(emp, v.id);
+  const repNome = (t?.representante_nome || ct?.representante_nome || '');
+  const repCpf = soDig(t?.representante_cpf || ct?.representante_cpf || '');
+  if (!(repNome && repCpf)) return res.status(400).json({ erro: 'Defina quem assina pela empresa (no contrato) — o CPF precisa bater na hora de assinar.' });
+  const corpo = await gerarVeicTexto(emp, v);
+  const token = uuid().replace(/-/g, '');
+  if (t) db.prepare("UPDATE tmkt_veic_termo SET corpo=?, token=?, representante_nome=?, representante_cpf=?, status='aguardando', solicitado_em=datetime('now') WHERE id=?").run(corpo, token, repNome, repCpf, t.id);
+  else db.prepare("INSERT INTO tmkt_veic_termo (id,empresa_id,venda_id,corpo,token,representante_nome,representante_cpf,status,solicitado_em) VALUES (?,?,?,?,?,?,?, 'aguardando', datetime('now'))").run(uuid(), emp, v.id, corpo, token, repNome, repCpf);
+  res.json({ ok: true, token });
+});
+router.post('/vendas/:id/veiculacao/cancelar', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const t = db.prepare('SELECT t.* FROM tmkt_veic_termo t JOIN tmkt_vendas v ON v.id=t.venda_id WHERE v.id=? AND v.empresa_id=?').get(req.params.id, emp);
+  if (!t) return res.status(404).json({ erro: 'Sem termo.' });
+  if (t.status === 'assinado') return res.status(400).json({ erro: 'Já assinado.' });
+  db.prepare("UPDATE tmkt_veic_termo SET status='rascunho', token=NULL WHERE id=?").run(t.id);
+  res.json({ ok: true });
+});
+router.get('/vendas/:id/veiculacao/evidencia/:tipo', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const col = { selfie: 'selfie_img', documento: 'documento_img', assinatura: 'assinatura_img' }[req.params.tipo];
+  if (!col) return res.status(404).end();
+  const t = db.prepare(`SELECT t.${col} img FROM tmkt_veic_termo t JOIN tmkt_vendas v ON v.id=t.venda_id WHERE v.id=? AND v.empresa_id=?`).get(req.params.id, emp);
+  const m = t && t.img && /^data:([^;]+);base64,(.+)$/.exec(t.img);
+  if (!m) return res.status(404).end();
+  res.set('Content-Type', m[1]); res.send(Buffer.from(m[2], 'base64'));
+});
+router.get('/vendas/:id/veiculacao/pdf', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const t = db.prepare('SELECT t.pdf_b64, v.codigo FROM tmkt_veic_termo t JOIN tmkt_vendas v ON v.id=t.venda_id WHERE v.id=? AND v.empresa_id=?').get(req.params.id, emp);
+  if (!t || !t.pdf_b64) return res.status(404).json({ erro: 'PDF ainda não disponível.' });
+  res.set('Content-Type', 'application/pdf'); res.set('Content-Disposition', `inline; filename="veiculacao-${(t.codigo || '')}.pdf"`);
+  res.send(Buffer.from(t.pdf_b64, 'base64'));
+});
+
 function proximoCodigo(emp) {
   const ano = new Date().getFullYear();
   const n = db.prepare("SELECT COUNT(*) c FROM tmkt_vendas WHERE empresa_id=? AND codigo LIKE ?").get(emp, `TM-${ano}-%`).c + 1;

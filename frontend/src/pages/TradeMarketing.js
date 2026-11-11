@@ -1427,6 +1427,7 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
       </div>}
 
       {aba === 'material' && id && <div style={{ display: 'grid', gap: 12 }}>
+        <TermoVeiculacao API={API} vendaId={id} />
         <MaterialEspacos API={API} venda={v} onChange={() => recarregar(id)} />
         <div style={{ borderTop: '1px solid #eee', paddingTop: 10 }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>💬 Briefing <span style={{ fontWeight: 400, color: '#94a3b8' }}>— observações, anexos e comprovação da ação (o fornecedor vê e responde)</span></div>
@@ -1603,6 +1604,52 @@ function ContratoTab({ API, vendaId }) {
         {d.tem_documento && <button onClick={() => verEv('documento')} style={s.btnMini}>📄 Documento</button>}
         {d.tem_assinatura && <button onClick={() => verEv('assinatura')} style={s.btnMini}>✍️ Assinatura</button>}
         {d.tem_pdf && <button onClick={() => API.get(`/trademkt/vendas/${vendaId}/contrato/pdf`, { responseType: 'blob' }).then(r => window.open(URL.createObjectURL(r.data), '_blank')).catch(() => alert('PDF indisponível.'))} style={{ ...s.btn }}>📄 PDF do contrato assinado</button>}
+      </div>
+    </div>}
+  </div>;
+}
+
+function TermoVeiculacao({ API, vendaId }) {
+  const { usuario } = useAuth();
+  const gestao = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing'].includes(usuario.funcao);
+  const [d, setD] = useState(null); const [linkNovo, setLinkNovo] = useState('');
+  const carregar = useCallback(() => API.get(`/trademkt/vendas/${vendaId}/veiculacao`).then(r => setD(r.data)).catch(() => setD({ erro: true })), [API, vendaId]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const solicitar = () => API.post(`/trademkt/vendas/${vendaId}/veiculacao/solicitar`).then(r => { setLinkNovo(window.location.origin + '/assinar.html?k=veiculacao&t=' + r.data.token); carregar(); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const cancelar = () => { if (window.confirm('Cancelar a solicitação de assinatura do termo?')) API.post(`/trademkt/vendas/${vendaId}/veiculacao/cancelar`).then(() => { setLinkNovo(''); carregar(); }).catch(e => alert(e.response?.data?.erro || 'Erro')); };
+  const verEv = tipo => API.get(`/trademkt/vendas/${vendaId}/veiculacao/evidencia/${tipo}`, { responseType: 'blob' }).then(r => window.open(URL.createObjectURL(r.data), '_blank')).catch(() => alert('Não foi possível abrir.'));
+  if (!d) return <div style={s.vazio}>Carregando termo…</div>;
+  if (d.erro) return null;
+  const assinado = d.status === 'assinado', aguardando = d.status === 'aguardando';
+  const link = linkNovo || (d.token ? window.location.origin + '/assinar.html?k=veiculacao&t=' + d.token : '');
+  const copiar = () => { navigator.clipboard?.writeText(link); alert('Link copiado.'); };
+  const whats = () => window.open('https://wa.me/?text=' + encodeURIComponent(`Autorização de veiculação ${d.codigo} — Grupo Mutti. Assine aqui (selfie, documento e assinatura):\n${link}`), '_blank');
+  return <div style={{ ...s.card, border: '1px solid #DDEBE1' }}>
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+      <b style={{ fontSize: 13 }}>📡 Termo de autorização de veiculação</b>
+      <span style={{ ...s.tag, ...(assinado ? { background: '#E7F5EC', color: '#1E874B' } : aguardando ? { background: '#FFF7ED', color: '#B45309' } : {}) }}>{assinado ? '✅ assinado' : aguardando ? '⏳ aguardando' : 'rascunho'}</span>
+      {!d.tem_comprovacao && <span style={{ fontSize: 11, color: '#B45309' }}>⚠ sem comprovação da execução ainda</span>}
+    </div>
+    <div style={{ fontSize: 11.5, color: '#64748b', margin: '4px 0 8px' }}>O fornecedor autoriza a veiculação da campanha conforme a comprovação. Mesma estrutura do contrato (selfie, documento, assinatura, aceite da MP). Ao assinar, a negociação vai para <b>Em veiculação</b>.</div>
+    <pre style={{ background: '#FAFBFC', border: '1px solid #eee', borderRadius: 8, padding: 10, fontSize: 12, whiteSpace: 'pre-wrap', maxHeight: '26vh', overflow: 'auto', margin: '0 0 8px' }}>{d.texto}</pre>
+    {gestao && !assinado && (!aguardando
+      ? <button onClick={solicitar} style={s.btn}>✍️ Solicitar assinatura da veiculação</button>
+      : <div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Link de assinatura:</div>
+        <input readOnly value={link} onFocus={e => e.target.select()} style={{ ...s.inp, width: '100%', fontSize: 12 }} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+          <button onClick={copiar} style={{ ...s.btnMini, borderColor: '#2E5C9E', color: '#2E5C9E' }}>🔗 Copiar</button>
+          <button onClick={whats} style={{ ...s.btnMini, borderColor: '#25D366', color: '#128C7E' }}>📲 WhatsApp</button>
+          <button onClick={cancelar} style={{ ...s.mv, color: '#C0392B', marginLeft: 'auto' }}>cancelar</button>
+        </div>
+      </div>)}
+    {assinado && <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 12.5, color: '#334', marginBottom: 6 }}>👤 <b>{d.assinante_nome}</b>{d.assinante_doc ? ` · ${d.assinante_doc}` : ''} · 🕓 {(d.assinado_em || '').replace('T', ' ').slice(0, 16)} · 🌐 {d.ip || '—'}</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {d.tem_selfie && <button onClick={() => verEv('selfie')} style={s.btnMini}>🤳 Selfie</button>}
+        {d.tem_documento && <button onClick={() => verEv('documento')} style={s.btnMini}>📄 Documento</button>}
+        {d.tem_assinatura && <button onClick={() => verEv('assinatura')} style={s.btnMini}>✍️ Assinatura</button>}
+        {d.tem_pdf && <button onClick={() => API.get(`/trademkt/vendas/${vendaId}/veiculacao/pdf`, { responseType: 'blob' }).then(r => window.open(URL.createObjectURL(r.data), '_blank')).catch(() => alert('PDF indisponível.'))} style={s.btn}>📄 PDF do termo</button>}
       </div>
     </div>}
   </div>;

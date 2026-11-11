@@ -737,4 +737,59 @@ router.post('/trade/contrato/:token/assinar', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── TERMO DE AUTORIZAÇÃO DE VEICULAÇÃO (assinatura pública por token) ──
+router.get('/trade/veiculacao/:token', (req, res) => {
+  const t = db.prepare("SELECT t.*, v.codigo, v.fornecedor_nome FROM tmkt_veic_termo t JOIN tmkt_vendas v ON v.id=t.venda_id WHERE t.token=? AND t.empresa_id=?").get(req.params.token, EMP);
+  if (!t || !t.token) return res.status(404).json({ erro: 'Link inválido ou expirado.' });
+  res.json({
+    codigo: t.codigo, fornecedor: t.fornecedor_nome, corpo: t.corpo || '', objeto: '',
+    representante_nome: t.representante_nome || '',
+    assinado: t.status === 'assinado', assinante_nome: t.assinante_nome || null, assinado_em: t.assinado_em || null,
+  });
+});
+router.post('/trade/veiculacao/:token/assinar', async (req, res) => {
+  const b = req.body || {};
+  const t = db.prepare("SELECT * FROM tmkt_veic_termo WHERE token=? AND empresa_id=?").get(req.params.token, EMP);
+  if (!t || !t.token) return res.status(404).json({ erro: 'Link inválido ou expirado.' });
+  if (t.status === 'assinado') return res.status(400).json({ erro: 'Este termo já foi assinado.' });
+  const nome = String(b.assinante_nome || '').trim();
+  if (nome.length < 3) return res.status(400).json({ erro: 'Informe seu nome completo.' });
+  const cpf = soDig(b.assinante_doc);
+  if (cpf.length !== 11) return res.status(400).json({ erro: 'Informe um CPF válido (11 dígitos).' });
+  if (t.representante_cpf && soDig(t.representante_cpf) !== cpf) return res.status(400).json({ erro: 'O CPF informado não confere com o de quem foi designado para assinar.' });
+  if (!b.aceite_mp) return res.status(400).json({ erro: 'Marque que reconhece o termo e assina conforme a MP nº 2.200-2/2001.' });
+  if (!ehDataImg(b.assinatura)) return res.status(400).json({ erro: 'Assine na tela (campo de assinatura).' });
+  if (!ehDataImg(b.selfie)) return res.status(400).json({ erro: 'Envie a selfie.' });
+  if (!ehDataImg(b.documento)) return res.status(400).json({ erro: 'Envie a foto do documento.' });
+  const ip = (String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket?.remoteAddress || req.ip || '';
+  const ua = String(req.headers['user-agent'] || '').slice(0, 400);
+  db.prepare(`UPDATE tmkt_veic_termo SET status='assinado', assinante_nome=?, assinante_doc=?, assinatura_img=?, selfie_img=?, documento_img=?,
+      ip=?, user_agent=?, aceite_mp=1, assinado_em=datetime('now') WHERE id=?`)
+    .run(nome, cpf, b.assinatura, b.selfie, b.documento, ip, ua, t.id);
+  // ao assinar o termo: MOVE p/ veiculação ('vigente') + ALERTA
+  const v = db.prepare('SELECT id, status, codigo, fornecedor_nome, criado_por, loja_id FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(t.venda_id, EMP);
+  if (v) {
+    if (['rascunho', 'pedido', 'negociacao', 'confirmado', 'briefing', 'aguardando'].includes(v.status))
+      db.prepare("UPDATE tmkt_vendas SET status='vigente', status_desde=datetime('now'), atualizado_em=datetime('now') WHERE id=?").run(v.id);
+    try {
+      require('./tarefas').gerarTarefa({
+        empresa_id: EMP, loja_id: v.loja_id || null, tipo: 'tarefa', origem: 'trade-veiculacao', referencia_id: v.id,
+        titulo: `📡 Veiculação autorizada — ${v.fornecedor_nome || ''} (${v.codigo || ''})`,
+        descricao: `O fornecedor ASSINOU o termo de autorização de veiculação da ação ${v.codigo || ''} (${v.fornecedor_nome || ''}), por ${nome} (CPF ${cpf}). Já está em veiculação.`,
+        responsavel_id: v.criado_por || null,
+      });
+    } catch (e) { /* best-effort */ }
+  }
+  try {
+    const { gerarPdfAssinado } = require('../lib/assinaturaPdf');
+    const pdf = await gerarPdfAssinado({
+      titulo: 'Termo de veiculação', codigo: v && v.codigo, corpo: t.corpo, cedente: cedentePub(),
+      assinante_nome: nome, assinante_doc: cpf, ip, assinado_em: new Date().toISOString(),
+      assinatura_img: b.assinatura, selfie_img: b.selfie, documento_img: b.documento,
+    });
+    db.prepare("UPDATE tmkt_veic_termo SET pdf_b64=? WHERE id=?").run(pdf.toString('base64'), t.id);
+  } catch (e) { /* PDF best-effort */ }
+  res.json({ ok: true });
+});
+
 module.exports = router;
