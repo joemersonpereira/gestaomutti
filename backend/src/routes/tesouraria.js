@@ -42,6 +42,27 @@ router.get('/lojas', (req, res) => res.json({ lojas: lojasDoUsuario(req) }));
 router.get('/config', soGestao, (req, res) => res.json(t.getConfig(req.usuario.empresa_id)));
 router.post('/config', soGestao, (req, res) => res.json(t.setConfig(req.usuario.empresa_id, { limiar: req.body.limiar, pontosTopOperador: req.body.pontosTopOperador, pontosDescontoQuebra: req.body.pontosDescontoQuebra, pontosCaixaZerado: req.body.pontosCaixaZerado, escalaNotaCaixa: req.body.escalaNotaCaixa })));
 
+// ── Caixa Destaque por PONTOS — critérios CONFIGURÁVEIS (Joe 2026-11-11). tipo auto=sai do ERP/ponto; manual=lançamento avulso. ──
+const _pontosMin = (emp) => { try { const r = db.prepare("SELECT valor FROM tesouraria_config WHERE empresa_id=? AND chave='pontos_minimo_premiacao'").get(emp); return r ? (Number(r.valor) || 0) : 30; } catch (e) { return 30; } };
+router.get('/pontos/regras', soGestao, (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const regras = db.prepare('SELECT chave, label, pontos, tipo, desclassifica, ordem, ativo FROM caixa_pontos_regra WHERE empresa_id=? ORDER BY ordem, label').all(emp);
+  res.json({ regras, minimo: _pontosMin(emp) });
+});
+router.put('/pontos/regras', soGestao, (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const up = db.prepare('UPDATE caixa_pontos_regra SET pontos=?, desclassifica=?, ativo=? WHERE empresa_id=? AND chave=?');
+  const tx = db.transaction((rows) => { for (const r of rows) up.run(Number(r.pontos) || 0, r.desclassifica ? 1 : 0, r.ativo === false ? 0 : 1, emp, r.chave); });
+  tx(Array.isArray(req.body.regras) ? req.body.regras : []);
+  if (req.body.minimo != null) {
+    const v = String(Number(req.body.minimo) || 0);
+    const ex = db.prepare("SELECT 1 FROM tesouraria_config WHERE empresa_id=? AND chave='pontos_minimo_premiacao'").get(emp);
+    if (ex) db.prepare("UPDATE tesouraria_config SET valor=? WHERE empresa_id=? AND chave='pontos_minimo_premiacao'").run(v, emp);
+    else db.prepare("INSERT INTO tesouraria_config (empresa_id, chave, valor) VALUES (?, 'pontos_minimo_premiacao', ?)").run(emp, v);
+  }
+  res.json({ ok: true });
+});
+
 // Débitos do operador (quebras cobradas em aberto) — "contas a receber do funcionário".
 router.get('/debitos', soGestao, (req, res) => res.json(t.debitosOperador(req.usuario.empresa_id, { lojaId: req.query.loja || null, incluirPagos: req.query.incluirPagos === '1' })));
 router.post('/debitos/:id/pagar', soGestao, (req, res) => res.json(t.marcarPagoCobranca(req.usuario.empresa_id, req.params.id, { pago: req.body.pago !== false, usuarioId: req.usuario.id })));
