@@ -4,9 +4,10 @@ name: Build & Deploy — Gestão Mutti
 # se um dia houver, a guarda de `build`/`deploy` é o REF (refs/heads/main), não o
 # evento — copiada do pulsyapp, onde a `desenvolvimento` quase foi parar em produção.
 on:
-  push:
-    branches:
-      - main
+  # Deploy MANUAL (Joe 2026-11-11): não sobe mais a cada push — só quando você autorizar,
+  # pra não gastar minutos do Actions. Para publicar: GitHub → aba Actions → "Build & Deploy —
+  # Gestão Mutti" → botão "Run workflow" (na branch main). Os pushes continuam salvando o código
+  # no repositório normalmente, só não disparam deploy sozinhos.
   workflow_dispatch:
 
 env:
