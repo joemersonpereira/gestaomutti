@@ -2390,9 +2390,8 @@ function CelMeta({ m, sufixo }) {
     {m.banco > 0 && <div style={{ fontSize: 9.5, color: '#6D4AA8' }}>−{m.banco} do banco (base {m.base})</div>}
   </span>;
 }
-function MetasAtividade({ API, gestao }) {
+function MetasAtividade({ API, gestao, mes, ano, setMes, setAno }) {
   const hoje = new Date();
-  const [ano, setAno] = useState(hoje.getFullYear()); const [mes, setMes] = useState(hoje.getMonth() + 1);
   const [mon, setMon] = useState(null); const [colabs, setColabs] = useState([]);
   const [f, setF] = useState({ escopo: 'geral', prospeccoes_mes: '', contatos_dia: '', fechamentos_mes: '', mes_ini: hoje.getMonth() + 1, ano_ini: hoje.getFullYear(), mes_fim: 12, ano_fim: hoje.getFullYear() });
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
@@ -2402,6 +2401,7 @@ function MetasAtividade({ API, gestao }) {
   const navMes = dir => { let m = mes + dir, a = ano; if (m < 1) { m = 12; a--; } if (m > 12) { m = 1; a++; } setMes(m); setAno(a); };
   const aplicar = () => API.post('/trademkt/trade-metas/periodo', f).then(r => { carregar(); alert(`Meta aplicada em ${r.data.meses} mês(es).`); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
   const removerMes = (escopo) => API.delete(`/trademkt/trade-metas/mes/${escopo}/${ano}/${mes}`).then(carregar).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const editarMes = (c) => { setF({ escopo: c.escopo, prospeccoes_mes: c.prospeccoes_mes, contatos_dia: c.contatos_dia, fechamentos_mes: c.fechamentos_mes, mes_ini: mes, ano_ini: ano, mes_fim: mes, ano_fim: ano }); };
   const selMes = (val, on) => <select value={val} onChange={e => on(Number(e.target.value))} style={{ ...s.inp, width: 64 }}>{Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}</select>;
   const selAno = (val, on) => <input type="number" value={val} onChange={e => on(Number(e.target.value))} style={{ ...s.inp, width: 82 }} />;
   const linhas = mon?.linhas || [];
@@ -2425,7 +2425,7 @@ function MetasAtividade({ API, gestao }) {
             <td style={{ padding: '6px 8px' }}><CelMeta m={l.fechamentos} /></td>
             <td style={{ padding: '6px 8px' }}>{l.contatos.meta > 0 ? <span><b>{l.contatos.feito}</b> <span style={{ color: '#94a3b8' }}>/ {l.contatos.meta}/dia</span></span> : <span><b>{l.contatos.feito}</b></span>}</td>
           </tr>)}
-          {linhas.length === 0 && <tr><td colSpan={4} style={{ padding: '8px', color: '#999', fontSize: 12 }}>Nenhum colaborador de trade com meta neste mês.</td></tr>}
+          {linhas.length === 0 && <tr><td colSpan={4} style={{ padding: '8px', color: '#999', fontSize: 12 }}>Ninguém de trade com meta ou atividade neste mês. Marque colaboradores em "📣 É de Trade" no cadastro, ou cadastre a meta abaixo.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -2443,13 +2443,17 @@ function MetasAtividade({ API, gestao }) {
         <L lab="Fechamentos/mês"><input type="number" style={{ ...s.inp, width: 110 }} value={f.fechamentos_mes} onChange={e => set('fechamentos_mes', e.target.value)} /></L>
         <button style={s.btn} onClick={aplicar}>Aplicar no período</button>
       </div>
-      {(mon?.cadastro || []).length > 0 && <div style={{ marginTop: 10 }}>
+      <div style={{ marginTop: 10 }}>
         <b style={{ fontSize: 11.5, color: '#51607a' }}>Metas cadastradas em {MESES[mes - 1]} {ano}</b>
-        {mon.cadastro.map(c => <div key={c.escopo} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, padding: '5px 0', borderTop: '1px solid #f3f3f3', flexWrap: 'wrap' }}>
+        {(mon?.cadastro || []).length === 0 && <div style={{ fontSize: 11.5, color: '#94a3b8', padding: '5px 0' }}>Nenhuma meta cadastrada neste mês — use o formulário acima (◀ ▶ troca o mês).</div>}
+        {(mon?.cadastro || []).map(c => <div key={c.escopo} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, padding: '5px 0', borderTop: '1px solid #f3f3f3', flexWrap: 'wrap', alignItems: 'center' }}>
           <span><b>{c.escopo_nome}</b> — {c.prospeccoes_mes} prosp · {c.contatos_dia} cont/dia · {c.fechamentos_mes} fech</span>
-          <button onClick={() => removerMes(c.escopo)} style={{ ...s.mv, color: '#C0392B' }}>remover este mês</button>
+          <span style={{ display: 'flex', gap: 12 }}>
+            <button onClick={() => editarMes(c)} style={s.mv}>✎ editar este mês</button>
+            <button onClick={() => removerMes(c.escopo)} style={{ ...s.mv, color: '#C0392B' }}>remover</button>
+          </span>
         </div>)}
-      </div>}
+      </div>
     </div>}
   </div>;
 }
@@ -2472,7 +2476,7 @@ function PremiacaoVendedor({ API, gestao }) {
           <input type="number" value={ano} onChange={e => setAno(Number(e.target.value))} style={{ ...s.inp, width: 90 }} />
         </div>
       </div>
-      <MetasAtividade API={API} gestao={gestao} />
+      <MetasAtividade API={API} gestao={gestao} mes={mes} ano={ano} setMes={setMes} setAno={setAno} />
       <div style={s.card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <b style={{ fontSize: 13 }}>Regra (% por faixa de espaços)</b>

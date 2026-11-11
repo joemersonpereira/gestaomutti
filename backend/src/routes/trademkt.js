@@ -443,7 +443,15 @@ router.get('/trade-metas/monitor', (req, res) => {
   const now = new Date();
   const ano = Number(req.query.ano) || now.getFullYear(), mes = Number(req.query.mes) || (now.getMonth() + 1);
   const ym = ymOf(ano, mes);
-  const colabs = db.prepare("SELECT id, nome FROM colaboradores WHERE trade=1 AND COALESCE(ativo,1)=1 ORDER BY nome").all();
+  // Universo do monitor: quem é de trade OU tem meta individual no mês OU tem atividade de prospecção/contato no mês.
+  // (Antes exigia trade=1; se ninguém estava marcado, o monitor vinha sempre vazio.)
+  const colabs = db.prepare(`SELECT DISTINCT c.id, c.nome FROM colaboradores c
+    WHERE COALESCE(c.ativo,1)=1 AND (
+      c.trade=1
+      OR c.id IN (SELECT escopo FROM tmkt_trade_meta_mes WHERE empresa_id=? AND ano=? AND mes=? AND escopo<>'geral')
+      OR c.id IN (SELECT responsavel_id FROM tmkt_prospeccao WHERE empresa_id=? AND responsavel_id IS NOT NULL AND strftime('%Y-%m',criado_em)=?)
+      OR c.id IN (SELECT criado_por FROM tmkt_prospeccao_contato WHERE criado_por IS NOT NULL AND strftime('%Y-%m',quando)=?)
+    ) ORDER BY c.nome`).all(emp, ano, mes, emp, ym, ym);
   const linhas = colabs.map(c => {
     const ef = metaEfetivaColab(emp, c.id, ano, mes);
     const fP = realizadoProsp(emp, c.id, ym), fF = realizadoFech(emp, c.id, ym), fC = realizadoContatos(emp, c.id, ym);
