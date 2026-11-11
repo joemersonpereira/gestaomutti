@@ -701,6 +701,20 @@ router.post('/trade/contrato/:token/assinar', (req, res) => {
   db.prepare(`UPDATE tmkt_contrato SET status='assinado', assinante_nome=?, assinante_doc=?, assinatura_img=?, selfie_img=?, documento_img=?,
       ip=?, user_agent=?, aceite_mp=1, assinado_em=datetime('now') WHERE id=?`)
     .run(nome, cpf, b.assinatura, b.selfie, b.documento, ip, ua, c.id);
+  // ao assinar: MOVE pra Briefing (se ainda antes) + ALERTA pro criador da negociação
+  const v = db.prepare('SELECT id, status, codigo, fornecedor_nome, criado_por, loja_id FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(c.venda_id, EMP);
+  if (v) {
+    if (['rascunho', 'pedido', 'negociacao', 'confirmado', 'aguardando'].includes(v.status))
+      db.prepare("UPDATE tmkt_vendas SET status='briefing', status_desde=datetime('now'), atualizado_em=datetime('now') WHERE id=?").run(v.id);
+    try {
+      require('./tarefas').gerarTarefa({
+        empresa_id: EMP, loja_id: v.loja_id || null, tipo: 'tarefa', origem: 'trade-contrato', referencia_id: v.id,
+        titulo: `✍️ Contrato assinado — ${v.fornecedor_nome || ''} (${v.codigo || ''})`,
+        descricao: `O contrato da ação ${v.codigo || ''} (${v.fornecedor_nome || ''}) foi ASSINADO por ${nome} (CPF ${cpf}). Negociação movida para Briefing — siga com o material.`,
+        responsavel_id: v.criado_por || null,
+      });
+    } catch (e) { /* alerta best-effort */ }
+  }
   res.json({ ok: true });
 });
 
