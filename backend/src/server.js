@@ -317,46 +317,11 @@ setInterval(rodarComprovacaoTradePeriodica, 12 * 3600 * 1000); // a cada 12h
 // um card aberto (não ganho/perdido) pra aquele fornecedor.
 function rodarGatilhoProspeccao() {
   try {
-    const db = require('./db/connection');
-    const { erpQuery, habilitado } = require('./db/erp');
-    if (!habilitado()) return;
-    const { v4: uuid } = require('uuid');
-    const UNIS = '(70417,70418,70419,70420,70421,70422,70423,70424)';
-    const PASSO = 100000; // R$100 mil
-    const empresas = [...new Set(db.prepare('SELECT empresa_id FROM lojas').all().map(r => r.empresa_id))];
-    erpQuery(`SELECT f.id fornecedor_id, pe.nome fornecedor, COALESCE(SUM(inf.quantidade*inf.valorunitario),0) compra
-        FROM notafiscal nf JOIN fornecedor f ON f.id=nf.fornecedorid JOIN pessoa pe ON pe.id=f.pessoaid
-        JOIN itemnotafiscal inf ON inf.notafiscalid=nf.id
-        WHERE nf.unidadenegocioid IN ${UNIS} AND nf.tipooperacao='1' AND nf.status NOT IN ('X','E') AND nf.fornecedorid IS NOT NULL
-          AND nf.datahoraentrada >= now() - interval '365 days'
-        GROUP BY f.id, pe.nome HAVING COALESCE(SUM(inf.quantidade*inf.valorunitario),0) >= ${PASSO}
-        ORDER BY compra DESC LIMIT 300`)
-      .then(rows => {
-        empresas.forEach(eid => {
-          rows.forEach(r => {
-            try {
-              const fid = String(r.fornecedor_id), compra = Number(r.compra) || 0;
-              const marcos = Math.floor(compra / PASSO);
-              if (marcos < 1) return;
-              const atual = db.prepare('SELECT marcos_processados FROM tmkt_prospeccao_marco WHERE empresa_id=? AND fornecedor_id=?').get(eid, fid);
-              if (!atual) { // linha-base: registra sem gerar card
-                db.prepare("INSERT INTO tmkt_prospeccao_marco (empresa_id,fornecedor_id,marcos_processados,atualizado_em) VALUES (?,?,?,datetime('now'))").run(eid, fid, marcos);
-                return;
-              }
-              if (marcos <= atual.marcos_processados) return; // nada novo
-              const aberto = db.prepare("SELECT 1 FROM tmkt_prospeccao WHERE empresa_id=? AND fornecedor_id=? AND etapa NOT IN ('ganho','perdido') LIMIT 1").get(eid, fid);
-              if (!aberto) {
-                db.prepare(`INSERT INTO tmkt_prospeccao (id,empresa_id,fornecedor_id,fornecedor_nome,etapa,origem,gatilho_valor,obs)
-                  VALUES (?,?,?,?, 'novo','automatica',?,?)`)
-                  .run(uuid(), eid, fid, r.fornecedor || null, marcos * PASSO,
-                    `Aberta automaticamente: já compramos R$ ${(marcos * PASSO).toLocaleString('pt-BR')} desse fornecedor nos últimos 12 meses. Vale procurar para trade.`);
-                console.log(`[prospeccao-auto] ${eid}: card p/ ${r.fornecedor} (marco ${marcos})`);
-              }
-              db.prepare("UPDATE tmkt_prospeccao_marco SET marcos_processados=?, atualizado_em=datetime('now') WHERE empresa_id=? AND fornecedor_id=?").run(marcos, eid, fid);
-            } catch { /* por fornecedor */ }
-          });
-        });
-      }).catch(() => { /* ERP fora do ar */ });
+    const trademkt = require('./routes/trademkt');
+    if (typeof trademkt.sincronizarProspeccoes !== 'function') return;
+    trademkt.sincronizarProspeccoes()
+      .then(r => { if (r && r.ok && r.criadas) console.log(`[prospeccao-auto] ${r.criadas} card(s) criado(s)`); })
+      .catch(() => { /* ERP fora do ar */ });
   } catch { /* best-effort */ }
 }
 setTimeout(rodarGatilhoProspeccao, 50000);

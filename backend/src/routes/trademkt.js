@@ -480,20 +480,21 @@ router.post('/prospeccoes', exigePerfil(...GESTAO), (req, res) => {
   const b = req.body || {}, emp = req.usuario.empresa_id;
   if (!b.fornecedor_nome && !b.fornecedor_id) return res.status(400).json({ erro: 'Informe o fornecedor.' });
   const id = uuid();
-  db.prepare(`INSERT INTO tmkt_prospeccao (id,empresa_id,fornecedor_id,fornecedor_nome,etapa,origem,responsavel_id,contato_nome,contato_fone,contato_email,proximo_contato,obs,criado_por)
-    VALUES (?,?,?,?,?, 'manual', ?,?,?,?,?,?,?)`)
+  db.prepare(`INSERT INTO tmkt_prospeccao (id,empresa_id,fornecedor_id,fornecedor_nome,etapa,origem,responsavel_id,contato_nome,contato_fone,contato_email,proximo_contato,periodicidade,obs,criado_por)
+    VALUES (?,?,?,?,?, 'manual', ?,?,?,?,?,?,?,?)`)
     .run(id, emp, String(b.fornecedor_id || ''), b.fornecedor_nome || null, PROSP_ETAPAS.includes(b.etapa) ? b.etapa : 'novo',
-      b.responsavel_id || null, b.contato_nome || null, b.contato_fone || null, b.contato_email || null, b.proximo_contato || null, b.obs || null, req.usuario.id);
+      b.responsavel_id || null, b.contato_nome || null, b.contato_fone || null, b.contato_email || null, b.proximo_contato || null, b.periodicidade || '', b.obs || null, req.usuario.id);
   res.json({ ok: true, id });
 });
 router.put('/prospeccoes/:id', exigePerfil(...GESTAO), (req, res) => {
   const b = req.body || {}, emp = req.usuario.empresa_id;
   const p = db.prepare('SELECT * FROM tmkt_prospeccao WHERE id=? AND empresa_id=?').get(req.params.id, emp);
   if (!p) return res.status(404).json({ erro: 'Prospecção não encontrada.' });
-  db.prepare(`UPDATE tmkt_prospeccao SET etapa=?, responsavel_id=?, contato_nome=?, contato_fone=?, contato_email=?, proximo_contato=?, obs=?, atualizado_em=datetime('now') WHERE id=? AND empresa_id=?`)
+  db.prepare(`UPDATE tmkt_prospeccao SET etapa=?, responsavel_id=?, contato_nome=?, contato_fone=?, contato_email=?, proximo_contato=?, periodicidade=?, obs=?, atualizado_em=datetime('now') WHERE id=? AND empresa_id=?`)
     .run(PROSP_ETAPAS.includes(b.etapa) ? b.etapa : p.etapa, b.responsavel_id ?? p.responsavel_id,
       b.contato_nome ?? p.contato_nome, b.contato_fone ?? p.contato_fone, b.contato_email ?? p.contato_email,
-      b.proximo_contato !== undefined ? (b.proximo_contato || null) : p.proximo_contato, b.obs ?? p.obs, p.id, emp);
+      b.proximo_contato !== undefined ? (b.proximo_contato || null) : p.proximo_contato,
+      b.periodicidade !== undefined ? (b.periodicidade || '') : p.periodicidade, b.obs ?? p.obs, p.id, emp);
   res.json({ ok: true });
 });
 router.delete('/prospeccoes/:id', exigePerfil(...GESTAO), (req, res) => {
@@ -526,12 +527,18 @@ router.post('/prospeccoes/:id/contatos', exigePerfil(...GESTAO), (req, res) => {
   const b = req.body || {}, emp = req.usuario.empresa_id;
   const p = db.prepare('SELECT * FROM tmkt_prospeccao WHERE id=? AND empresa_id=?').get(req.params.id, emp);
   if (!p) return res.status(404).json({ erro: 'não encontrada' });
+  // próximo contato: usa o informado; se vazio e há cadência cadastrada, sugere pela cadência.
+  const DIAS_CAD = { diario: 1, semanal: 7, quinzenal: 15, mensal: 30 };
+  let proximo = b.proximo || null;
+  if (!proximo && p.periodicidade && DIAS_CAD[p.periodicidade]) {
+    proximo = new Date(Date.now() + DIAS_CAD[p.periodicidade] * 864e5).toISOString().slice(0, 10);
+  }
   db.prepare(`INSERT INTO tmkt_prospeccao_contato (id,prospeccao_id,tipo,resultado,anotacao,proximo,criado_por) VALUES (?,?,?,?,?,?,?)`)
-    .run(uuid(), p.id, b.tipo || 'outro', b.resultado || null, b.anotacao || null, b.proximo || null, req.usuario.id);
-  // avança etapa 'novo' → 'em_contato' no primeiro contato; grava o próximo contato combinado; fecha tarefa aberta
+    .run(uuid(), p.id, b.tipo || 'outro', b.resultado || null, b.anotacao || null, proximo, req.usuario.id);
+  // avança etapa 'novo' → 'em_contato' no primeiro contato; grava o próximo contato; fecha tarefa aberta
   const novaEtapa = (p.etapa === 'novo') ? 'em_contato' : p.etapa;
   db.prepare(`UPDATE tmkt_prospeccao SET etapa=?, proximo_contato=COALESCE(?, proximo_contato), atualizado_em=datetime('now') WHERE id=?`)
-    .run(novaEtapa, b.proximo || null, p.id);
+    .run(novaEtapa, proximo, p.id);
   try { db.prepare("UPDATE tarefas SET status='concluido', atualizado_em=datetime('now') WHERE origem='trade-prospeccao' AND referencia_id=? AND status<>'concluido'").run(p.id); } catch {}
   res.json({ ok: true });
 });
@@ -1798,6 +1805,56 @@ router.get('/portal/calendario/:id/sellout', async (req, res) => {
   const antes = await vendasPorEscopo(ev.escopo_tipo, refs, antIni, antFim);
   const variacao = antes.valor ? Math.round((atual.valor - antes.valor) / antes.valor * 100) : null;
   res.json({ ok: true, periodo: { ini, fim }, anterior: { ini: antIni, fim: antFim }, atual, antes, variacao, escopo_tipo: ev.escopo_tipo });
+});
+
+// Sincroniza o funil de prospecção com o volume de compra do Alpha 7.
+// SEED: todo fornecedor com compra ≥ R$100 mil (365d) que ainda NÃO tem nenhum card entra na coluna
+// Prospecção (1 card). Depois disso, a cada NOVO marco de 100k abre outro card (se não houver aberto).
+// Idempotente: não duplica (só cria se o fornecedor não tiver card aberto). ERP só leitura.
+const PROSP_PASSO = 100000;
+async function sincronizarProspeccoes() {
+  if (!habilitado()) return { ok: false, motivo: 'ERP indisponível' };
+  let rows = [];
+  try {
+    rows = await erpQuery(`SELECT f.id fornecedor_id, pe.nome fornecedor, COALESCE(SUM(inf.quantidade*inf.valorunitario),0) compra
+        FROM notafiscal nf JOIN fornecedor f ON f.id=nf.fornecedorid JOIN pessoa pe ON pe.id=f.pessoaid
+        JOIN itemnotafiscal inf ON inf.notafiscalid=nf.id
+        WHERE nf.unidadenegocioid IN ${UNIS_GRUPO} AND nf.tipooperacao='1' AND nf.status NOT IN ('X','E') AND nf.fornecedorid IS NOT NULL
+          AND nf.datahoraentrada >= now() - interval '365 days'
+        GROUP BY f.id, pe.nome HAVING COALESCE(SUM(inf.quantidade*inf.valorunitario),0) >= ${PROSP_PASSO}
+        ORDER BY compra DESC LIMIT 300`, []);
+  } catch (e) { return { ok: false, motivo: 'ERP indisponível' }; }
+  const empresas = [...new Set(db.prepare('SELECT empresa_id FROM lojas').all().map(r => r.empresa_id))];
+  let criadas = 0;
+  empresas.forEach(eid => {
+    rows.forEach(r => {
+      try {
+        const fid = String(r.fornecedor_id), compra = Number(r.compra) || 0;
+        const marcos = Math.floor(compra / PROSP_PASSO);
+        if (marcos < 1) return;
+        const temCard = db.prepare('SELECT COUNT(*) n FROM tmkt_prospeccao WHERE empresa_id=? AND fornecedor_id=?').get(eid, fid).n;
+        const aberto = temCard ? db.prepare("SELECT 1 FROM tmkt_prospeccao WHERE empresa_id=? AND fornecedor_id=? AND etapa NOT IN ('ganho','perdido') LIMIT 1").get(eid, fid) : null;
+        const marcoRow = db.prepare('SELECT marcos_processados FROM tmkt_prospeccao_marco WHERE empresa_id=? AND fornecedor_id=?').get(eid, fid);
+        const criar = () => {
+          db.prepare(`INSERT INTO tmkt_prospeccao (id,empresa_id,fornecedor_id,fornecedor_nome,etapa,origem,gatilho_valor,obs)
+            VALUES (?,?,?,?, 'novo','automatica',?,?)`)
+            .run(uuid(), eid, fid, r.fornecedor || null, marcos * PROSP_PASSO,
+              `Fornecedor com R$ ${(marcos * PROSP_PASSO).toLocaleString('pt-BR')}+ comprados nos últimos 12 meses — vale procurar para trade.`);
+          criadas++;
+        };
+        if (!temCard) { criar(); } // SEED: traz pra prospecção de cara
+        else if (marcoRow && marcos > marcoRow.marcos_processados && !aberto) { criar(); } // novo marco e sem card aberto
+        db.prepare(`INSERT INTO tmkt_prospeccao_marco (empresa_id,fornecedor_id,marcos_processados,atualizado_em) VALUES (?,?,?,datetime('now'))
+          ON CONFLICT(empresa_id,fornecedor_id) DO UPDATE SET marcos_processados=excluded.marcos_processados, atualizado_em=datetime('now')`).run(eid, fid, marcos);
+      } catch { /* por fornecedor */ }
+    });
+  });
+  return { ok: true, criadas };
+}
+router.sincronizarProspeccoes = sincronizarProspeccoes;
+router.post('/prospeccoes/sincronizar', exigePerfil(...GESTAO), async (req, res) => {
+  const r = await sincronizarProspeccoes();
+  res.json(r);
 });
 
 module.exports = router;

@@ -108,6 +108,7 @@ const PENDENTES = [
   './migrations/339_tmkt_trade_meta',
   './migrations/340_colaborador_trade',
   './migrations/341_tmkt_anotacao',
+  './migrations/342_tmkt_prospeccao_cadencia',
 ];
 
 console.log('=== Rodando migrações pendentes (065–073) ===\n');

@@ -1107,6 +1107,8 @@ function Vendas({ API, gestao }) {
   const carregarProsp = useCallback(() => API.get('/trademkt/prospeccoes').then(r => setProsp((r.data.itens || []).filter(p => !['ganho', 'perdido'].includes(p.etapa)))).catch(() => setProsp([])), [API]);
   useEffect(() => { carregar(); carregarProsp(); API.get('/colaboradores').then(r => setColabs((r.data.colaboradores || r.data || []).filter(c => c.trade))).catch(() => {}); }, [carregar, carregarProsp, API]);
   const converterProsp = (p) => API.post(`/trademkt/prospeccoes/${p.id}/converter`).then(r => { carregarProsp(); carregar(busca); if (r.data.venda_id) setEdit(r.data.venda_id); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const [sincP, setSincP] = useState(false);
+  const sincronizarProsp = () => { setSincP(true); API.post('/trademkt/prospeccoes/sincronizar').then(r => { setSincP(false); carregarProsp(); if (r.data && r.data.ok) alert(r.data.criadas ? `${r.data.criadas} fornecedor(es) ≥ R$100 mil trazido(s) para a Prospecção.` : 'Nenhum novo fornecedor para trazer (já estão no funil).'); else alert('ERP indisponível agora, tente de novo.'); }).catch(() => { setSincP(false); alert('Erro ao sincronizar.'); }); };
   if (!d) return <div style={s.card}>Carregando…</div>;
   const mover = (v, dir) => { const ids = COLS.map(c => c.id); const novo = ids[ids.indexOf(colDe(v.status)) + dir]; if (novo) API.post(`/trademkt/vendas/${v.id}/mover`, { status: novo }).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Não foi possível mover.')); };
   const marcarPerdido = (v) => { setPerdendo(v); setMotivoSel(''); setMotivoOutro(''); };
@@ -1118,7 +1120,7 @@ function Vendas({ API, gestao }) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
         <div style={{ fontSize: 12.5, color: '#666' }}>{d.vendas.length} negociação(ões) · vendido {brl(total)} · a receber <b style={{ color: '#B7791F' }}>{brl(aReceber)}</b></div>
-        {gestao && <div style={{ display: 'flex', gap: 6 }}><button onClick={() => setNovaProsp(true)} style={{ ...s.btn, background: '#6D4AA8' }}>+ Prospecção</button><button onClick={() => setEdit('novo')} style={s.btn}>+ Nova negociação</button></div>}
+        {gestao && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button onClick={sincronizarProsp} disabled={sincP} style={{ ...s.btnMini, borderColor: '#6D4AA8', color: '#6D4AA8' }} title="Traz do Alpha 7 os fornecedores com ≥ R$100 mil comprados (12 meses) para a coluna Prospecção">{sincP ? '⟳ puxando…' : '⟳ Puxar ≥100k'}</button><button onClick={() => setNovaProsp(true)} style={{ ...s.btn, background: '#6D4AA8' }}>+ Prospecção</button><button onClick={() => setEdit('novo')} style={s.btn}>+ Nova negociação</button></div>}
       </div>
       <form onSubmit={e => { e.preventDefault(); carregar(busca); }} style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔎 fornecedor ou código…" style={{ ...s.inp, flex: 1, maxWidth: 380 }} /><button style={s.btnMini}>Buscar</button>
@@ -1141,6 +1143,7 @@ function Vendas({ API, gestao }) {
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 11, marginTop: 4 }}>
                       {p.responsavel_nome ? <span style={{ color: '#475569' }}>👤 {p.responsavel_nome}</span> : <span style={{ color: '#f59e0b' }}>⚠ sem responsável</span>}
                       {p.proximo_contato && <span style={{ fontWeight: 700, color: p.vencido ? '#b91c1c' : (p.hoje ? '#B45309' : '#475569') }}>📅 {dBR(p.proximo_contato)}{p.vencido ? ' (venceu)' : p.hoje ? ' (hoje)' : ''}</span>}
+                      {p.periodicidade && <span style={{ color: '#6D4AA8' }}>🔁 {p.periodicidade}</span>}
                       {p.contatos > 0 && <span style={{ color: '#94a3b8' }}>💬 {p.contatos}</span>}
                     </div>
                     {gestao && <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
@@ -2239,7 +2242,7 @@ const CONTATO_TIPO = [['ligacao', '📞 Ligação'], ['whatsapp', '💬 WhatsApp
 const CONTATO_RESULT = [['sem_resposta', 'Sem resposta'], ['retornar', 'Pediu p/ retornar'], ['agendou', 'Agendou'], ['avancou', 'Avançou'], ['sem_interesse', 'Sem interesse'], ['fechou', 'Fechou 🎉']];
 const dBRc = v => v ? String(v).slice(0, 10).split('-').reverse().join('/') : '';
 function NovaProspeccao({ API, colabs, onClose, onSaved }) {
-  const [f, setF] = useState({ fornecedor_nome: '', responsavel_id: '', contato_nome: '', contato_fone: '', proximo_contato: '', obs: '' });
+  const [f, setF] = useState({ fornecedor_nome: '', responsavel_id: '', contato_nome: '', contato_fone: '', proximo_contato: '', periodicidade: '', obs: '' });
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const salvar = () => { if (!f.fornecedor_nome) return alert('Informe o fornecedor.'); API.post('/trademkt/prospeccoes', f).then(onSaved).catch(e => alert(e.response?.data?.erro || 'Erro')); };
   return <div style={modalBg} onClick={onClose}><div style={modalCard} onClick={e => e.stopPropagation()}>
@@ -2250,7 +2253,10 @@ function NovaProspeccao({ API, colabs, onClose, onSaved }) {
       <L lab="Contato (nome)" flex><input style={s.inp} value={f.contato_nome} onChange={e => set('contato_nome', e.target.value)} /></L>
       <L lab="Telefone/WhatsApp" flex><input style={s.inp} value={f.contato_fone} onChange={e => set('contato_fone', e.target.value)} /></L>
     </div>
-    <L lab="Próximo contato"><input type="date" style={s.inp} value={f.proximo_contato} onChange={e => set('proximo_contato', e.target.value)} /></L>
+    <div style={{ display: 'flex', gap: 8 }}>
+      <L lab="Cadência" flex><select style={s.inp} value={f.periodicidade} onChange={e => set('periodicidade', e.target.value)}><option value="">— sem cadência</option><option value="diario">Diário</option><option value="semanal">Semanal</option><option value="quinzenal">Quinzenal</option><option value="mensal">Mensal</option></select></L>
+      <L lab="Próximo contato" flex><input type="date" style={s.inp} value={f.proximo_contato} onChange={e => set('proximo_contato', e.target.value)} /></L>
+    </div>
     <L lab="Observação"><textarea style={{ ...s.inp, minHeight: 54 }} value={f.obs} onChange={e => set('obs', e.target.value)} /></L>
     <div style={{ display: 'flex', gap: 8, marginTop: 6 }}><button style={s.btn} onClick={salvar}>Criar</button><button style={s.btnMini} onClick={onClose}>cancelar</button></div>
   </div></div>;
@@ -2277,6 +2283,7 @@ function ProspeccaoModal({ API, id, gestao, colabs, onClose, onChange }) {
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <L lab="Responsável" flex><select style={s.inp} value={p.responsavel_id || ''} onChange={e => upd({ responsavel_id: e.target.value })}><option value="">—</option>{colabs.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></L>
+        <L lab="Cadência" flex><select style={s.inp} value={p.periodicidade || ''} onChange={e => upd({ periodicidade: e.target.value })}><option value="">— sem cadência</option><option value="diario">Diário</option><option value="semanal">Semanal</option><option value="quinzenal">Quinzenal</option><option value="mensal">Mensal</option></select></L>
         <L lab="Próximo contato" flex><input type="date" style={s.inp} value={p.proximo_contato ? String(p.proximo_contato).slice(0, 10) : ''} onChange={e => upd({ proximo_contato: e.target.value })} /></L>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
