@@ -351,7 +351,7 @@ function QuebrasErp({ API, soControle }) {
   const lojas = useLojasTes(API);
   const [ini, setIni] = useState(inicioMes()); const [fim, setFim] = useState(hojeISO());
   const [loja, setLoja] = useState(''); const [d, setD] = useState(null); const [carreg, setCarreg] = useState(false);
-  const [limiar, setLimiar] = useState(5); const [soRel, setSoRel] = useState(false);
+  const [limiar, setLimiar] = useState(5); const [soRel, setSoRel] = useState(false); const [soPend, setSoPend] = useState(false);
   const [pontosQuebra, setPontosQuebra] = useState(0); const [czCfg, setCzCfg] = useState(100); const [msg, setMsg] = useState('');
   const carregar = useCallback(() => {
     setCarreg(true);
@@ -366,10 +366,17 @@ function QuebrasErp({ API, soControle }) {
   const salvarCz = () => API.post('/tesouraria/config', { pontosCaixaZerado: czCfg }).then(() => setMsg('Pontos do caixa zerado salvos.')).then(() => setTimeout(() => setMsg(''), 2500));
   const marcar = (q, status, observacao) => API.post('/tesouraria/quebras/cobranca', { quebra: q, status, valorCobrado: status === 'cobrado' ? Math.abs(q.valor) : 0, observacao: observacao || undefined })
     .then(r => { const p = r.data?.pontos; if (p?.descontado) setMsg(`−${p.descontado} pts de ${p.colaborador}.`); else if (p?.removido) setMsg('Desconto de pontos revertido.'); else if (p?.semColaborador && status === 'pontuado') setMsg('⚠️ Operador sem colaborador vinculado por CPF — pontos não descontados.'); if (p?.descontado || p?.removido || p?.semColaborador) setTimeout(() => setMsg(''), 3500); return carregar(); });
-  // Perdoar exige justificativa (Joe 2026-11-11) — fica guardada na apuração.
-  const perdoar = (q) => { const j = (window.prompt('Justificativa para perdoar esta diferença:') || '').trim(); if (!j) return; marcar(q, 'perdoado', j); };
+  // Perdoar exige justificativa + decidir se CONSIDERA os pontos (Joe 2026-11-11): às vezes a diferença
+  // não foi culpa do caixa (mexeram nele) — aí perdoa SEM descontar pontos. A justificativa e a decisão
+  // ficam guardadas na apuração (a engine de pontos respeita o "sem pontos").
+  const perdoar = (q) => {
+    const j = (window.prompt('Justificativa para perdoar esta diferença:') || '').trim();
+    if (!j) return;
+    const comPontos = window.confirm('A diferença foi do CAIXA (operador)?\n\nOK = SIM — perdoar mas MANTER o desconto de pontos.\nCancelar = NÃO (ex.: mexeram no caixa) — perdoar SEM descontar pontos.');
+    marcar(q, 'perdoado', (comPontos ? '[com pontos] ' : '[sem pontos] ') + j);
+  };
   const R = d?.resumo;
-  const linhas = (d?.quebras || []).filter(q => !soRel || q.relevante);
+  const linhas = (d?.quebras || []).filter(q => !soRel || q.relevante).filter(q => !soPend || (q.relevante && q.cobranca?.status !== 'perdoado'));
   const COLS = [
     { k: 'data', label: 'Data', tipo: 'txt', get: q => q.data || '' },
     { k: 'operador', label: 'Operador', tipo: 'txt', get: q => q.operador || '' },
@@ -403,6 +410,9 @@ function QuebrasErp({ API, soControle }) {
         <label style={{ ...s.fld, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
           <input type="checkbox" checked={soRel} onChange={e => setSoRel(e.target.checked)} /> só relevantes (&gt; R${limiar})
         </label>
+        {soControle && <label style={{ ...s.fld, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+          <input type="checkbox" checked={soPend} onChange={e => setSoPend(e.target.checked)} /> só ação pendente
+        </label>}
       </PeriodoTes>
       {msg && <div style={{ fontSize: 12, color: msg.startsWith('⚠️') ? '#C0392B' : '#7A4FB0', margin: '0 0 8px' }}>{msg}</div>}
       {d?.erro && <div style={s.erroBox}>⚠️ {d.erro}</div>}
@@ -429,7 +439,7 @@ function QuebrasErp({ API, soControle }) {
               </td>
               <td style={s.td}>{soControle
                 ? (q.cobranca?.status === 'perdoado'
-                    ? <span style={{ color: '#15803d', fontWeight: 700 }} title={q.cobranca?.observacao || ''}>perdoado{q.cobranca?.observacao ? ' ⓘ' : ''}</span>
+                    ? (() => { const obs = q.cobranca?.observacao || ''; const semP = obs.startsWith('[sem pontos]'); const comP = obs.startsWith('[com pontos]'); const just = obs.replace(/^\[(sem|com) pontos\]\s*/, ''); const dt = q.cobranca?.resolvidoEm ? String(q.cobranca.resolvidoEm).slice(0, 10) : ''; return <span style={{ color: '#15803d', fontWeight: 700, fontSize: 11.5 }} title={just}>✅ perdoado{semP ? ' · s/ pontos' : comP ? ' · c/ pontos' : ''}{dt ? ' · ' + dBR(dt) : ''}{just ? ' ⓘ' : ''}</span>; })()
                     : <span style={{ color: '#bbb' }}>—</span>)
                 : <><span style={{ color: cor, fontWeight: 700, fontSize: 11.5 }}>{lab}</span>{q.cobranca?.valorCobrado > 0 ? <span style={{ color: '#888' }}> · {brl(q.cobranca.valorCobrado)}</span> : ''}</>}</td>
               <td style={s.td}>{soControle

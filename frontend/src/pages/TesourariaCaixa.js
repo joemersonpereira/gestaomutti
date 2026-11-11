@@ -43,8 +43,9 @@ export default function TesourariaCaixa({ embed } = {}) {
   const setF = (tipo, k, v) => setForm(f => ({ ...f, [tipo]: { ...f[tipo], [k]: v } }));
   const [pend, setPend] = useState({}); // arquivo escolhido (ainda não salvo) por tipo
   const [lendo, setLendo] = useState(''); // tipo que está lendo o valor (OCR)
+  const [aberto, setAberto] = useState({}); // seções recolhíveis (Depósitos/Recargas/Despesas)
 
-  useEffect(() => { API.get('/tesouraria/lojas').then(r => { const ls = r.data.lojas || []; setLojas(ls); if (ls.length && !loja) setLoja(ls[0].id); }).catch(() => {}); /* eslint-disable-next-line */ }, [API]);
+  useEffect(() => { API.get('/tesouraria/lojas').then(r => { setLojas(r.data.lojas || []); }).catch(() => {}); /* eslint-disable-next-line */ }, [API]);
   useEffect(() => { API.get('/tesouraria/pasta-config').then(r => { setBase(r.data.base || ''); setSalvarBase(r.data.salvarBase || ''); setDepositoBase(r.data.depositoBase || ''); }).catch(() => {}); }, [API]);
   useEffect(() => { API.get('/tesouraria/planos').then(r => setPlanos(r.data.planos || [])).catch(() => {}); }, [API]);
 
@@ -103,9 +104,13 @@ export default function TesourariaCaixa({ embed } = {}) {
   const Secao = ({ titulo, tipo, lista, deposito, temPlano }) => {
     const ff = form[tipo] || {};
     const p = pend[tipo];
+    const open = !!aberto[tipo];
     return (
       <div style={s.card}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>{titulo} <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>({lista.length}{lista.length ? ' · ' + brl(soma(lista)) : ''})</span></div>
+        <div onClick={() => setAberto(a => ({ ...a, [tipo]: !a[tipo] }))} style={{ fontWeight: 700, marginBottom: open ? 10 : 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, userSelect: 'none' }}>
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>{open ? '▾' : '▸'}</span>{titulo} <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>({lista.length}{lista.length ? ' · ' + brl(soma(lista)) : ''})</span>{!open && lista.length > 0 && <span style={{ color: '#15803d', fontSize: 11, fontWeight: 600 }}> ✓ anexado</span>}
+        </div>
+        {open && (<>
         {/* 1) escolhe a foto/PDF → lê o valor (OCR). 2) confere valor/plano. 3) salva. */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10, background: '#f8fafc', border: '1px solid #eef2f0', borderRadius: 8, padding: 10 }}>
           <label style={s.lab}>Valor (R$){lendo === tipo && <span style={{ color: '#0d6b5e' }}> · lendo…</span>}<input type="number" step="0.01" style={{ ...s.inp, width: 120 }} value={ff.valor} onChange={e => setF(tipo, 'valor', e.target.value)} placeholder="0,00" /></label>
@@ -138,6 +143,7 @@ export default function TesourariaCaixa({ embed } = {}) {
           </div>
         ))}
         {!lista.length && <div style={{ fontSize: 12, color: '#94a3b8', padding: '6px 2px' }}>Nada anexado ainda.</div>}
+        </>)}
       </div>
     );
   };
@@ -167,7 +173,7 @@ export default function TesourariaCaixa({ embed } = {}) {
       )}
 
       <div style={s.filtros}>
-        <label style={s.lab}>Loja<select style={{ ...s.inp, minWidth: 180 }} value={loja} onChange={e => setLoja(e.target.value)}>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></label>
+        <label style={s.lab}>Loja<select style={{ ...s.inp, minWidth: 180 }} value={loja} onChange={e => setLoja(e.target.value)}><option value="">Todas as lojas</option>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></label>
         <label style={s.lab}>Dia<input type="date" style={s.inp} value={data} onChange={e => setData(e.target.value)} /></label>
         <button style={s.btn} onClick={carregar}>🔄 Atualizar</button>
         {msg && <span style={{ color: msg.startsWith('⚠️') ? '#b91c1c' : '#15803d', fontSize: 13, fontWeight: 600 }}>{msg}</span>}
@@ -176,7 +182,7 @@ export default function TesourariaCaixa({ embed } = {}) {
       {/* Visão de TODAS as lojas do dia, lado a lado: caixas + diferenças (só visualizar) + anexos. Clique numa loja p/ anexar. */}
       {geral && geral.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(250px,1fr))', gap: 10, marginBottom: 16 }}>
-          {geral.map(g => {
+          {geral.filter(g => !loja || g.loja_id === loja).map(g => {
             const sel = g.loja_id === loja;
             const okFech = g.todos_fechados;
             return (
