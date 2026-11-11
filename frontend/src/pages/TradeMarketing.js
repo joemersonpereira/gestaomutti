@@ -1216,8 +1216,8 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
     const url = window.location.origin + r.data.link;
     try { navigator.clipboard.writeText(url); } catch (e) { /* */ }
     const msg = tipo === 'aprovacao'
-      ? `Olá! Segue o link para autorização da veiculação do trade junto ao Grupo Mutti: ${url}`
-      : `Olá! Segue os dados de sell-out e execução do seu trade junto ao Grupo Mutti: ${url}`;
+      ? `✅ Autorize a veiculação do seu trade — Grupo Mutti:\n${url}`
+      : `📊 Sell-out e execução do seu trade — Grupo Mutti:\n${url}`;
     if (via === 'whatsapp') window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
     else window.prompt('🔗 Link do fornecedor (já copiado). Sem login — ele vê o sell-out, a comprovação e, quando aguardando, dá ciência e aprova (vai pra veiculação):', url);
   }).catch(e => alert(e.response?.data?.erro || 'Erro ao gerar link'));

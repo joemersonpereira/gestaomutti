@@ -107,6 +107,16 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok', versao: '1.0.0', h
 // 404 apenas para rotas de API
 app.use('/api', (req, res) => res.status(404).json({ erro: 'Rota não encontrada.' }));
 
+// Link curto do trade: /t/<codigo> → redireciona pro acompanhamento (link enxuto p/ WhatsApp).
+app.get('/t/:codigo', (req, res, next) => {
+  try {
+    const db = require('./db/connection');
+    const v = db.prepare('SELECT token FROM tmkt_vendas WHERE token_curto=? LIMIT 1').get(req.params.codigo);
+    if (v && v.token) return res.redirect(302, '/trade.html?t=' + v.token);
+  } catch (e) { /* cai no SPA */ }
+  next();
+});
+
 // ── Frontend em produção ──────────────────────────────────────────────
 // Se existir o build do React, o backend serve a aplicação no mesmo endereço
 // (serviço único). Qualquer rota que não seja /api devolve o index.html (SPA).

@@ -530,11 +530,13 @@ router.put('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
 // gera (ou devolve) o link de aprovação do fornecedor: ele abre, dá ciência e aprova → vai pra veiculação
 router.post('/vendas/:id/gerar-link', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id;
-  const v = db.prepare('SELECT id, token FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  const v = db.prepare('SELECT id, token, token_curto FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
   if (!v) return res.status(404).json({ erro: 'Negociação não encontrada.' });
   let t = v.token;
   if (!t) { t = uuid().replace(/-/g, ''); db.prepare('UPDATE tmkt_vendas SET token=? WHERE id=?').run(t, v.id); }
-  res.json({ ok: true, token: t, link: `/trade.html?t=${t}` });
+  let curto = v.token_curto;
+  if (!curto) { curto = uuid().replace(/-/g, '').slice(0, 8); db.prepare('UPDATE tmkt_vendas SET token_curto=? WHERE id=?').run(curto, v.id); }
+  res.json({ ok: true, token: t, curto, link: `/t/${curto}` });
 });
 router.post('/vendas/:id/mover', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id, novo = req.body.status;
