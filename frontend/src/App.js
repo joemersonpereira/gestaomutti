@@ -178,6 +178,8 @@ const REMOVIDOS = new Set([
   'ponto',
   // Removidos a pedido (2026-10-04): Painel de Compras + Logística (Devoluções)
   'painel-compras', 'devolucoes',
+  // Cobrança (Trade) foi absorvida pela Validação Financeira (Joe 2026-11-11)
+  'cobranca-trade',
 ]);
 
 // Catálogo leve dos módulos (id + rótulo) para a tela de Acessos (função → menu).
@@ -212,9 +214,9 @@ const NAV = [
     { nome: 'Administrativo', itens: [], subs: [
       { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'tesouraria', 'conciliacao-cartao', 'contas-receber'] },
       { nome: 'Controladoria', itens: ['controladoria'] },
-      { nome: 'Contabilidade', itens: ['contabilidade', 'fornecedores', 'auditoria-contabil'] },
       { nome: 'Suporte', itens: ['suporte', 'fiscal'] },
     ] },
+    { nome: 'Contabilidade', itens: ['contabilidade', 'fornecedores', 'auditoria-contabil'] },
     { nome: 'Logística', itens: ['conferentes', 'devolucoes', 'almoxarifado'] },
   ] },
   { camada: 'Gestão', grupos: [
