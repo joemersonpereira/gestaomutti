@@ -475,7 +475,7 @@ router.get('/trade/acompanhamento/:token', async (req, res) => {
   res.json({ ok: true, codigo: v.codigo, fornecedor: v.fornecedor_nome, status: v.status, status_rotulo: ROT[v.status] || v.status,
     valor: v.valor, forma_pagamento: v.forma_pagamento, vigencia_ini: v.vigencia_ini, vigencia_fim: v.vigencia_fim,
     comprovacao_prazo_dias: v.comprovacao_prazo_dias, comprovacao_ate: v.comprovacao_ate, comprovacao_enviada: !!v.comprovacao_em,
-    escopo_tipo: v.escopo_tipo, escopo_ref: v.escopo_ref ? JSON.parse(v.escopo_ref) : [], observacao: v.observacao, espacos, parcelas,
+    escopo_tipo: v.escopo_tipo, escopo_ref: (() => { try { return v.escopo_ref ? JSON.parse(v.escopo_ref) : []; } catch { return []; } })(), observacao: v.observacao, espacos, parcelas,
     sellout, produtos_definidos: eans.length, meta, comprovacoes_gestao: compsGestao });
 });
 // "Minhas ações": negociações vinculadas ao CPF da pessoa logada (acesso CNPJ+CPF) — gera o token de
@@ -677,7 +677,8 @@ router.get('/trade/contrato/:token', (req, res) => {
   const c = db.prepare("SELECT c.*, v.codigo, v.fornecedor_nome FROM tmkt_contrato c JOIN tmkt_vendas v ON v.id=c.venda_id WHERE c.token=? AND c.empresa_id=?").get(req.params.token, EMP);
   if (!c || !c.token) return res.status(404).json({ erro: 'Link inválido ou expirado.' });
   res.json({
-    codigo: c.codigo, fornecedor: c.fornecedor_nome, corpo: c.corpo || '', objeto: c.objeto || '',
+    codigo: c.codigo, fornecedor: c.contratante_nome || c.fornecedor_nome, corpo: c.corpo || '', objeto: c.objeto || '',
+    representante_nome: c.representante_nome || '', // quem deve assinar (nome pré-preenchido)
     assinado: c.status === 'assinado', assinante_nome: c.assinante_nome || null, assinado_em: c.assinado_em || null,
   });
 });
@@ -688,14 +689,18 @@ router.post('/trade/contrato/:token/assinar', (req, res) => {
   if (c.status === 'assinado') return res.status(400).json({ erro: 'Este contrato já foi assinado.' });
   const nome = String(b.assinante_nome || '').trim();
   if (nome.length < 3) return res.status(400).json({ erro: 'Informe seu nome completo.' });
+  const cpf = soDig(b.assinante_doc);
+  if (cpf.length !== 11) return res.status(400).json({ erro: 'Informe um CPF válido (11 dígitos).' });
+  if (c.representante_cpf && soDig(c.representante_cpf) !== cpf) return res.status(400).json({ erro: 'O CPF informado não confere com o de quem foi designado para assinar este contrato.' });
+  if (!b.aceite_mp) return res.status(400).json({ erro: 'Marque que reconhece o contrato e assina conforme a MP nº 2.200-2/2001.' });
   if (!ehDataImg(b.assinatura)) return res.status(400).json({ erro: 'Assine na tela (campo de assinatura).' });
   if (!ehDataImg(b.selfie)) return res.status(400).json({ erro: 'Envie a selfie.' });
   if (!ehDataImg(b.documento)) return res.status(400).json({ erro: 'Envie a foto do documento.' });
   const ip = (String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket?.remoteAddress || req.ip || '';
   const ua = String(req.headers['user-agent'] || '').slice(0, 400);
   db.prepare(`UPDATE tmkt_contrato SET status='assinado', assinante_nome=?, assinante_doc=?, assinatura_img=?, selfie_img=?, documento_img=?,
-      ip=?, user_agent=?, assinado_em=datetime('now') WHERE id=?`)
-    .run(nome, String(b.assinante_doc || '').slice(0, 40) || null, b.assinatura, b.selfie, b.documento, ip, ua, c.id);
+      ip=?, user_agent=?, aceite_mp=1, assinado_em=datetime('now') WHERE id=?`)
+    .run(nome, cpf, b.assinatura, b.selfie, b.documento, ip, ua, c.id);
   res.json({ ok: true });
 });
 

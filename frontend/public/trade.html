@@ -494,6 +494,10 @@
 "use strict";
 var API='/api/publico/trade';
 var app=document.getElementById('app');
+// rede de segurança: se algo falhar (fetch/JSON/render) e a tela ficar vazia, mostra aviso em vez de página em branco
+function _fallbackVazio(){ try{ if(app && !app.textContent.trim()) app.innerHTML='<div class="note" style="margin:24px auto;max-width:520px">Não foi possível carregar agora. Atualize a página (F5) ou tente de novo em instantes. Se persistir, confira o link.</div>'; }catch(e){} }
+window.addEventListener('unhandledrejection',_fallbackVazio);
+window.addEventListener('error',_fallbackVazio);
 var token=new URLSearchParams(location.search).get('t');
 var acesso=sessionStorage.getItem('trade_acesso')||'';
 var _urlAc=new URLSearchParams(location.search).get('acesso');
