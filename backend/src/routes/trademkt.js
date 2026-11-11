@@ -270,6 +270,51 @@ router.get('/planos-apuracao', (req, res) => {
   res.json({ planos: rows });
 });
 
+// ── Premiação do VENDEDOR de trade (vendedor = criado_por) — regra POR ESPAÇO, apuração mensal ──
+const PREM_FECHADO = "('confirmado','vendido','vigente','comprovacao','concluido','encerrado')";
+const PREM_FAIXAS_PADRAO = [{ ate: 10, pct: 1 }, { ate: null, pct: 2 }];
+function premFaixas(emp) {
+  const r = db.prepare('SELECT faixas_json FROM tmkt_prem_vend_regra WHERE empresa_id=?').get(emp);
+  if (r && r.faixas_json) { try { const f = JSON.parse(r.faixas_json); if (Array.isArray(f) && f.length) return f; } catch (e) { /* */ } }
+  return PREM_FAIXAS_PADRAO;
+}
+function pctPorEspacos(faixas, qtd) {
+  const ord = [...faixas].sort((a, b) => (a.ate == null ? 1e9 : a.ate) - (b.ate == null ? 1e9 : b.ate));
+  for (const f of ord) { if (f.ate == null || qtd <= Number(f.ate)) return Number(f.pct) || 0; }
+  return ord.length ? Number(ord[ord.length - 1].pct) || 0 : 0;
+}
+router.get('/premiacao-vendedor/regra', (req, res) => res.json({ faixas: premFaixas(req.usuario.empresa_id) }));
+router.post('/premiacao-vendedor/regra', exigePerfil(...GESTAO), (req, res) => {
+  const faixas = Array.isArray(req.body.faixas) ? req.body.faixas.map(f => ({ ate: (f.ate === '' || f.ate == null) ? null : Number(f.ate), pct: Number(f.pct) || 0 })) : PREM_FAIXAS_PADRAO;
+  db.prepare(`INSERT INTO tmkt_prem_vend_regra (empresa_id, faixas_json, atualizado_em) VALUES (?,?,datetime('now'))
+    ON CONFLICT(empresa_id) DO UPDATE SET faixas_json=excluded.faixas_json, atualizado_em=datetime('now')`).run(req.usuario.empresa_id, JSON.stringify(faixas));
+  res.json({ ok: true, faixas });
+});
+router.get('/premiacao-vendedor', (req, res) => {
+  const emp = req.usuario.empresa_id, mes = Number(req.query.mes), ano = Number(req.query.ano);
+  if (!mes || !ano) return res.status(400).json({ erro: 'Informe mês e ano.' });
+  const ym = `${ano}-${String(mes).padStart(2, '0')}`;
+  const rows = db.prepare(`SELECT v.criado_por vendedor_id, col.nome vendedor_nome,
+      COUNT(ve.id) espacos, COALESCE(SUM(ve.valor),0) valor
+    FROM tmkt_vendas v JOIN tmkt_venda_espacos ve ON ve.venda_id=v.id
+    LEFT JOIN colaboradores col ON col.id=v.criado_por
+    WHERE v.empresa_id=? AND v.status IN ${PREM_FECHADO} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0
+      AND v.criado_por IS NOT NULL AND strftime('%Y-%m', v.criado_em)=?
+    GROUP BY v.criado_por, col.nome ORDER BY valor DESC`).all(emp, ym);
+  const faixas = premFaixas(emp);
+  const linhas = rows.map(r => { const pct = pctPorEspacos(faixas, r.espacos); return { vendedor_id: r.vendedor_id, vendedor_nome: r.vendedor_nome || '(sem nome)', espacos: r.espacos, valor: r.valor, pct, premiacao: Math.round(r.valor * pct) / 100 }; });
+  const fech = db.prepare('SELECT fechado, fechado_em, fechado_por FROM tmkt_prem_vend_fechado WHERE empresa_id=? AND mes=? AND ano=?').get(emp, mes, ano);
+  res.json({ faixas, linhas, total: linhas.reduce((s, l) => s + l.premiacao, 0), fechado: !!(fech && fech.fechado), fechado_em: fech ? fech.fechado_em : null, fechado_por: fech ? fech.fechado_por : null });
+});
+router.post('/premiacao-vendedor/fechar', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id, mes = Number(req.body.mes), ano = Number(req.body.ano), reabrir = !!req.body.reabrir;
+  if (!mes || !ano) return res.status(400).json({ erro: 'Informe mês e ano.' });
+  db.prepare(`INSERT INTO tmkt_prem_vend_fechado (empresa_id, mes, ano, fechado, fechado_em, fechado_por) VALUES (?,?,?,?,?,?)
+    ON CONFLICT(empresa_id,mes,ano) DO UPDATE SET fechado=excluded.fechado, fechado_em=excluded.fechado_em, fechado_por=excluded.fechado_por`)
+    .run(emp, mes, ano, reabrir ? 0 : 1, reabrir ? null : new Date().toISOString(), reabrir ? null : (req.usuario.nome || ''));
+  res.json({ ok: true });
+});
+
 // Espaços por loja (quantidade + preço) — o "AreasEEspacosDaLoja" do TradeMkt.
 // Vagas ocupadas por espaço-loja = venda_espacos de vendas ativas (não cancelada/encerrada).
 const OCUPA_STATUS = "('pedido','rascunho','negociacao','confirmado','briefing','aguardando','vigente','comprovacao','vendido','concluido')";

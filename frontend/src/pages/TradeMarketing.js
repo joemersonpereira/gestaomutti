@@ -68,7 +68,7 @@ export default function TradeMarketing() {
         {gestao && <button onClick={() => setModelo(true)} style={bannerBtn}>📄 Modelo de contrato</button>}
       </Banner>
       <div style={{ display: 'flex', gap: 6, margin: '12px 0 16px', flexWrap: 'wrap', padding: 6, background: '#fff', border: '1px solid #ecefee', borderRadius: 14, boxShadow: '0 1px 3px rgba(16,40,45,.05)' }}>
-        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
+        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['premvend', '💰 Premiação vendedor'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, border: 'none', ...(aba === v ? s.chipOn : { background: 'transparent', color: '#51607a' }) }}>{l}</button>)}
       </div>
       {modelo && <ModeloContrato API={API} onClose={() => setModelo(false)} />}
@@ -76,6 +76,7 @@ export default function TradeMarketing() {
       {aba === 'cobranca' && <Cobranca API={API} gestao={gestao} />}
       {aba === 'dashboard' && <Dashboard API={API} />}
       {aba === 'vendas' && <Vendas API={API} gestao={gestao} />}
+      {aba === 'premvend' && <PremiacaoVendedor API={API} gestao={gestao} />}
       {aba === 'porloja' && <EspacoLoja API={API} gestao={gestao} />}
       {aba === 'capacidade' && <Capacidade API={API} />}
       {aba === 'espacos' && <Espacos API={API} gestao={gestao} />}
@@ -2174,6 +2175,71 @@ function Associacoes({ API, gestao }) {
   );
 }
 
+
+// ── Premiação do vendedor de trade (regra por espaço, apuração mensal) ──
+function PremiacaoVendedor({ API, gestao }) {
+  const hoje = new Date();
+  const [mes, setMes] = useState(hoje.getMonth() + 1); const [ano, setAno] = useState(hoje.getFullYear());
+  const [d, setD] = useState(null); const [faixas, setFaixas] = useState([]); const [editReg, setEditReg] = useState(false);
+  const carregar = useCallback(() => { setD(null); API.get('/trademkt/premiacao-vendedor', { params: { mes, ano } }).then(r => { setD(r.data); setFaixas(r.data.faixas || []); }).catch(() => setD({ linhas: [], erro: true })); }, [API, mes, ano]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const salvarRegra = () => API.post('/trademkt/premiacao-vendedor/regra', { faixas }).then(() => { setEditReg(false); carregar(); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const fechar = (reabrir) => API.post('/trademkt/premiacao-vendedor/fechar', { mes, ano, reabrir }).then(carregar).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const setFaixa = (i, k, val) => setFaixas(fs => fs.map((f, j) => j === i ? { ...f, [k]: val } : f));
+  return (
+    <div>
+      <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <b style={{ fontSize: 13 }}>💰 Premiação do vendedor</b>
+        <span style={{ fontSize: 11.5, color: '#7a8a8c' }}>vendedor = quem cadastrou · % pela qtd de espaços vendidos no mês</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+          <select value={mes} onChange={e => setMes(Number(e.target.value))} style={{ ...s.inp, width: 70 }}>{Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}</select>
+          <input type="number" value={ano} onChange={e => setAno(Number(e.target.value))} style={{ ...s.inp, width: 90 }} />
+        </div>
+      </div>
+      <div style={s.card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <b style={{ fontSize: 13 }}>Regra (% por faixa de espaços)</b>
+          {gestao && <button style={s.btnMini} onClick={() => setEditReg(e => !e)}>{editReg ? 'cancelar' : '✎ editar regra'}</button>}
+        </div>
+        {!editReg && <div style={{ fontSize: 12.5, color: '#444', marginTop: 6 }}>{faixas.map((f, i) => <span key={i} style={{ marginRight: 12 }}>{f.ate == null ? `acima de ${i > 0 && faixas[i - 1].ate != null ? faixas[i - 1].ate : 0}` : `até ${f.ate}`} espaço(s): <b>{f.pct}%</b></span>)}</div>}
+        {editReg && <div style={{ marginTop: 8 }}>
+          {faixas.map((f, i) => <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12 }}>Até</span>
+            <input type="number" value={f.ate == null ? '' : f.ate} placeholder="(acima)" onChange={e => setFaixa(i, 'ate', e.target.value)} style={{ ...s.inp, width: 90 }} />
+            <span style={{ fontSize: 12 }}>espaços →</span>
+            <input type="number" step="0.1" value={f.pct} onChange={e => setFaixa(i, 'pct', e.target.value)} style={{ ...s.inp, width: 70 }} /><span style={{ fontSize: 12 }}>%</span>
+            <button onClick={() => setFaixas(fs => fs.filter((_, j) => j !== i))} style={{ ...s.mv, color: '#C0392B' }}>✕</button>
+          </div>)}
+          <button onClick={() => setFaixas(fs => [...fs, { ate: null, pct: 0 }])} style={s.btnMini}>+ faixa</button>
+          <button onClick={salvarRegra} style={{ ...s.btn, marginLeft: 8 }}>Salvar regra</button>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Última faixa com "Até" vazio = "acima". Ex.: até 10 → 1%, (acima) → 2%.</div>
+        </div>}
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+        <div style={{ ...s.card, marginBottom: 0, minWidth: 140 }}><div style={{ fontSize: 11, color: '#7a8a8c', fontWeight: 600 }}>Vendedores</div><div style={{ fontSize: 18, fontWeight: 800 }}>{(d?.linhas || []).length}</div></div>
+        <div style={{ ...s.card, marginBottom: 0, minWidth: 160 }}><div style={{ fontSize: 11, color: '#7a8a8c', fontWeight: 600 }}>Prêmio total</div><div style={{ fontSize: 18, fontWeight: 800, color: '#1E874B' }}>{brl(d?.total || 0)}</div></div>
+        {d?.fechado && <span style={{ ...s.chip, background: '#FBE7E2', color: '#A3372A', fontWeight: 700 }}>🔒 Fechado{d.fechado_por ? ' · ' + d.fechado_por : ''}</span>}
+        {gestao && <button style={s.btnMini} onClick={() => fechar(d?.fechado)}>{d?.fechado ? 'Reabrir mês' : '🔒 Fechar mês'}</button>}
+      </div>
+      <div style={s.card}>
+        {!d && <div style={{ fontSize: 13, color: '#999', padding: 10 }}>Carregando…</div>}
+        {d && d.linhas.length === 0 && <div style={s.vazio}>Nenhuma venda fechada neste mês.</div>}
+        {d && d.linhas.length > 0 && <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead><tr style={{ textAlign: 'left', color: '#7a8a8c', borderBottom: '2px solid #eef1f4' }}>{['Vendedor', 'Espaços', 'Valor vendido', '%', 'Premiação'].map(h => <th key={h} style={{ padding: '7px 8px' }}>{h}</th>)}</tr></thead>
+            <tbody>{d.linhas.map((l, i) => <tr key={i} style={{ borderBottom: '1px solid #f3f5f7' }}>
+              <td style={{ padding: '7px 8px', fontWeight: 600 }}>{l.vendedor_nome}</td>
+              <td style={{ padding: '7px 8px' }}>{l.espacos}</td>
+              <td style={{ padding: '7px 8px' }}>{brl(l.valor)}</td>
+              <td style={{ padding: '7px 8px', fontWeight: 700, color: '#6D4AA8' }}>{l.pct}%</td>
+              <td style={{ padding: '7px 8px', fontWeight: 700, color: '#1E874B' }}>{brl(l.premiacao)}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>}
+      </div>
+    </div>
+  );
+}
 
 const BRAND = '#0E7C5A', BRAND_GRAD = 'linear-gradient(135deg,#0E7C5A,#0C6A7E)';
 const s = {
