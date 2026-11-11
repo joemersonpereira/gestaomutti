@@ -52,24 +52,56 @@ router.delete('/grupos-economicos/fornecedor/:fid', exigePerfil(...GESTAO), (req
 });
 
 // ── Modelo de contrato com placeholders (@Fornecedor, @Valor, @VigenciaInicio…) ──
-const OBJETO_PADRAO = 'Cessão onerosa de espaço(s) comercial(is) nas lojas do Grupo Mutti ao FORNECEDOR, para exposição e ativação dos produtos/marcas indicados, durante a vigência e nas condições abaixo.';
+const OBJETO_PADRAO = 'Cessão onerosa de espaço(s) comercial(is) nas lojas do Grupo Mutti ao CESSIONÁRIO, para exposição e ativação dos produtos/marcas indicados, durante a vigência e nas condições abaixo.';
+// Dados da matriz que CEDE o espaço (editáveis por config; padrão informado pelo Joe).
+function cedenteDe(emp) {
+  const g = k => db.prepare("SELECT valor FROM configuracoes WHERE empresa_id=? AND chave=?").get(emp, k)?.valor;
+  return {
+    nome: g('tmkt_cedente_nome') || 'FARMÁCIA MUTTI LTDA',
+    cnpj: g('tmkt_cedente_cnpj') || '18.681.698/0003-85',
+    endereco: g('tmkt_cedente_endereco') || 'Praça Barão do Rio Branco, nº 59, Centro, Entre Rios-BA, CEP 48.180-000',
+    comarca: g('tmkt_cedente_comarca') || 'Entre Rios/BA',
+  };
+}
 const TEMPLATE_PADRAO = `CONTRATO DE CESSÃO DE ESPAÇO COMERCIAL — @Codigo
 
-CONTRATANTE (fornecedor): @Fornecedor — CNPJ @FornecedorCnpj
-Tema / campanha: @Tema
-Vigência: @VigenciaInicio a @VigenciaFim
-Forma de pagamento: @FormaPagamento
-Valor total: @Valor
+CEDENTE: @Cedente — CNPJ @CedenteCnpj
+Endereço: @CedenteEndereco
 
-OBJETO:
+CESSIONÁRIO (fornecedor): @Fornecedor — CNPJ @FornecedorCnpj
+Endereço: @CessionarioEndereco
+Neste ato representado por @Representante.
+
+As partes acima qualificadas têm, entre si, justo e contratado o presente Contrato de Cessão de Espaço Comercial, que se regerá pelas cláusulas e condições seguintes.
+
+CLÁUSULA 1ª — DO OBJETO
 @Objeto
 
+CLÁUSULA 2ª — DOS ESPAÇOS E LOJAS
 Lojas participantes: @Lojas
-
 Espaços cedidos:
 @Espacos
 
-Emitido em @DataHoje.`;
+CLÁUSULA 3ª — DA VIGÊNCIA
+O presente contrato vigora de @VigenciaInicio a @VigenciaFim.
+
+CLÁUSULA 4ª — DO VALOR E DA FORMA DE PAGAMENTO
+Valor total: @Valor. Forma de pagamento: @FormaPagamento.
+Cronograma de pagamento (previsão):
+@Parcelas
+
+CLÁUSULA 5ª — DA INADIMPLÊNCIA E RESPONSABILIDADE
+O descumprimento do acordo de pagamento pelo CESSIONÁRIO sujeita-o, independentemente de notificação prévia, a multa de 2% (dois por cento) sobre o valor em atraso, juros de mora de 1% (um por cento) ao mês e correção monetária, facultando à CEDENTE suspender imediatamente a veiculação e retirar o material cedido, sem prejuízo da cobrança integral dos valores devidos e das demais medidas judiciais e extrajudiciais cabíveis.
+
+CLÁUSULA 6ª — DAS OBRIGAÇÕES
+O CESSIONÁRIO é responsável pelo material exposto, por sua reposição e pela conformidade dos produtos. A CEDENTE garante a disponibilização do(s) espaço(s) contratado(s) durante a vigência, conforme o briefing acordado.
+
+CLÁUSULA 7ª — DO FORO
+Fica eleito o foro da comarca de @CedenteForo para dirimir eventuais dúvidas ou litígios oriundos deste contrato.
+
+Tema / campanha: @Tema
+
+Entre Rios-BA, @DataHoje.`;
 const dBRr = d => d ? String(d).slice(0, 10).split('-').reverse().join('/') : '—';
 const moneyBR = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
 
@@ -82,23 +114,33 @@ router.post('/contrato-template', exigePerfil(...GESTAO), (req, res) => {
     ON CONFLICT(empresa_id,chave) DO UPDATE SET valor=excluded.valor`).run(req.usuario.empresa_id, String(req.body.template || ''));
   res.json({ ok: true });
 });
-// Gera o texto do contrato de uma venda (preenche os @placeholders). objeto = texto editável da negociação.
-async function gerarContratoTexto(emp, v, objeto) {
+// Gera o texto do contrato de uma venda (preenche os @placeholders). c = linha tmkt_contrato (objeto, partes).
+async function gerarContratoTexto(emp, v, c) {
   let tmpl = (db.prepare("SELECT valor FROM configuracoes WHERE empresa_id=? AND chave='tmkt_contrato_template'").get(emp)?.valor) || TEMPLATE_PADRAO;
-  // garante que o OBJETO apareça mesmo em templates antigos que não têm o @Objeto
+  // garante que CEDENTE/OBJETO/representante apareçam mesmo em templates antigos
+  if (!tmpl.includes('@Cedente')) tmpl = tmpl.replace(/(\r?\n)/, '$1\nCEDENTE: @Cedente — CNPJ @CedenteCnpj\nEndereço: @CedenteEndereco\nNeste ato representado por @Representante.\n');
   if (!tmpl.includes('@Objeto')) tmpl = tmpl.replace(/(\n\s*\n|$)/, '\n\nOBJETO:\n@Objeto\n$1');
+  const ced = cedenteDe(emp);
   const esp = db.prepare('SELECT * FROM tmkt_venda_espacos WHERE venda_id=? ORDER BY loja_nome, area_desc').all(v.id);
   const lojas = [...new Set(esp.map(e => e.loja_nome).filter(Boolean))].join(', ') || (v.loja_id ? '' : '—');
   const espTxt = esp.length ? esp.map(e => `  • ${e.loja_nome ? e.loja_nome + ' — ' : ''}${e.area_desc ? e.area_desc + ' · ' : ''}${e.espaco_desc}${e.slot ? ' (vaga ' + e.slot + ')' : ''} — ${moneyBR(e.valor)}`).join('\n') : '  (nenhum)';
-  let cnpj = '—';
-  if (habilitado() && v.fornecedor_id) {
-    try { const r = await erpQuery('SELECT COALESCE(p.cnpj, p.cnpjcpf) doc FROM fornecedor f JOIN pessoa p ON p.id=f.pessoaid WHERE f.id=$1::bigint', [v.fornecedor_id]); cnpj = r[0]?.doc || '—'; } catch { /* pessoa pode não ter cnpj */ }
+  const parc = db.prepare('SELECT numero,vencimento,valor,forma FROM tmkt_parcelas WHERE venda_id=? ORDER BY numero').all(v.id);
+  const parcTxt = parc.length ? parc.map(p => `  • Parcela ${p.numero} — venc. ${dBRr(p.vencimento)} — ${moneyBR(p.valor)}${p.forma ? ' (' + p.forma + ')' : ''}`).join('\n') : '  • Pagamento à vista / conforme acima.';
+  let cnpjErp = '';
+  if (!(c && c.contratante_cnpj) && habilitado() && v.fornecedor_id) {
+    try { const r = await erpQuery('SELECT COALESCE(p.cnpj, p.cnpjcpf) doc FROM fornecedor f JOIN pessoa p ON p.id=f.pessoaid WHERE f.id=$1::bigint', [v.fornecedor_id]); cnpjErp = r[0]?.doc || ''; } catch { /* pode não ter cnpj */ }
   }
+  const foNome = (c && c.contratante_nome) || v.fornecedor_nome || '—';
+  const foCnpj = (c && c.contratante_cnpj) || cnpjErp || '—';
+  const foEnd = (c && c.contratante_endereco) || '—';
+  const fmtCpf = d => { d = String(d || '').replace(/\D/g, ''); return d.length === 11 ? d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : d; };
+  const rep = (c && c.representante_nome) ? `${c.representante_nome}${c.representante_cpf ? ', CPF ' + fmtCpf(c.representante_cpf) : ''}` : '—';
   const mapa = {
-    '@Codigo': v.codigo || '', '@Fornecedor': v.fornecedor_nome || '—', '@FornecedorCnpj': cnpj,
+    '@Codigo': v.codigo || '', '@Fornecedor': foNome, '@FornecedorCnpj': foCnpj, '@CessionarioEndereco': foEnd, '@Representante': rep,
+    '@Cedente': ced.nome, '@CedenteCnpj': ced.cnpj, '@CedenteEndereco': ced.endereco, '@CedenteForo': ced.comarca,
     '@Tema': v.tema_desc || '—', '@VigenciaInicio': dBRr(v.vigencia_ini), '@VigenciaFim': dBRr(v.vigencia_fim),
     '@FormaPagamento': v.forma_pagamento || '—', '@Valor': moneyBR(v.valor), '@Lojas': lojas || '—',
-    '@Espacos': espTxt, '@DataHoje': dBRr(new Date().toISOString()), '@Objeto': (objeto || OBJETO_PADRAO),
+    '@Espacos': espTxt, '@Parcelas': parcTxt, '@DataHoje': dBRr(new Date().toISOString()), '@Objeto': ((c && c.objeto) || OBJETO_PADRAO),
   };
   return tmpl.replace(/@[A-Za-zçÇ]+/g, m => (m in mapa ? mapa[m] : m));
 }
@@ -110,11 +152,17 @@ router.get('/vendas/:id/contrato', async (req, res) => {
   const v = db.prepare('SELECT * FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
   if (!v) return res.status(404).json({ erro: 'Venda não encontrada.' });
   const c = contratoRow(emp, v.id);
-  const objeto = c?.objeto != null ? c.objeto : OBJETO_PADRAO;
+  const ced = cedenteDe(emp);
   // assinado = mostra o corpo "congelado" do momento da assinatura; senão, regenera ao vivo
-  const texto = (c && c.status === 'assinado' && c.corpo) ? c.corpo : await gerarContratoTexto(emp, v, objeto);
+  const texto = (c && c.status === 'assinado' && c.corpo) ? c.corpo : await gerarContratoTexto(emp, v, c);
+  const temFinanceiro = !!((Number(v.valor) || 0) > 0 && v.forma_pagamento);
   res.json({
-    texto, codigo: v.codigo, objeto,
+    texto, codigo: v.codigo,
+    objeto: c?.objeto != null ? c.objeto : OBJETO_PADRAO,
+    contratante_nome: c?.contratante_nome || '', contratante_cnpj: c?.contratante_cnpj || '', contratante_endereco: c?.contratante_endereco || '',
+    fornecedor_nome: v.fornecedor_nome || '',
+    representante_nome: c?.representante_nome || '', representante_cpf: c?.representante_cpf || '',
+    cedente: ced, temFinanceiro,
     status: c?.status || 'rascunho',
     token: c?.token || null,
     assinante_nome: c?.assinante_nome || null, assinante_doc: c?.assinante_doc || null,
@@ -122,30 +170,39 @@ router.get('/vendas/:id/contrato', async (req, res) => {
     tem_selfie: !!(c && c.selfie_img), tem_documento: !!(c && c.documento_img), tem_assinatura: !!(c && c.assinatura_img),
   });
 });
-// Salva o OBJETO editável da negociação (upsert do contrato em rascunho).
+// Salva OBJETO + dados editáveis do contratante e do representante (upsert em rascunho).
 router.put('/vendas/:id/contrato', exigePerfil(...GESTAO), (req, res) => {
-  const emp = req.usuario.empresa_id;
+  const emp = req.usuario.empresa_id, b = req.body || {};
   const v = db.prepare('SELECT id FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
   if (!v) return res.status(404).json({ erro: 'Venda não encontrada.' });
   const c = contratoRow(emp, v.id);
   if (c && c.status === 'assinado') return res.status(400).json({ erro: 'Contrato já assinado — não pode ser alterado.' });
-  const objeto = String(req.body.objeto != null ? req.body.objeto : '').trim();
-  if (c) db.prepare('UPDATE tmkt_contrato SET objeto=? WHERE id=?').run(objeto, c.id);
-  else db.prepare("INSERT INTO tmkt_contrato (id,empresa_id,venda_id,objeto,status) VALUES (?,?,?,?, 'rascunho')").run(uuid(), emp, v.id, objeto);
+  const campos = {
+    objeto: String(b.objeto != null ? b.objeto : (c?.objeto ?? '')).trim(),
+    contratante_nome: (b.contratante_nome ?? c?.contratante_nome ?? '') || null,
+    contratante_cnpj: (b.contratante_cnpj ?? c?.contratante_cnpj ?? '') || null,
+    contratante_endereco: (b.contratante_endereco ?? c?.contratante_endereco ?? '') || null,
+    representante_nome: (b.representante_nome ?? c?.representante_nome ?? '') || null,
+    representante_cpf: (soDig(b.representante_cpf ?? c?.representante_cpf ?? '')) || null,
+  };
+  if (c) db.prepare(`UPDATE tmkt_contrato SET objeto=?, contratante_nome=?, contratante_cnpj=?, contratante_endereco=?, representante_nome=?, representante_cpf=? WHERE id=?`)
+    .run(campos.objeto, campos.contratante_nome, campos.contratante_cnpj, campos.contratante_endereco, campos.representante_nome, campos.representante_cpf, c.id);
+  else db.prepare(`INSERT INTO tmkt_contrato (id,empresa_id,venda_id,objeto,contratante_nome,contratante_cnpj,contratante_endereco,representante_nome,representante_cpf,status) VALUES (?,?,?,?,?,?,?,?,?, 'rascunho')`)
+    .run(uuid(), emp, v.id, campos.objeto, campos.contratante_nome, campos.contratante_cnpj, campos.contratante_endereco, campos.representante_nome, campos.representante_cpf);
   res.json({ ok: true });
 });
-// Solicita assinatura: congela o corpo atual, gera o token do link público e muda p/ 'aguardando'.
+// Solicita assinatura: exige financeiro e representante (nome+CPF), congela o corpo, gera o token.
 router.post('/vendas/:id/contrato/solicitar', exigePerfil(...GESTAO), async (req, res) => {
   const emp = req.usuario.empresa_id;
   const v = db.prepare('SELECT * FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
   if (!v) return res.status(404).json({ erro: 'Venda não encontrada.' });
   let c = contratoRow(emp, v.id);
   if (c && c.status === 'assinado') return res.status(400).json({ erro: 'Contrato já assinado.' });
-  const objeto = c?.objeto != null ? c.objeto : OBJETO_PADRAO;
-  const corpo = await gerarContratoTexto(emp, v, objeto);
+  if (!((Number(v.valor) || 0) > 0 && v.forma_pagamento)) return res.status(400).json({ erro: 'Preencha o financeiro da negociação (valor e forma de pagamento) antes de gerar o contrato — pode ser uma previsão.' });
+  if (!(c && c.representante_nome && c.representante_cpf)) return res.status(400).json({ erro: 'Informe quem vai assinar pela empresa (nome + CPF) — o CPF precisa bater na hora de assinar.' });
+  const corpo = await gerarContratoTexto(emp, v, c);
   const token = uuid().replace(/-/g, '');
-  if (c) db.prepare("UPDATE tmkt_contrato SET corpo=?, token=?, status='aguardando', solicitado_em=datetime('now') WHERE id=?").run(corpo, token, c.id);
-  else db.prepare("INSERT INTO tmkt_contrato (id,empresa_id,venda_id,objeto,corpo,token,status,solicitado_em) VALUES (?,?,?,?,?,?, 'aguardando', datetime('now'))").run(uuid(), emp, v.id, objeto, corpo, token);
+  db.prepare("UPDATE tmkt_contrato SET corpo=?, token=?, status='aguardando', solicitado_em=datetime('now') WHERE id=?").run(corpo, token, c.id);
   res.json({ ok: true, token });
 });
 // Cancela a solicitação (volta a rascunho) — só se ainda não assinou.
@@ -366,12 +423,12 @@ router.get('/dashboard-filtro', (req, res) => {
 });
 
 // ── Premiação do VENDEDOR de trade (vendedor = criado_por) — regra POR ESPAÇO, apuração mensal ──
-// A META só conta como REALIZADO depois do ACEITE DO FORNECEDOR. No portal, o aceite leva o status de
-// 'aguardando' → 'vigente' (publico.js /trade/acompanhamento/:token/aceitar). Por isso a meta conta
-// apenas de 'vigente' pra frente — 'confirmado'/'briefing'/'aguardando' (antes do aceite) NÃO contam,
-// pra o vendedor só ganhar quando a vinculação de fato se concretiza (Joe 2026-11-11).
-// (v2.0 Postgres: mesma regra — WHERE status IN ('vigente','comprovacao','concluido','encerrado').)
-const PREM_ACEITE = "('vigente','comprovacao','concluido','encerrado')";
+// A META só conta como REALIZADO quando o CONTRATO está ASSINADO (Joe 2026-11-11, "a partir de agora").
+// Antes contava a partir do aceite do fornecedor (status 'vigente'); agora o gatilho é a assinatura
+// eletrônica do contrato (tmkt_contrato.status='assinado'), pra o vendedor só ganhar quando a vinculação
+// está de fato formalizada. ⚠ Enquanto não houver contrato assinado, a premiação do mês fica zerada.
+// (v2.0 Postgres: WHERE EXISTS (SELECT 1 FROM tmkt_contrato c WHERE c.venda_id=v.id AND c.status='assinado').)
+const PREM_ASSINADO = "EXISTS (SELECT 1 FROM tmkt_contrato ct WHERE ct.venda_id=v.id AND ct.status='assinado')";
 const PREM_FAIXAS_PADRAO = [{ ate: 10, pct: 1 }, { ate: null, pct: 2 }];
 function premFaixas(emp) {
   const r = db.prepare('SELECT faixas_json FROM tmkt_prem_vend_regra WHERE empresa_id=?').get(emp);
@@ -398,7 +455,7 @@ router.get('/premiacao-vendedor', (req, res) => {
       COUNT(ve.id) espacos, COALESCE(SUM(ve.valor),0) valor
     FROM tmkt_vendas v JOIN tmkt_venda_espacos ve ON ve.venda_id=v.id
     LEFT JOIN colaboradores col ON col.id=v.criado_por
-    WHERE v.empresa_id=? AND v.status IN ${PREM_ACEITE} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0 AND COALESCE(v.nao_premia,0)=0
+    WHERE v.empresa_id=? AND ${PREM_ASSINADO} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0 AND COALESCE(v.nao_premia,0)=0
       AND v.criado_por IS NOT NULL AND strftime('%Y-%m', v.criado_em)=?
     GROUP BY v.criado_por, col.nome ORDER BY valor DESC`).all(emp, ym);
   const faixas = premFaixas(emp);
@@ -539,7 +596,7 @@ router.get('/minha-meta', (req, res) => {
   const now = new Date(); const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const r = db.prepare(`SELECT COUNT(ve.id) espacos, COALESCE(SUM(ve.valor),0) valor
     FROM tmkt_vendas v JOIN tmkt_venda_espacos ve ON ve.venda_id=v.id
-    WHERE v.empresa_id=? AND v.criado_por=? AND v.status IN ${PREM_ACEITE} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0 AND COALESCE(v.nao_premia,0)=0
+    WHERE v.empresa_id=? AND v.criado_por=? AND ${PREM_ASSINADO} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0 AND COALESCE(v.nao_premia,0)=0
       AND strftime('%Y-%m', v.criado_em)=?`).get(emp, uid, ym);
   const faixas = premFaixas(emp);
   const pct = pctPorEspacos(faixas, r.espacos);

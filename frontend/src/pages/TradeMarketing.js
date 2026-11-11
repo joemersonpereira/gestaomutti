@@ -1497,13 +1497,44 @@ function ContratoTab({ API, vendaId }) {
   const { usuario } = useAuth();
   const gestao = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing'].includes(usuario.funcao);
   const [d, setD] = useState(null); const [objeto, setObjeto] = useState(''); const [linkNovo, setLinkNovo] = useState('');
-  const carregar = useCallback(() => API.get(`/trademkt/vendas/${vendaId}/contrato`).then(r => { setD(r.data); setObjeto(r.data.objeto || ''); }).catch(() => setD({ erro: true })), [API, vendaId]);
+  const [f, setF] = useState({ contratante_nome: '', contratante_cnpj: '', contratante_endereco: '', representante_nome: '', representante_cpf: '' });
+  const set = (k, val) => setF(p => ({ ...p, [k]: val }));
+  const carregar = useCallback(() => API.get(`/trademkt/vendas/${vendaId}/contrato`).then(r => {
+    setD(r.data); setObjeto(r.data.objeto || '');
+    setF({ contratante_nome: r.data.contratante_nome || '', contratante_cnpj: r.data.contratante_cnpj || '', contratante_endereco: r.data.contratante_endereco || '', representante_nome: r.data.representante_nome || '', representante_cpf: r.data.representante_cpf || '' });
+  }).catch(() => setD({ erro: true })), [API, vendaId]);
   useEffect(() => { carregar(); }, [carregar]);
-  const salvarObjeto = () => API.put(`/trademkt/vendas/${vendaId}/contrato`, { objeto }).then(carregar).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const salvar = () => API.put(`/trademkt/vendas/${vendaId}/contrato`, { objeto, ...f }).then(carregar).catch(e => alert(e.response?.data?.erro || 'Erro'));
   const solicitar = () => API.post(`/trademkt/vendas/${vendaId}/contrato/solicitar`).then(r => { setLinkNovo(window.location.origin + '/assinar.html?t=' + r.data.token); carregar(); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
   const cancelar = () => { if (window.confirm('Cancelar a solicitação de assinatura? O link atual deixa de valer.')) API.post(`/trademkt/vendas/${vendaId}/contrato/cancelar`).then(() => { setLinkNovo(''); carregar(); }).catch(e => alert(e.response?.data?.erro || 'Erro')); };
   const verEv = tipo => API.get(`/trademkt/vendas/${vendaId}/contrato/evidencia/${tipo}`, { responseType: 'blob' }).then(r => window.open(URL.createObjectURL(r.data), '_blank')).catch(() => alert('Não foi possível abrir.'));
-  const imprimir = () => { const w = window.open('', '_blank'); if (w) { w.document.write('<pre style="font:13px/1.6 system-ui;white-space:pre-wrap;padding:24px">' + (d.texto || '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])) + '</pre>'); w.document.close(); w.print(); } };
+  const imprimir = () => {
+    const esc = t => String(t || '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+    const ced = d.cedente || {};
+    const foNome = d.contratante_nome || d.fornecedor_nome || '—';
+    const rep = d.representante_nome ? esc(d.representante_nome) + (d.representante_cpf ? ' — CPF ' + esc(d.representante_cpf) : '') : '';
+    const assinInfo = d.status === 'assinado' ? `<div class="assn">Assinado eletronicamente por ${esc(d.assinante_nome)} (CPF ${esc(d.assinante_doc)}) em ${esc((d.assinado_em || '').replace('T', ' ').slice(0, 16))} · IP ${esc(d.ip)} · nos termos da MP nº 2.200-2/2001.</div>` : '';
+    const w = window.open('', '_blank'); if (!w) return;
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Contrato ${esc(d.codigo)}</title><style>
+      @page { size:A4; margin:22mm 20mm; }
+      body { font:13px/1.65 Georgia,'Times New Roman',serif; color:#1a1a1a; }
+      .lh { border-bottom:2px solid #0E7C5A; padding-bottom:10px; margin-bottom:18px; }
+      .lh .nm { font-size:16px; font-weight:bold; color:#0E7C5A; letter-spacing:.3px; }
+      .lh .sub { font-size:11px; color:#555; margin-top:2px; }
+      pre { white-space:pre-wrap; font:inherit; margin:0; text-align:justify; }
+      .assn { margin-top:22px; font-size:11.5px; color:#0b6147; background:#eef7f2; border:1px solid #cfe7dc; border-radius:6px; padding:8px 10px; }
+      .sign { margin-top:52px; display:flex; gap:40px; }
+      .sign div { flex:1; text-align:center; border-top:1px solid #333; padding-top:6px; font-size:12px; }
+      .rep { font-size:10.5px; color:#555; }
+      @media print { button { display:none; } }
+    </style></head><body>
+      <div class="lh"><div class="nm">${esc(ced.nome || 'FARMÁCIA MUTTI LTDA')}</div><div class="sub">CNPJ ${esc(ced.cnpj || '')} · ${esc(ced.endereco || '')}</div></div>
+      <pre>${esc(d.texto)}</pre>
+      ${assinInfo}
+      <div class="sign"><div>CEDENTE<br>${esc(ced.nome || 'Farmácia Mutti Ltda')}</div><div>CESSIONÁRIO<br>${esc(foNome)}${rep ? '<div class="rep">Rep.: ' + rep + '</div>' : ''}</div></div>
+    </body></html>`);
+    w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
+  };
   if (!d) return <div style={s.vazio}>Carregando…</div>;
   if (d.erro) return <div style={s.vazio}>Erro ao carregar o contrato.</div>;
   const assinado = d.status === 'assinado', aguardando = d.status === 'aguardando';
@@ -1518,9 +1549,20 @@ function ContratoTab({ API, vendaId }) {
     </div>
 
     <div style={s.card}>
-      <div style={s.lbl}>Objeto do contrato <span style={{ color: '#94a3b8', fontWeight: 400 }}>(editável — entra no texto)</span></div>
-      <textarea value={objeto} onChange={e => setObjeto(e.target.value)} disabled={assinado} placeholder="Descreva o objeto do contrato…" style={{ ...s.inp, width: '100%', minHeight: 70, resize: 'vertical' }} />
-      {!assinado && gestao && <button onClick={salvarObjeto} style={{ ...s.btnMini, marginTop: 6 }}>💾 Salvar objeto</button>}
+      <div style={s.lbl}>Contratante (fornecedor) <span style={{ color: '#94a3b8', fontWeight: 400 }}>— ajuste se o ERP estiver incorreto</span></div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 8 }}>
+        <input value={f.contratante_nome} onChange={e => set('contratante_nome', e.target.value)} disabled={assinado} placeholder={`Nome (padrão: ${d.fornecedor_nome || '—'})`} style={s.inp} />
+        <input value={f.contratante_cnpj} onChange={e => set('contratante_cnpj', e.target.value)} disabled={assinado} placeholder="CNPJ" style={s.inp} />
+        <input value={f.contratante_endereco} onChange={e => set('contratante_endereco', e.target.value)} disabled={assinado} placeholder="Endereço" style={s.inp} />
+      </div>
+      <div style={{ ...s.lbl, marginTop: 10 }}>Quem assina pela empresa <span style={{ color: '#B91C1C', fontWeight: 400 }}>— obrigatório; o CPF precisa bater na hora de assinar</span></div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 8 }}>
+        <input value={f.representante_nome} onChange={e => set('representante_nome', e.target.value)} disabled={assinado} placeholder="Nome do representante" style={s.inp} />
+        <input value={f.representante_cpf} onChange={e => set('representante_cpf', e.target.value)} disabled={assinado} placeholder="CPF do representante" style={s.inp} />
+      </div>
+      <div style={{ ...s.lbl, marginTop: 10 }}>Objeto do contrato <span style={{ color: '#94a3b8', fontWeight: 400 }}>(editável — entra no texto)</span></div>
+      <textarea value={objeto} onChange={e => setObjeto(e.target.value)} disabled={assinado} placeholder="Descreva o objeto do contrato…" style={{ ...s.inp, width: '100%', minHeight: 64, resize: 'vertical' }} />
+      {!assinado && gestao && <button onClick={salvar} style={{ ...s.btn, marginTop: 8 }}>💾 Salvar dados do contrato</button>}
     </div>
 
     <div style={s.card}>
