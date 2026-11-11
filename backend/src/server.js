@@ -127,7 +127,7 @@ if (fs.existsSync(buildDir)) {
   // Assets com hash no nome podem ser cacheados forte; o index.html NUNCA (senão o navegador
   // fica preso numa versão velha da tela mesmo após novo build).
   app.use(express.static(buildDir, {
-    setHeaders: (res, p) => { if (p.endsWith('index.html')) res.set('Cache-Control', 'no-cache, no-store, must-revalidate'); },
+    setHeaders: (res, p) => { if (p.endsWith('.html')) res.set('Cache-Control', 'no-cache, no-store, must-revalidate'); },
   }));
   app.get(/^(?!\/api\/).*/, (req, res) => {
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
