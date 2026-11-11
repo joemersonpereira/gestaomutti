@@ -432,7 +432,7 @@ function QuebrasErp({ API, soControle }) {
             return (
             <tr key={q.id} style={{ borderTop: '1px solid #f2f2f2', background: q.acobrar && q.cobranca?.status === 'pendente' ? '#FFFCF5' : '#fff' }}>
               <td style={s.td}>{dBR(q.data)}</td>
-              <td style={{ ...s.td, fontWeight: 600 }}>{q.operador}{q.login ? <span style={{ color: '#aaa', fontWeight: 400 }}> · {q.login}</span> : ''}{q.origem === 'correcao_cartao' && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#7c3aed', background: '#f3e8ff', borderRadius: 999, padding: '1px 7px' }}>💳 correção de cartão</span>}</td>
+              <td style={{ ...s.td, fontWeight: 600 }}>{q.operador}{q.login ? <span style={{ color: '#aaa', fontWeight: 400 }}> · {q.login}</span> : ''}{q.origem === 'correcao_cartao' && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#7c3aed', background: '#f3e8ff', borderRadius: 999, padding: '1px 7px' }}>💳 correção de cartão</span>}{q.origem === 'sangria' && <span title={q.justificativaErp || ''} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#b45309', background: '#fdf0e6', borderRadius: 999, padding: '1px 7px' }}>💸 erro de sangria{q.depositoCorrecao > 0 ? ' · dep. ' + brl(q.depositoCorrecao) : ''}</span>}</td>
               <td style={{ ...s.td, color: '#666' }}>{q.loja}</td>
               <td style={{ ...s.td, fontWeight: 700, color: q.tipo === 'falta' ? '#C0392B' : '#1E874B' }}>
                 {q.tipo === 'falta' ? '▼ falta ' : '▲ sobra '}{brl(Math.abs(q.valor))}{q.relevante ? <span style={{ fontSize: 10, marginLeft: 4, color: '#B7791F' }}>●</span> : ''}
@@ -456,7 +456,7 @@ function QuebrasErp({ API, soControle }) {
                     </span>
                   : <button onClick={() => marcar(q, 'pendente')} style={s.actGray}>reabrir</button>)}
               </td>
-              <td style={{ ...s.td, color: '#999', fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={q.observacao}>{q.observacao}</td>
+              <td style={{ ...s.td, color: '#999', fontSize: 11, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={q.observacao || q.justificativaErp || ''}>{q.observacao || q.justificativaErp || ''}</td>
             </tr>); })}</tbody>
         </table></div>}
       </div>

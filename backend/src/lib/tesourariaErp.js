@@ -82,11 +82,18 @@ async function quebras(empresaId, { ini, fim, lojaId } = {}) {
   const rows = await erpQuery(`
     SELECT q.id::text id, q.datahora::date::text data, q.valor::float8 valor,
            q.usuarioresponsavelid::text operador_id, q.unidadenegocioid::int unidade,
-           q.observacao, q.status, u.login, p.nome operador,
-           (q.origemcorrecaocartaoreceberid IS NOT NULL) AS correcao_cartao
+           q.observacao, q.status, u.login, p.nome operador, q.origem origem_cod,
+           (q.origemcorrecaocartaoreceberid IS NOT NULL) AS correcao_cartao,
+           ap.dep::float8 deposito_correcao, ap.valorapurado::float8 valor_apurado, ap.justificativa justificativa_apur
     FROM quebracaixa q
     LEFT JOIN usuario u ON u.id=q.usuarioresponsavelid
     LEFT JOIN pessoa p ON p.id=u.pessoaid
+    LEFT JOIN (
+      SELECT aq.quebracaixaid, SUM(d.valor) dep, MAX(aq.valorapurado) valorapurado, MAX(aq.justificativa) justificativa
+      FROM apuracaoquebracaixa aq
+      LEFT JOIN depositoapuracaoquebracaixa d ON d.apuracaoquebracaixaid = aq.id
+      GROUP BY aq.quebracaixaid
+    ) ap ON ap.quebracaixaid = q.id
     WHERE q.tipo='A'
       AND q.unidadenegocioid = ANY($1::bigint[])
       AND q.datahora >= $2::date AND q.datahora < ($3::date + 1)
@@ -113,7 +120,8 @@ async function quebras(empresaId, { ini, fim, lojaId } = {}) {
     if (acobrar) { resumo.acobrar++; resumo.valorAcobrar += Math.abs(valor); if (!c || c.status === 'pendente') resumo.pendentes++; }
     return {
       id: r.id, data: r.data, valor, tipo, acobrar, relevante,
-      origem: r.correcao_cartao ? 'correcao_cartao' : 'fechamento',
+      origem: (Number(r.deposito_correcao) || 0) > 0 ? 'sangria' : r.origem_cod === 'C' ? 'sangria' : (r.correcao_cartao || r.origem_cod === 'D') ? 'correcao_cartao' : 'fechamento',
+      depositoCorrecao: round(r.deposito_correcao || 0), valorApurado: round(r.valor_apurado || 0), justificativaErp: r.justificativa_apur || '',
       operadorId: r.operador_id, operador: (r.operador || r.login || '—').trim(), login: r.login,
       lojaId: loja?.id || null, loja: loja?.nome || ('Unid. ' + r.unidade),
       observacao: r.observacao || '', erpStatus: r.status,
