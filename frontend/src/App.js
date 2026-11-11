@@ -92,7 +92,7 @@ const MODULOS = [
   { id: 'afastamentos', label: '🌴 Afastamentos', C: () => <Cadastros modo="afastamentos" />, perfis: ['RH', 'Gestor Geral', 'Diretor Geral'] },
   { id: 'parametros', label: '🗂️ Parâmetros', C: () => <Cadastros modo="config" />, perfis: ['RH', 'Supervisor', 'Gestor Geral', 'Diretor Geral'] },
   { id: 'calendario', label: '📅 Feriados e Escala', C: Calendario, perfis: ['Gerente', 'Subgerente', 'Supervisor', 'Gestor Geral', 'Diretor Geral'] },
-  { id: 'agenda', label: '📅 Agenda', C: AgendaGeral, perfis: '*' },
+  { id: 'agenda', label: '📅 Calendário', C: AgendaGeral, perfis: '*' },
   { id: 'meurh', label: '👤 Meu RH', C: MeuRH, perfis: '*' },
   { id: 'canal-escuta', label: '📬 Canal de escuta', C: CanalEscuta, perfis: ['RH', 'Ouvidoria', 'Supervisor', 'Gestor Geral', 'Diretor Geral'] },
   { id: 'documentos-rh', label: '📄 Holerites (RH)', C: DocumentosRH, perfis: ['RH', 'Gestor Geral', 'Diretor Geral'] },

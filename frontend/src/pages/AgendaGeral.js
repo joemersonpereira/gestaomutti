@@ -13,8 +13,8 @@ export default function AgendaGeral() {
   const gestao = GESTAO.includes(usuario.funcao);
   return (
     <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 4px' }}>
-      <Banner emoji="📅" titulo="Agenda da empresa" cor="verde"
-        sub="Compromissos gerais da empresa (todos veem) + os seus (só você vê). Contatos e tarefas entram sozinhos." />
+      <Banner emoji="📅" titulo="Calendário da empresa" cor="verde"
+        sub="Tudo num lugar: programações do trade, feriados, compromissos da empresa (todos veem) + os seus (só você). Para agendar, clique num dia ou em “+ Agendar”." />
       <div style={{ marginTop: 12 }}>
         <CalendarioEmpresa API={API} gestao={gestao} />
       </div>

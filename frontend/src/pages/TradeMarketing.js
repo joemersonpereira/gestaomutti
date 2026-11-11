@@ -1128,10 +1128,14 @@ function Vendas({ API, gestao }) {
   const excluir = (v) => { if (!window.confirm(`Excluir a negociação ${v.codigo} (${v.fornecedor_nome})?\nIsso remove os espaços e as parcelas. Não dá pra desfazer.`)) return; API.delete(`/trademkt/vendas/${v.id}`).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Erro ao excluir.')); };
   const total = d.vendas.reduce((x, v) => x + (v.valor || 0), 0);
   const aReceber = d.vendas.reduce((x, v) => x + (v.aReceber || 0), 0);
+  const assinados = d.vendas.filter(v => v.contrato_status === 'assinado').length;
+  const aAssinar = d.vendas.filter(v => v.contrato_status === 'aguardando').length;
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-        <div style={{ fontSize: 12.5, color: '#666' }}>{d.vendas.length} negociação(ões) · vendido {brl(total)} · a receber <b style={{ color: '#B7791F' }}>{brl(aReceber)}</b></div>
+        <div style={{ fontSize: 12.5, color: '#666' }}>{d.vendas.length} negociação(ões) · vendido {brl(total)} · a receber <b style={{ color: '#B7791F' }}>{brl(aReceber)}</b>
+          {' · '}<span title="contratos assinados" style={{ ...s.tag, background: '#E6F4EC', color: '#1E874B' }}>✅ {assinados} assinado(s)</span>
+          {aAssinar > 0 && <span title="aguardando assinatura do contrato" style={{ ...s.tag, background: '#FBF0DA', color: '#B45309', marginLeft: 4 }}>✍️ {aAssinar} p/ assinar</span>}</div>
         {gestao && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button onClick={sincronizarProsp} disabled={sincP} style={{ ...s.btnMini, borderColor: '#6D4AA8', color: '#6D4AA8' }} title="Traz do Alpha 7 os fornecedores com ≥ R$100 mil comprados (12 meses) para a coluna Prospecção">{sincP ? '⟳ puxando…' : '⟳ Puxar ≥100k'}</button><button onClick={() => setNovaProsp(true)} style={{ ...s.btn, background: '#6D4AA8' }}>+ Prospecção</button><button onClick={() => setEdit('novo')} style={s.btn}>+ Nova negociação</button></div>}
       </div>
       <form onSubmit={e => { e.preventDefault(); carregar(busca); }} style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
@@ -1167,7 +1171,7 @@ function Vendas({ API, gestao }) {
                 ))}
                 {itens.map(v => (
                   <div key={v.id} style={s.cardA}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}><span style={{ fontSize: 11.5, fontWeight: 700, color: col.cor }}>📐 {v.codigo}</span><span style={{ display: 'flex', gap: 3 }}>{(v.origem === 'portal' || v.origem === 'recompra') ? <span style={{ ...s.tag, background: '#E7F0FB', color: '#2E5C9E' }}>🌐 {v.origem === 'recompra' ? 'recompra' : 'portal'}</span> : null}{proxVencer(v) ? <span style={{ ...s.tag, background: '#FEF3C7', color: '#B45309' }}>⏰ vence</span> : null}{v.atrasado ? <span style={{ ...s.tag, background: '#FBEAEA', color: '#C0392B' }}>atraso</span> : null}{col.id === 'comprovacao' ? <span style={{ ...s.tag, background: v.tem_comprovacao ? '#E6F4EC' : '#FBF0DA', color: v.tem_comprovacao ? '#1E874B' : '#B45309' }}>{v.tem_comprovacao ? '✅ comprovado' : '⚠️ comprovar'}</span> : null}{v.nao_ocupa ? <span style={{ ...s.tag, background: '#EEF2FF', color: '#6D4AA8' }}>📸 não ocupa</span> : null}{v.uso_interno ? <span style={{ ...s.tag, background: '#FBF0DA', color: '#8A6D3B' }}>🏠 uso interno</span> : null}{v.nao_premia ? <span title={v.nao_premia_motivo || ''} style={{ ...s.tag, background: '#FBEAEA', color: '#B45309' }}>🚫 fora da premiação</span> : null}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}><span style={{ fontSize: 11.5, fontWeight: 700, color: col.cor }}>📐 {v.codigo}</span><span style={{ display: 'flex', gap: 3 }}>{(v.origem === 'portal' || v.origem === 'recompra') ? <span style={{ ...s.tag, background: '#E7F0FB', color: '#2E5C9E' }}>🌐 {v.origem === 'recompra' ? 'recompra' : 'portal'}</span> : null}{proxVencer(v) ? <span style={{ ...s.tag, background: '#FEF3C7', color: '#B45309' }}>⏰ vence</span> : null}{v.atrasado ? <span style={{ ...s.tag, background: '#FBEAEA', color: '#C0392B' }}>atraso</span> : null}{col.id === 'comprovacao' ? <span style={{ ...s.tag, background: v.tem_comprovacao ? '#E6F4EC' : '#FBF0DA', color: v.tem_comprovacao ? '#1E874B' : '#B45309' }}>{v.tem_comprovacao ? '✅ comprovado' : '⚠️ comprovar'}</span> : null}{v.nao_ocupa ? <span style={{ ...s.tag, background: '#EEF2FF', color: '#6D4AA8' }}>📸 não ocupa</span> : null}{v.uso_interno ? <span style={{ ...s.tag, background: '#FBF0DA', color: '#8A6D3B' }}>🏠 uso interno</span> : null}{v.nao_premia ? <span title={v.nao_premia_motivo || ''} style={{ ...s.tag, background: '#FBEAEA', color: '#B45309' }}>🚫 fora da premiação</span> : null}{v.contrato_status === 'assinado' ? <span title="contrato assinado" style={{ ...s.tag, background: '#E6F4EC', color: '#1E874B' }}>✅ contrato</span> : v.contrato_status === 'aguardando' ? <span title="aguardando assinatura do contrato" style={{ ...s.tag, background: '#FBF0DA', color: '#B45309' }}>✍️ assinar</span> : null}{v.veic_status === 'assinado' ? <span title="veiculação autorizada (assinada)" style={{ ...s.tag, background: '#E6F4EC', color: '#1E874B' }}>📡 autorizada</span> : v.veic_status === 'aguardando' ? <span title="aguardando assinatura da veiculação" style={{ ...s.tag, background: '#FBF0DA', color: '#B45309' }}>📡 assinar</span> : null}</span></div>
                     <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 4 }}>{v.fornecedor_nome}</div>
                     <div style={{ fontSize: 11.5, color: '#666' }}>{v.espacos} espaço(s){v.tema_desc ? ` · ${v.tema_desc}` : ''}</div>
                     {v.plano_nome && <div style={{ fontSize: 10.5, color: '#6D4AA8', marginTop: 2 }}>📋 {v.plano_nome}</div>}
@@ -2642,7 +2646,7 @@ function PremiacaoVendedor({ API, gestao }) {
     <div>
       <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <b style={{ fontSize: 13 }}>🎯 Metas do trade</b>
-        <span style={{ fontSize: 11.5, color: '#7a8a8c' }}>% de premiação por espaço — só conta <b>após o aceite do fornecedor</b> (status Em veiculação) — + metas de atividade (prospecção, contatos, fechamentos)</span>
+        <span style={{ fontSize: 11.5, color: '#7a8a8c' }}>% de premiação por espaço — só conta <b>com o contrato assinado</b> — + metas de atividade (prospecção, contatos, fechamentos)</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
           <select value={mes} onChange={e => setMes(Number(e.target.value))} style={{ ...s.inp, width: 70 }}>{Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}</select>
           <input type="number" value={ano} onChange={e => setAno(Number(e.target.value))} style={{ ...s.inp, width: 90 }} />
@@ -2841,8 +2845,8 @@ function PainelMeta({ API, aba, onNav, aberto, setAberto }) {
         <div style={{ background: BRAND_GRAD, color: '#fff', borderRadius: 12, padding: 12 }}>
           <div style={{ fontSize: 11, opacity: .85 }}>Premiação do mês</div>
           <div style={{ fontSize: 24, fontWeight: 800 }}>{brl(d.premiacao)}</div>
-          <div style={{ fontSize: 11.5, marginTop: 2 }}>{d.espacos} espaço(s) com aceite · {d.pct}% · {brl(d.valor)}</div>
-          <div style={{ fontSize: 9.5, opacity: .8, marginTop: 1 }}>só conta após o aceite do fornecedor</div>
+          <div style={{ fontSize: 11.5, marginTop: 2 }}>{d.espacos} espaço(s) com contrato assinado · {d.pct}% · {brl(d.valor)}</div>
+          <div style={{ fontSize: 9.5, opacity: .8, marginTop: 1 }}>só conta com o contrato assinado</div>
           {d.proxima && <div style={{ fontSize: 11, marginTop: 6, background: 'rgba(255,255,255,.18)', borderRadius: 8, padding: '5px 8px' }}>🎯 Faltam <b>{d.proxima.faltam}</b> espaço(s) pra <b>{d.proxima.pct}%</b></div>}
         </div>
         {at && (at.prospeccoes.meta > 0 || at.contatos.meta > 0 || at.fechamentos.meta > 0) && <div style={{ border: '1px solid #eef1f4', borderRadius: 12, padding: '10px 12px' }}>

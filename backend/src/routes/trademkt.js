@@ -587,13 +587,23 @@ function baseMesColab(emp, uid, ano, mes) {
   const leg = tradeMetaDe(emp, uid);
   return { prospeccoes_mes: leg.prospeccoes_mes, contatos_dia: leg.contatos_dia, fechamentos_mes: leg.fechamentos_mes };
 }
-// banco de excedente disponível no INÍCIO de mesAlvo (acumula o que passou da base nos meses anteriores do ano)
+// banco de excedente disponível no INÍCIO de (ano,mesAlvo). Acumula o que passou da base desde o PRIMEIRO
+// mês com meta cadastrada (ATRAVESSA ANOS — não reseta em janeiro) e vai sendo abatido quando um mês fica
+// abaixo da base; o saldo feito a mais carrega adiante até ser absorvido (Joe 2026-11-11).
 function bancoDe(emp, uid, ano, mesAlvo, campo, realizadoFn) {
+  const alvoK = ano * 12 + (mesAlvo - 1);
+  // 1º mês com meta cadastrada (do colaborador OU geral) — ponto de partida do acúmulo
+  const minRow = db.prepare("SELECT MIN(ano*12+(mes-1)) k FROM tmkt_trade_meta_mes WHERE empresa_id=? AND (escopo=? OR escopo='geral')").get(emp, String(uid));
+  let iniK = (minRow && minRow.k != null) ? minRow.k : alvoK;
+  if (iniK >= alvoK) return 0;
+  // segurança: no máximo 60 meses para trás (evita varredura infinita)
+  if (alvoK - iniK > 60) iniK = alvoK - 60;
   let banco = 0;
-  for (let m = 1; m < mesAlvo; m++) {
-    const base = baseMesColab(emp, uid, ano, m)[campo];
+  for (let k = iniK; k < alvoK; k++) {
+    const a = Math.floor(k / 12), m = (k % 12) + 1;
+    const base = baseMesColab(emp, uid, a, m)[campo];
     if (base <= 0) continue; // mês sem meta não consome nem gera banco
-    const feito = realizadoFn(emp, uid, ymOf(ano, m));
+    const feito = realizadoFn(emp, uid, ymOf(a, m));
     const usado = Math.min(banco, Math.max(0, base - feito)); // banco cobre o que faltou pra base
     const excedente = Math.max(0, feito - base);              // o que passou da base entra no banco
     banco = banco - usado + excedente;
@@ -1129,7 +1139,10 @@ router.get('/vendas', (req, res) => {
   const rows = db.prepare(`SELECT * FROM tmkt_vendas WHERE ${cond.join(' AND ')} ORDER BY criado_em DESC`).all(...args);
   const espCount = db.prepare('SELECT COUNT(*) n FROM tmkt_venda_espacos WHERE venda_id=?');
   const compCount = db.prepare("SELECT COUNT(*) n FROM tmkt_venda_briefing WHERE venda_id=? AND tipo='comprovacao'");
-  res.json({ status: STATUS, vendas: rows.map(v => ({ ...v, espacos: espCount.get(v.id).n, tem_comprovacao: compCount.get(v.id).n > 0, ...resumoVenda(v) })) });
+  const contSt = db.prepare('SELECT status FROM tmkt_contrato WHERE venda_id=?');
+  const veicSt = db.prepare('SELECT status FROM tmkt_veic_termo WHERE venda_id=?');
+  res.json({ status: STATUS, vendas: rows.map(v => ({ ...v, espacos: espCount.get(v.id).n, tem_comprovacao: compCount.get(v.id).n > 0,
+    contrato_status: contSt.get(v.id)?.status || null, veic_status: veicSt.get(v.id)?.status || null, ...resumoVenda(v) })) });
 });
 router.get('/vendas/:id', (req, res) => {
   const emp = req.usuario.empresa_id;
