@@ -29,8 +29,10 @@ const ind = {
   sub: { fontSize: 12, fontWeight: 600, color: '#64748b' },
 };
 
+const GESTAO_TES_FE = ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Tesouraria', 'Supervisor'];
 export default function TesourariaCaixa({ embed } = {}) {
-  const { API } = useAuth();
+  const { API, usuario } = useAuth();
+  const ehGestao = GESTAO_TES_FE.includes(usuario?.funcao);
   const [lojas, setLojas] = useState([]);
   const [loja, setLoja] = useState('');
   const [data, setData] = useState(hojeStr);
@@ -100,6 +102,7 @@ export default function TesourariaCaixa({ embed } = {}) {
     } catch (e) { setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro ao anexar.')); setTimeout(() => setMsg(''), 6000); }
   };
   const remover = (a) => { if (!window.confirm('Remover este anexo?')) return; API.delete(`/tesouraria/anexos/${a.id}`).then(carregar).catch(() => {}); };
+  const validarFiscal = (a, fiscal) => API.post(`/tesouraria/anexos/${a.id}/fiscal`, { fiscal }).then(carregar).catch(() => {});
   const ver = (a) => API.get(`/tesouraria/anexo/${a.id}`).then(r => { const w = window.open(); if (w) w.document.write(`<iframe src="${r.data.dados}" style="width:100%;height:100vh;border:0"></iframe>`); }).catch(() => {});
   const salvarCfg = () => API.put('/tesouraria/pasta-config', { base, salvarBase, depositoBase }).then(() => { setMsg('✅ Pastas salvas.'); setTimeout(() => setMsg(''), 2500); }).catch(() => {});
   const abrirPasta = (tipo) => { setPastaTipo(tipo); API.get('/tesouraria/pasta/listar').then(r => setPasta(r.data)).catch(e => { setPasta({ arquivos: [], erro: e.response?.data?.erro || 'Erro' }); }); };
@@ -151,6 +154,11 @@ export default function TesourariaCaixa({ embed } = {}) {
               {a.origem === 'foto' && <span style={{ color: '#b45309', fontSize: 11 }}> · foto</span>}
               {a.arquivo_salvo && <span title={a.arquivo_salvo} style={{ color: '#15803d', fontSize: 11 }}> · 📁 salvo na pasta</span>}</span>
             {a.valor != null && <span style={{ fontWeight: 600 }}>{brl(a.valor)}</span>}
+            {tipo === 'despesa' && (a.fiscal_conf != null
+              ? <span title={a.fiscal_conf_por ? ('conferido por ' + a.fiscal_conf_por) : ''} style={{ fontSize: 11, fontWeight: 700, color: a.fiscal_conf ? '#15803d' : '#b45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}>{a.fiscal_conf ? '✅ fiscal' : '❌ não fiscal'}{ehGestao && <button onClick={() => validarFiscal(a, null)} title="refazer conferência" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>↺</button>}</span>
+              : ehGestao
+                ? <span style={{ display: 'inline-flex', gap: 4 }}><button onClick={() => validarFiscal(a, true)} style={{ ...s.btn, padding: '3px 8px', fontSize: 11, color: '#15803d' }}>fiscal</button><button onClick={() => validarFiscal(a, false)} style={{ ...s.btn, padding: '3px 8px', fontSize: 11, color: '#b45309' }}>não fiscal</button></span>
+                : <span style={{ fontSize: 11, color: '#94a3b8' }}>aguarda conferência</span>)}
             <button style={{ ...s.btn, padding: '3px 8px', fontSize: 12 }} onClick={() => ver(a)}>ver</button>
             <button style={{ ...s.btn, padding: '3px 8px', fontSize: 12, color: '#b91c1c' }} onClick={() => remover(a)}>🗑</button>
           </div>

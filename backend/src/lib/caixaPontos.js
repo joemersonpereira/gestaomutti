@@ -156,6 +156,38 @@ async function rankingPontos(emp, { ano, tri, lojaId } = {}) {
   return { ok: true, ano, tri, periodo: { ini, fim }, minimo: min, ranking };
 }
 
+// Planilha de ponto do mês (Tangerino): entrada/saída por colaborador por dia + atraso vs horário padrão.
+async function pontoMes(emp, { ano, mes, lojaId } = {}) {
+  if (!tang.habilitado()) return { ok: false, erro: 'Tangerino não configurado.' };
+  const ini = `${ano}-${pad(mes)}-01`;
+  const lastDay = new Date(Number(ano), Number(mes), 0).getDate();
+  const fim = `${ano}-${pad(mes)}-${pad(lastDay)}`;
+  const h = getHorario(emp, { ano, mes, lojaId: lojaId || '' });
+  const tgNome = {};
+  db.prepare("SELECT nome, tangerino_id FROM colaboradores WHERE tangerino_id IS NOT NULL AND tangerino_id<>''").all().forEach(c => { tgNome[String(c.tangerino_id)] = c.nome; });
+  const bat = await tang.todasBatidas({ startDate: ini, endDate: fim });
+  const dias = {};
+  for (const b of bat) {
+    const ts = b.dateIn ? Number(b.dateIn) : null; if (!ts) continue;
+    const dia = new Date(ts).toISOString().slice(0, 10);
+    const k = String(b.employeeId) + '|' + dia;
+    if (!dias[k]) dias[k] = { ins: [], outs: [] };
+    dias[k].ins.push(ts); if (b.dateOut) dias[k].outs.push(Number(b.dateOut));
+  }
+  const hm = ts => new Date(ts).toTimeString().slice(0, 5);
+  const rows = [];
+  for (const [k, v] of Object.entries(dias)) {
+    const [eid, dia] = k.split('|'); const nome = tgNome[eid] || ('Tangerino ' + eid);
+    const entradaTs = Math.min(...v.ins); const saidaTs = v.outs.length ? Math.max(...v.outs) : Math.max(...v.ins);
+    let atraso = '';
+    if (h && h.entrada) { const [eh, em] = String(h.entrada).split(':').map(Number); const esp = new Date(dia + 'T00:00:00'); esp.setHours(eh || 0, em || 0, 0, 0); atraso = Math.round((entradaTs - esp.getTime()) / 60000); }
+    const dow = new Date(dia + 'T12:00:00').getDay();
+    rows.push({ colaborador: nome, data: dia, dia_semana: ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][dow], entrada: hm(entradaTs), saida: hm(saidaTs), atraso });
+  }
+  rows.sort((a, b) => a.colaborador.localeCompare(b.colaborador) || a.data.localeCompare(b.data));
+  return { ok: true, horario: h || null, rows };
+}
+
 // Lançamento avulso de pontos OU de diferença (a diferença avulsa também é só pontos aqui).
 function lancar(emp, { operador_nome, colaborador_id, loja_id, data, regra_chave, pontos, obs, usuario }) {
   if (!operador_nome) throw new Error('Informe o operador.');
@@ -177,4 +209,4 @@ function removerLancamento(emp, id) {
   return { ok: true };
 }
 
-module.exports = { rankingPontos, lancar, listarLancamentos, removerLancamento, trimestreRange, getHorario, setHorario };
+module.exports = { rankingPontos, lancar, listarLancamentos, removerLancamento, trimestreRange, getHorario, setHorario, pontoMes };

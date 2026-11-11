@@ -351,7 +351,7 @@ function QuebrasErp({ API, soControle }) {
   const lojas = useLojasTes(API);
   const [ini, setIni] = useState(inicioMes()); const [fim, setFim] = useState(hojeISO());
   const [loja, setLoja] = useState(''); const [d, setD] = useState(null); const [carreg, setCarreg] = useState(false);
-  const [limiar, setLimiar] = useState(5); const [soRel, setSoRel] = useState(false); const [soPend, setSoPend] = useState(false);
+  const [limiar, setLimiar] = useState(5); const [soRel, setSoRel] = useState(false); const [soPend, setSoPend] = useState(false); const [busca, setBusca] = useState('');
   const [pontosQuebra, setPontosQuebra] = useState(0); const [czCfg, setCzCfg] = useState(100); const [msg, setMsg] = useState('');
   const carregar = useCallback(() => {
     setCarreg(true);
@@ -376,7 +376,7 @@ function QuebrasErp({ API, soControle }) {
     marcar(q, 'perdoado', (comPontos ? '[com pontos] ' : '[sem pontos] ') + j);
   };
   const R = d?.resumo;
-  const linhas = (d?.quebras || []).filter(q => !soRel || q.relevante).filter(q => !soPend || (q.relevante && q.cobranca?.status !== 'perdoado'));
+  const linhas = (d?.quebras || []).filter(q => !soRel || q.relevante).filter(q => !soPend || (q.relevante && q.cobranca?.status !== 'perdoado')).filter(q => !busca.trim() || (q.operador || '').toLowerCase().includes(busca.trim().toLowerCase()) || (q.login || '').toLowerCase().includes(busca.trim().toLowerCase()));
   const COLS = [
     { k: 'data', label: 'Data', tipo: 'txt', get: q => q.data || '' },
     { k: 'operador', label: 'Operador', tipo: 'txt', get: q => q.operador || '' },
@@ -413,6 +413,7 @@ function QuebrasErp({ API, soControle }) {
         {soControle && <label style={{ ...s.fld, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
           <input type="checkbox" checked={soPend} onChange={e => setSoPend(e.target.checked)} /> só ação pendente
         </label>}
+        <label style={s.fld}>🔍 Pessoa<input value={busca} onChange={e => setBusca(e.target.value)} placeholder="nome do operador" style={{ ...s.inp, minWidth: 160 }} /></label>
       </PeriodoTes>
       {msg && <div style={{ fontSize: 12, color: msg.startsWith('⚠️') ? '#C0392B' : '#7A4FB0', margin: '0 0 8px' }}>{msg}</div>}
       {d?.erro && <div style={s.erroBox}>⚠️ {d.erro}</div>}

@@ -123,6 +123,7 @@ const PENDENTES = [
   './migrations/354_caixa_pontos',
   './migrations/355_caixa_pontos_auto',
   './migrations/356_caixa_horario_mes',
+  './migrations/357_tesouraria_anexo_fiscal_conf',
 ];
 
 console.log('=== Rodando migrações pendentes (065–073) ===\n');

@@ -265,11 +265,19 @@ router.get('/planos', async (req, res) => {
 
 // Lista os anexos do dia (sem o base64, só metadados).
 router.get('/anexos', (req, res) => {
-  const rows = db.prepare(`SELECT id, loja_id, data, tipo, descricao, valor, plano_contas, nome, tipo_mime, origem, arquivo_salvo, fiscal, tipo_doc, criado_em FROM tesouraria_anexo
+  const rows = db.prepare(`SELECT id, loja_id, data, tipo, descricao, valor, plano_contas, nome, tipo_mime, origem, arquivo_salvo, fiscal, tipo_doc, fiscal_conf, fiscal_conf_por, fiscal_conf_em, criado_em FROM tesouraria_anexo
     WHERE empresa_id=? AND loja_id=? AND data=? ORDER BY tipo, criado_em DESC`).all(req.usuario.empresa_id, req.query.loja || '', req.query.data || hoje());
   const total = { deposito: 0, despesa: 0 };
   rows.forEach(r => { total[r.tipo] = (total[r.tipo] || 0) + (Number(r.valor) || 0); });
   res.json({ anexos: rows, total });
+});
+// Conferência fiscal da despesa pelo escritório: marca fiscal (1) / não fiscal (0) / limpa (null). Só gestão.
+router.post('/anexos/:id/fiscal', soGestao, (req, res) => {
+  const v = req.body.fiscal;
+  const val = v === null || v === undefined || v === '' ? null : (v ? 1 : 0);
+  const r = db.prepare('UPDATE tesouraria_anexo SET fiscal_conf=?, fiscal_conf_por=?, fiscal_conf_em=datetime(\'now\') WHERE id=? AND empresa_id=?')
+    .run(val, (req.usuario.nome || req.usuario.id || null), req.params.id, req.usuario.empresa_id);
+  res.json({ ok: r.changes > 0, fiscal_conf: val });
 });
 router.get('/anexo/:id', (req, res) => {
   const a = db.prepare(`SELECT nome, tipo_mime AS tipo, dados FROM tesouraria_anexo WHERE id=? AND empresa_id=?`).get(req.params.id, req.usuario.empresa_id);
