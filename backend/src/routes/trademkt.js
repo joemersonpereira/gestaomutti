@@ -887,6 +887,44 @@ router.post('/prospeccoes/:id/reabrir', exigePerfil(...GESTAO), (req, res) => {
 // ── CALENDÁRIO / AGENDA DA EMPRESA ────────────────────────────────────────────
 // Eventos "empresa" todo mundo vê; "pessoal" só o dono. Agendamentos de lead/prospecção/tarefa
 // são DERIVADOS (não gravados) e sempre pessoais do responsável.
+// ── Unificação do calendário: sobrepõe (só leitura) as programações do Trade (tmkt_calendario,
+//    com recorrência) e os feriados cadastrados (contabil_feriado) na Agenda geral. ──
+function _diasEntre(ini, fim) { const out = []; const d = new Date(ini + 'T00:00:00'), end = new Date(fim + 'T00:00:00'); while (d <= end) { out.push(d.toISOString().slice(0, 10)); d.setDate(d.getDate() + 1); } return out; }
+function overlayCalendario(emp, ini, fim) {
+  const out = [];
+  // programações do trade (ações / dias temáticos / campanhas)
+  const CATICO = { suplemento: '💊', 'bem-estar': '🌿', beleza: '💄', saude: '🩺', geral: '📣' };
+  const evs = db.prepare("SELECT id,nome,tipo,categoria,recorrencia,dia_semana,dia_mes,data,data_ini,data_fim,cor FROM tmkt_calendario WHERE empresa_id=? AND COALESCE(status,'ativo')='ativo'").all(emp);
+  for (const ev of evs) {
+    const rec = ev.recorrencia || 'unico';
+    const emoji = CATICO[ev.categoria] || '🗓️';
+    const base = { visibilidade: 'empresa', meu: false, editavel: false, origem: 'programacao', cor: ev.cor || '#6D4AA8', hora: null };
+    if (rec === 'unico') {
+      if (ev.data) { if (ev.data >= ini && ev.data <= fim) out.push({ ...base, id: 'cal-' + ev.id, data: ev.data, fim: null, titulo: emoji + ' ' + ev.nome }); }
+      else if (ev.data_ini) { const a = ev.data_ini, b = ev.data_fim || ev.data_ini; if (a <= fim && b >= ini) out.push({ ...base, id: 'cal-' + ev.id, data: a, fim: b, titulo: emoji + ' ' + ev.nome }); }
+    } else {
+      const ji = ev.data_ini && ev.data_ini > ini ? ev.data_ini : ini;
+      const jf = ev.data_fim && ev.data_fim < fim ? ev.data_fim : fim;
+      if (ji <= jf) {
+        const anchor = ev.data_ini || ji;
+        for (const d of _diasEntre(ji, jf)) {
+          const dt = new Date(d + 'T00:00:00');
+          let ok = false;
+          if (rec === 'semanal') ok = dt.getDay() === ev.dia_semana;
+          else if (rec === 'quinzenal') ok = dt.getDay() === ev.dia_semana && Math.round((dt - new Date(anchor + 'T00:00:00')) / (7 * 864e5)) % 2 === 0;
+          else if (rec === 'mensal') ok = Number(d.slice(8, 10)) === ev.dia_mes;
+          if (ok) out.push({ ...base, id: 'cal-' + ev.id + '-' + d, data: d, fim: null, titulo: emoji + ' ' + ev.nome });
+        }
+      }
+    }
+  }
+  // feriados cadastrados
+  try {
+    const fer = db.prepare("SELECT data, nome FROM contabil_feriado WHERE empresa_id=? AND data>=? AND data<=?").all(emp, ini, fim);
+    for (const f of fer) out.push({ id: 'fer-' + f.data, data: f.data, fim: null, titulo: '🎉 ' + f.nome, visibilidade: 'empresa', meu: false, editavel: false, origem: 'feriado', cor: '#C0392B', hora: null });
+  } catch (e) { /* tabela pode não existir */ }
+  return out;
+}
 router.get('/agenda', (req, res) => {
   const emp = req.usuario.empresa_id, uid = req.usuario.id;
   const ini = String(req.query.ini || '').slice(0, 10) || '0000-01-01';
@@ -915,8 +953,9 @@ router.get('/agenda', (req, res) => {
         AND date(substr(prazo,1,10)) BETWEEN ? AND ?`).all(emp, uid, ini, fim)
     .map(t => ({ id: 'tar-' + t.id, ref_id: t.id, titulo: '✅ ' + t.titulo, data: String(t.prazo).slice(0, 10),
       hora: null, fim: null, visibilidade: 'pessoal', meu: true, editavel: false, origem: 'tarefa', cor: '#1E874B' }));
-  const eventos = [...manuais, ...prosp, ...reab, ...tarefas]
-    .map(e => ({ ...e, atrasado: !!(e.data && e.data < hoje && e.origem !== 'manual') }));
+  const overlay = overlayCalendario(emp, ini, fim); // programações do trade + feriados (só leitura)
+  const eventos = [...manuais, ...prosp, ...reab, ...tarefas, ...overlay]
+    .map(e => ({ ...e, atrasado: !!(e.data && e.data < hoje && e.origem !== 'manual' && e.origem !== 'programacao' && e.origem !== 'feriado') }));
   res.json({ eventos });
 });
 router.post('/agenda', (req, res) => {

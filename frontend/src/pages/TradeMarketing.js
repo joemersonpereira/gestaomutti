@@ -2709,7 +2709,7 @@ function Calendario({ API, gestao, onNav }) {
   const [ano, setAno] = useState(hoje.getFullYear());
   const [mes, setMes] = useState(hoje.getMonth()); // 0-11
   const [eventos, setEventos] = useState([]);
-  const [verEmpresa, setVerEmpresa] = useState(true); const [verMeus, setVerMeus] = useState(true);
+  const [verEmpresa, setVerEmpresa] = useState(true); const [verMeus, setVerMeus] = useState(true); const [verProg, setVerProg] = useState(true);
   const [diaSel, setDiaSel] = useState(null); const [editEv, setEditEv] = useState(null); // objeto de evento ou {data} p/ novo
   // grade de 6 semanas começando no domingo
   const primeiro = new Date(ano, mes, 1);
@@ -2718,7 +2718,7 @@ function Calendario({ API, gestao, onNav }) {
   const iniISO = isoDia(dias[0]); const fimISO = isoDia(dias[41]);
   const carregar = useCallback(() => API.get('/trademkt/agenda', { params: { ini: iniISO, fim: fimISO } }).then(r => setEventos(r.data.eventos || [])).catch(() => setEventos([])), [API, iniISO, fimISO]);
   useEffect(() => { carregar(); }, [carregar]);
-  const visivel = e => (e.visibilidade === 'empresa' ? verEmpresa : verMeus);
+  const visivel = e => (e.origem === 'programacao' || e.origem === 'feriado') ? verProg : (e.visibilidade === 'empresa' ? verEmpresa : verMeus);
   const doDia = iso => eventos.filter(visivel).filter(e => e.data <= iso && (e.fim || e.data) >= iso);
   const navMes = dir => { let m = mes + dir, a = ano; if (m < 0) { m = 11; a--; } if (m > 11) { m = 0; a++; } setMes(m); setAno(a); };
   const abrirEvento = e => { if (e.editavel) setEditEv(e); else if (e.aba && onNav) onNav(e.aba); };
@@ -2737,6 +2737,7 @@ function Calendario({ API, gestao, onNav }) {
     <div style={{ ...s.card, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
       <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={verEmpresa} onChange={e => setVerEmpresa(e.target.checked)} /><span style={{ width: 11, height: 11, borderRadius: 3, background: '#0E7C5A', display: 'inline-block' }} /> Empresa</label>
       <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={verMeus} onChange={e => setVerMeus(e.target.checked)} /><span style={{ width: 11, height: 11, borderRadius: 3, background: '#2563eb', display: 'inline-block' }} /> Meus compromissos</label>
+      <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={verProg} onChange={e => setVerProg(e.target.checked)} /><span style={{ width: 11, height: 11, borderRadius: 3, background: '#6D4AA8', display: 'inline-block' }} /> Programações & feriados</label>
       <span style={{ color: '#94a3b8' }}>Clique num dia para ver/agendar.</span>
     </div>
     <div style={{ ...s.card, padding: 8 }}>
