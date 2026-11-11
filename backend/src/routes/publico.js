@@ -669,4 +669,34 @@ async function comprasPorEscopo(tipo, refs, ini, fim) {
   } catch (e) { return { erro: e.message }; }
 }
 
+// ── ASSINATURA ELETRÔNICA DE CONTRATO (sem login, por token) ──────────────────
+// O gestor gera o link em Trade → Negociação → aba Contrato. O assinante vê o contrato e envia
+// selfie + foto do documento + assinatura na tela; o servidor grava IP e user-agent.
+const ehDataImg = s => typeof s === 'string' && /^data:image\/(png|jpe?g|webp);base64,/.test(s) && s.length < 8_000_000;
+router.get('/trade/contrato/:token', (req, res) => {
+  const c = db.prepare("SELECT c.*, v.codigo, v.fornecedor_nome FROM tmkt_contrato c JOIN tmkt_vendas v ON v.id=c.venda_id WHERE c.token=? AND c.empresa_id=?").get(req.params.token, EMP);
+  if (!c || !c.token) return res.status(404).json({ erro: 'Link inválido ou expirado.' });
+  res.json({
+    codigo: c.codigo, fornecedor: c.fornecedor_nome, corpo: c.corpo || '', objeto: c.objeto || '',
+    assinado: c.status === 'assinado', assinante_nome: c.assinante_nome || null, assinado_em: c.assinado_em || null,
+  });
+});
+router.post('/trade/contrato/:token/assinar', (req, res) => {
+  const b = req.body || {};
+  const c = db.prepare("SELECT * FROM tmkt_contrato WHERE token=? AND empresa_id=?").get(req.params.token, EMP);
+  if (!c || !c.token) return res.status(404).json({ erro: 'Link inválido ou expirado.' });
+  if (c.status === 'assinado') return res.status(400).json({ erro: 'Este contrato já foi assinado.' });
+  const nome = String(b.assinante_nome || '').trim();
+  if (nome.length < 3) return res.status(400).json({ erro: 'Informe seu nome completo.' });
+  if (!ehDataImg(b.assinatura)) return res.status(400).json({ erro: 'Assine na tela (campo de assinatura).' });
+  if (!ehDataImg(b.selfie)) return res.status(400).json({ erro: 'Envie a selfie.' });
+  if (!ehDataImg(b.documento)) return res.status(400).json({ erro: 'Envie a foto do documento.' });
+  const ip = (String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket?.remoteAddress || req.ip || '';
+  const ua = String(req.headers['user-agent'] || '').slice(0, 400);
+  db.prepare(`UPDATE tmkt_contrato SET status='assinado', assinante_nome=?, assinante_doc=?, assinatura_img=?, selfie_img=?, documento_img=?,
+      ip=?, user_agent=?, assinado_em=datetime('now') WHERE id=?`)
+    .run(nome, String(b.assinante_doc || '').slice(0, 40) || null, b.assinatura, b.selfie, b.documento, ip, ua, c.id);
+  res.json({ ok: true });
+});
+
 module.exports = router;

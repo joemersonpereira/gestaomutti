@@ -1295,7 +1295,7 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
     else window.prompt('🔗 Link do fornecedor (já copiado). Sem login — ele vê o sell-out, a comprovação e, quando aguardando, dá ciência e aprova (vai pra veiculação):', url);
   }).catch(e => alert(e.response?.data?.erro || 'Erro ao gerar link'));
   const precisaSalvar = !id;
-  const ABAS = [['dados', '📄 Dados & Espaços'], ['material', '🎨 Material & briefing'], ['financeiro', '💳 Financeiro'], ['sellout', '📈 Sell-out (ERP)']];
+  const ABAS = [['dados', '📄 Dados & Espaços'], ['material', '🎨 Material & briefing'], ['financeiro', '💳 Financeiro'], ['contrato', '✍️ Contrato'], ['sellout', '📈 Sell-out (ERP)']];
   const COLS_SELL = [
     { k: 'ean', label: 'EAN', tipo: 'txt', get: it => it.ean || '' },
     { k: 'qtd_contrato', label: 'Qtd contrato', tipo: 'num', right: true, get: it => it.qtd_contrato || 0 },
@@ -1488,8 +1488,76 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
           </table>
         </div>}
       </div>}
+      {aba === 'contrato' && id && <ContratoTab API={API} vendaId={id} />}
     </div></div>
   );
+}
+
+function ContratoTab({ API, vendaId }) {
+  const { usuario } = useAuth();
+  const gestao = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing'].includes(usuario.funcao);
+  const [d, setD] = useState(null); const [objeto, setObjeto] = useState(''); const [linkNovo, setLinkNovo] = useState('');
+  const carregar = useCallback(() => API.get(`/trademkt/vendas/${vendaId}/contrato`).then(r => { setD(r.data); setObjeto(r.data.objeto || ''); }).catch(() => setD({ erro: true })), [API, vendaId]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const salvarObjeto = () => API.put(`/trademkt/vendas/${vendaId}/contrato`, { objeto }).then(carregar).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const solicitar = () => API.post(`/trademkt/vendas/${vendaId}/contrato/solicitar`).then(r => { setLinkNovo(window.location.origin + '/assinar.html?t=' + r.data.token); carregar(); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const cancelar = () => { if (window.confirm('Cancelar a solicitação de assinatura? O link atual deixa de valer.')) API.post(`/trademkt/vendas/${vendaId}/contrato/cancelar`).then(() => { setLinkNovo(''); carregar(); }).catch(e => alert(e.response?.data?.erro || 'Erro')); };
+  const verEv = tipo => API.get(`/trademkt/vendas/${vendaId}/contrato/evidencia/${tipo}`, { responseType: 'blob' }).then(r => window.open(URL.createObjectURL(r.data), '_blank')).catch(() => alert('Não foi possível abrir.'));
+  const imprimir = () => { const w = window.open('', '_blank'); if (w) { w.document.write('<pre style="font:13px/1.6 system-ui;white-space:pre-wrap;padding:24px">' + (d.texto || '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])) + '</pre>'); w.document.close(); w.print(); } };
+  if (!d) return <div style={s.vazio}>Carregando…</div>;
+  if (d.erro) return <div style={s.vazio}>Erro ao carregar o contrato.</div>;
+  const assinado = d.status === 'assinado', aguardando = d.status === 'aguardando';
+  const link = linkNovo || (d.token ? window.location.origin + '/assinar.html?t=' + d.token : '');
+  const copiar = () => { navigator.clipboard?.writeText(link); alert('Link copiado.'); };
+  const whats = () => window.open('https://wa.me/?text=' + encodeURIComponent(`Contrato ${d.codigo} — Grupo Mutti. Assine aqui (precisa de selfie, foto do documento e assinatura):\n${link}`), '_blank');
+  return <div style={{ display: 'grid', gap: 12 }}>
+    <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', background: assinado ? '#E7F5EC' : aguardando ? '#FFF7ED' : '#F6F8FA' }}>
+      <b style={{ fontSize: 13 }}>{assinado ? '✅ Contrato assinado' : aguardando ? '⏳ Aguardando assinatura' : '📝 Contrato (rascunho)'}</b>
+      <span style={{ fontSize: 11.5, color: '#64748b' }}>{assinado ? `por ${d.assinante_nome || '—'} em ${(d.assinado_em || '').replace('T', ' ').slice(0, 16)}` : aguardando ? 'link de assinatura gerado — envie ao fornecedor' : 'edite o objeto e solicite a assinatura'}</span>
+      <button onClick={imprimir} style={{ ...s.btnMini, marginLeft: 'auto' }}>🖨 Imprimir / PDF</button>
+    </div>
+
+    <div style={s.card}>
+      <div style={s.lbl}>Objeto do contrato <span style={{ color: '#94a3b8', fontWeight: 400 }}>(editável — entra no texto)</span></div>
+      <textarea value={objeto} onChange={e => setObjeto(e.target.value)} disabled={assinado} placeholder="Descreva o objeto do contrato…" style={{ ...s.inp, width: '100%', minHeight: 70, resize: 'vertical' }} />
+      {!assinado && gestao && <button onClick={salvarObjeto} style={{ ...s.btnMini, marginTop: 6 }}>💾 Salvar objeto</button>}
+    </div>
+
+    <div style={s.card}>
+      <div style={s.lbl}>Contrato gerado</div>
+      <pre style={{ background: '#FAFBFC', border: '1px solid #eee', borderRadius: 8, padding: 12, fontSize: 12.5, whiteSpace: 'pre-wrap', maxHeight: '38vh', overflow: 'auto', margin: 0 }}>{d.texto}</pre>
+    </div>
+
+    {gestao && !assinado && <div style={s.card}>
+      <div style={s.lbl}>Assinatura eletrônica</div>
+      {!aguardando ? <>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>Gera um link para o fornecedor assinar. Exige <b>selfie</b>, <b>foto do documento</b> e <b>assinatura na tela</b>; o IP e a data/hora ficam registrados.</div>
+        <button onClick={solicitar} style={s.btn}>✍️ Solicitar assinatura</button>
+      </> : <>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>Link de assinatura (envie ao fornecedor):</div>
+        <input readOnly value={link} onFocus={e => e.target.select()} style={{ ...s.inp, width: '100%', fontSize: 12 }} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+          <button onClick={copiar} style={{ ...s.btnMini, borderColor: '#2E5C9E', color: '#2E5C9E' }}>🔗 Copiar link</button>
+          <button onClick={whats} style={{ ...s.btnMini, borderColor: '#25D366', color: '#128C7E' }}>📲 WhatsApp</button>
+          <button onClick={cancelar} style={{ ...s.mv, color: '#C0392B', marginLeft: 'auto' }}>cancelar solicitação</button>
+        </div>
+      </>}
+    </div>}
+
+    {assinado && <div style={s.card}>
+      <div style={s.lbl}>Comprovação da assinatura</div>
+      <div style={{ fontSize: 12.5, color: '#334', display: 'grid', gap: 3, marginBottom: 8 }}>
+        <div>👤 <b>{d.assinante_nome || '—'}</b>{d.assinante_doc ? ` · ${d.assinante_doc}` : ''}</div>
+        <div>🕓 {(d.assinado_em || '').replace('T', ' ').slice(0, 16)}</div>
+        <div>🌐 IP: {d.ip || '—'}</div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {d.tem_selfie && <button onClick={() => verEv('selfie')} style={s.btnMini}>🤳 Selfie</button>}
+        {d.tem_documento && <button onClick={() => verEv('documento')} style={s.btnMini}>📄 Documento</button>}
+        {d.tem_assinatura && <button onClick={() => verEv('assinatura')} style={s.btnMini}>✍️ Assinatura</button>}
+      </div>
+    </div>}
+  </div>;
 }
 
 function GerarParcelas({ onGerar }) {

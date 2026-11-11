@@ -52,6 +52,7 @@ router.delete('/grupos-economicos/fornecedor/:fid', exigePerfil(...GESTAO), (req
 });
 
 // ── Modelo de contrato com placeholders (@Fornecedor, @Valor, @VigenciaInicio…) ──
+const OBJETO_PADRAO = 'Cessão onerosa de espaço(s) comercial(is) nas lojas do Grupo Mutti ao FORNECEDOR, para exposição e ativação dos produtos/marcas indicados, durante a vigência e nas condições abaixo.';
 const TEMPLATE_PADRAO = `CONTRATO DE CESSÃO DE ESPAÇO COMERCIAL — @Codigo
 
 CONTRATANTE (fornecedor): @Fornecedor — CNPJ @FornecedorCnpj
@@ -59,6 +60,9 @@ Tema / campanha: @Tema
 Vigência: @VigenciaInicio a @VigenciaFim
 Forma de pagamento: @FormaPagamento
 Valor total: @Valor
+
+OBJETO:
+@Objeto
 
 Lojas participantes: @Lojas
 
@@ -78,11 +82,11 @@ router.post('/contrato-template', exigePerfil(...GESTAO), (req, res) => {
     ON CONFLICT(empresa_id,chave) DO UPDATE SET valor=excluded.valor`).run(req.usuario.empresa_id, String(req.body.template || ''));
   res.json({ ok: true });
 });
-router.get('/vendas/:id/contrato', async (req, res) => {
-  const emp = req.usuario.empresa_id;
-  const v = db.prepare('SELECT * FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
-  if (!v) return res.status(404).json({ erro: 'Venda não encontrada.' });
-  const tmpl = (db.prepare("SELECT valor FROM configuracoes WHERE empresa_id=? AND chave='tmkt_contrato_template'").get(emp)?.valor) || TEMPLATE_PADRAO;
+// Gera o texto do contrato de uma venda (preenche os @placeholders). objeto = texto editável da negociação.
+async function gerarContratoTexto(emp, v, objeto) {
+  let tmpl = (db.prepare("SELECT valor FROM configuracoes WHERE empresa_id=? AND chave='tmkt_contrato_template'").get(emp)?.valor) || TEMPLATE_PADRAO;
+  // garante que o OBJETO apareça mesmo em templates antigos que não têm o @Objeto
+  if (!tmpl.includes('@Objeto')) tmpl = tmpl.replace(/(\n\s*\n|$)/, '\n\nOBJETO:\n@Objeto\n$1');
   const esp = db.prepare('SELECT * FROM tmkt_venda_espacos WHERE venda_id=? ORDER BY loja_nome, area_desc').all(v.id);
   const lojas = [...new Set(esp.map(e => e.loja_nome).filter(Boolean))].join(', ') || (v.loja_id ? '' : '—');
   const espTxt = esp.length ? esp.map(e => `  • ${e.loja_nome ? e.loja_nome + ' — ' : ''}${e.area_desc ? e.area_desc + ' · ' : ''}${e.espaco_desc}${e.slot ? ' (vaga ' + e.slot + ')' : ''} — ${moneyBR(e.valor)}`).join('\n') : '  (nenhum)';
@@ -94,10 +98,74 @@ router.get('/vendas/:id/contrato', async (req, res) => {
     '@Codigo': v.codigo || '', '@Fornecedor': v.fornecedor_nome || '—', '@FornecedorCnpj': cnpj,
     '@Tema': v.tema_desc || '—', '@VigenciaInicio': dBRr(v.vigencia_ini), '@VigenciaFim': dBRr(v.vigencia_fim),
     '@FormaPagamento': v.forma_pagamento || '—', '@Valor': moneyBR(v.valor), '@Lojas': lojas || '—',
-    '@Espacos': espTxt, '@DataHoje': dBRr(new Date().toISOString()),
+    '@Espacos': espTxt, '@DataHoje': dBRr(new Date().toISOString()), '@Objeto': (objeto || OBJETO_PADRAO),
   };
-  const texto = tmpl.replace(/@[A-Za-zçÇ]+/g, m => (m in mapa ? mapa[m] : m));
-  res.json({ texto, codigo: v.codigo });
+  return tmpl.replace(/@[A-Za-zçÇ]+/g, m => (m in mapa ? mapa[m] : m));
+}
+function contratoRow(emp, vendaId) {
+  return db.prepare('SELECT * FROM tmkt_contrato WHERE empresa_id=? AND venda_id=?').get(emp, vendaId);
+}
+router.get('/vendas/:id/contrato', async (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const v = db.prepare('SELECT * FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!v) return res.status(404).json({ erro: 'Venda não encontrada.' });
+  const c = contratoRow(emp, v.id);
+  const objeto = c?.objeto != null ? c.objeto : OBJETO_PADRAO;
+  // assinado = mostra o corpo "congelado" do momento da assinatura; senão, regenera ao vivo
+  const texto = (c && c.status === 'assinado' && c.corpo) ? c.corpo : await gerarContratoTexto(emp, v, objeto);
+  res.json({
+    texto, codigo: v.codigo, objeto,
+    status: c?.status || 'rascunho',
+    token: c?.token || null,
+    assinante_nome: c?.assinante_nome || null, assinante_doc: c?.assinante_doc || null,
+    ip: c?.ip || null, assinado_em: c?.assinado_em || null, solicitado_em: c?.solicitado_em || null,
+    tem_selfie: !!(c && c.selfie_img), tem_documento: !!(c && c.documento_img), tem_assinatura: !!(c && c.assinatura_img),
+  });
+});
+// Salva o OBJETO editável da negociação (upsert do contrato em rascunho).
+router.put('/vendas/:id/contrato', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const v = db.prepare('SELECT id FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!v) return res.status(404).json({ erro: 'Venda não encontrada.' });
+  const c = contratoRow(emp, v.id);
+  if (c && c.status === 'assinado') return res.status(400).json({ erro: 'Contrato já assinado — não pode ser alterado.' });
+  const objeto = String(req.body.objeto != null ? req.body.objeto : '').trim();
+  if (c) db.prepare('UPDATE tmkt_contrato SET objeto=? WHERE id=?').run(objeto, c.id);
+  else db.prepare("INSERT INTO tmkt_contrato (id,empresa_id,venda_id,objeto,status) VALUES (?,?,?,?, 'rascunho')").run(uuid(), emp, v.id, objeto);
+  res.json({ ok: true });
+});
+// Solicita assinatura: congela o corpo atual, gera o token do link público e muda p/ 'aguardando'.
+router.post('/vendas/:id/contrato/solicitar', exigePerfil(...GESTAO), async (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const v = db.prepare('SELECT * FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!v) return res.status(404).json({ erro: 'Venda não encontrada.' });
+  let c = contratoRow(emp, v.id);
+  if (c && c.status === 'assinado') return res.status(400).json({ erro: 'Contrato já assinado.' });
+  const objeto = c?.objeto != null ? c.objeto : OBJETO_PADRAO;
+  const corpo = await gerarContratoTexto(emp, v, objeto);
+  const token = uuid().replace(/-/g, '');
+  if (c) db.prepare("UPDATE tmkt_contrato SET corpo=?, token=?, status='aguardando', solicitado_em=datetime('now') WHERE id=?").run(corpo, token, c.id);
+  else db.prepare("INSERT INTO tmkt_contrato (id,empresa_id,venda_id,objeto,corpo,token,status,solicitado_em) VALUES (?,?,?,?,?,?, 'aguardando', datetime('now'))").run(uuid(), emp, v.id, objeto, corpo, token);
+  res.json({ ok: true, token });
+});
+// Cancela a solicitação (volta a rascunho) — só se ainda não assinou.
+router.post('/vendas/:id/contrato/cancelar', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const c = db.prepare('SELECT c.* FROM tmkt_contrato c JOIN tmkt_vendas v ON v.id=c.venda_id WHERE v.id=? AND v.empresa_id=?').get(req.params.id, emp);
+  if (!c) return res.status(404).json({ erro: 'Sem contrato.' });
+  if (c.status === 'assinado') return res.status(400).json({ erro: 'Já assinado.' });
+  db.prepare("UPDATE tmkt_contrato SET status='rascunho', token=NULL WHERE id=?").run(c.id);
+  res.json({ ok: true });
+});
+// Serve as evidências da assinatura (selfie | documento | assinatura) — só gestão.
+router.get('/vendas/:id/contrato/evidencia/:tipo', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const col = { selfie: 'selfie_img', documento: 'documento_img', assinatura: 'assinatura_img' }[req.params.tipo];
+  if (!col) return res.status(404).end();
+  const c = db.prepare(`SELECT c.${col} img FROM tmkt_contrato c JOIN tmkt_vendas v ON v.id=c.venda_id WHERE v.id=? AND v.empresa_id=?`).get(req.params.id, emp);
+  const m = c && c.img && /^data:([^;]+);base64,(.+)$/.exec(c.img);
+  if (!m) return res.status(404).end();
+  res.set('Content-Type', m[1]); res.send(Buffer.from(m[2], 'base64'));
 });
 
 function proximoCodigo(emp) {

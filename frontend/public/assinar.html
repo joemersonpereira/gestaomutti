@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Assinatura de contrato — Grupo Mutti</title>
+<style>
+  :root { --brand:#0E7C5A; --brand-d:#0b6147; --ink:#15302a; --muted:#64807a; --line:#e2ebe7; --bg:#f4f7f6; --danger:#C0392B; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width: 640px; margin:0 auto; padding:16px; }
+  header { display:flex; align-items:center; gap:10px; padding:4px 0 12px; }
+  header .logo { width:34px;height:34px;border-radius:9px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800; }
+  header b { font-size:15px; } header span { font-size:12px; color:var(--muted); display:block; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px; box-shadow:0 1px 3px rgba(16,40,45,.04); }
+  h2 { font-size:13px; margin:0 0 8px; color:var(--brand-d); text-transform:uppercase; letter-spacing:.03em; }
+  pre.contrato { white-space:pre-wrap; font:12.5px/1.6 system-ui; background:#fafbfb; border:1px solid var(--line); border-radius:10px; padding:12px; max-height:38vh; overflow:auto; margin:0; }
+  label.f { display:block; font-size:12px; color:var(--muted); font-weight:600; margin:10px 0 3px; }
+  input[type=text] { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:9px; font-size:14px; background:#fff; }
+  .shot { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .shot .btn-file { position:relative; overflow:hidden; }
+  .shot input[type=file] { position:absolute; inset:0; opacity:0; cursor:pointer; }
+  .thumb { width:60px;height:60px;border-radius:9px;object-fit:cover;border:1px solid var(--line);display:none; }
+  .thumb.on { display:block; }
+  .ok { color:var(--brand); font-size:12px; font-weight:700; display:none; } .ok.on{display:inline;}
+  button { font:inherit; }
+  .btn { background:var(--brand); color:#fff; border:none; border-radius:10px; padding:12px 18px; font-size:15px; font-weight:700; cursor:pointer; width:100%; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn-sec { background:#eef4f1; color:var(--brand-d); border:1px solid var(--line); border-radius:9px; padding:8px 12px; font-size:13px; font-weight:600; cursor:pointer; }
+  canvas#sig { width:100%; height:180px; background:#fff; border:2px dashed var(--line); border-radius:10px; touch-action:none; display:block; }
+  .hint { font-size:11.5px; color:var(--muted); margin-top:4px; }
+  .msg { padding:12px; border-radius:10px; font-size:13.5px; margin-top:10px; display:none; }
+  .msg.err { background:#fdecea; color:var(--danger); display:block; }
+  .msg.ok { background:#e7f5ec; color:var(--brand-d); display:block; }
+  .done { text-align:center; padding:28px 16px; }
+  .done .big { font-size:46px; } .done h1 { font-size:18px; margin:8px 0 4px; } .done p { color:var(--muted); font-size:13px; }
+  .load { text-align:center; color:var(--muted); padding:40px; font-size:14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">✚</div>
+    <div><b>Grupo Mutti · Trade Marketing</b><span>Assinatura eletrônica de contrato</span></div>
+  </header>
+  <div id="app"><div class="load">Carregando contrato…</div></div>
+</div>
+<script>
+(function(){
+  var token = new URLSearchParams(location.search).get('t') || '';
+  var app = document.getElementById('app');
+  var dados = {};
+  function esc(s){ return String(s==null?'':s).replace(/[<>&]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c];}); }
+  if (!token) { app.innerHTML = '<div class="card"><div class="msg err">Link inválido.</div></div>'; return; }
+
+  fetch('/api/publico/trade/contrato/'+encodeURIComponent(token))
+    .then(function(r){ if(!r.ok) throw new Error('Link inválido ou expirado.'); return r.json(); })
+    .then(function(d){ dados=d; if (d.assinado) return renderDone(d.assinante_nome, d.assinado_em, true); render(d); })
+    .catch(function(e){ app.innerHTML = '<div class="card"><div class="msg err">'+esc(e.message)+'</div></div>'; });
+
+  function renderDone(nome, quando, jaEra){
+    app.innerHTML = '<div class="card done"><div class="big">✅</div><h1>Contrato '+(jaEra?'já assinado':'assinado com sucesso')+'</h1>'+
+      '<p>'+(nome?('Assinado por <b>'+esc(nome)+'</b>'):'')+(quando?(' em '+esc(String(quando).replace('T',' ').slice(0,16))):'')+'.</p>'+
+      '<p>Você já pode fechar esta página.</p></div>';
+  }
+
+  function render(d){
+    app.innerHTML =
+      '<div class="card"><h2>Contrato '+esc(d.codigo||'')+'</h2>'+
+        '<div style="font-size:12.5px;color:var(--muted);margin-bottom:8px">Fornecedor: <b>'+esc(d.fornecedor||'—')+'</b></div>'+
+        '<pre class="contrato">'+esc(d.corpo||'')+'</pre></div>'+
+      '<div class="card">'+
+        '<h2>Seus dados</h2>'+
+        '<label class="f">Nome completo de quem assina</label><input id="nome" type="text" placeholder="Nome completo" autocomplete="name" />'+
+        '<label class="f">CPF (opcional)</label><input id="doc" type="text" inputmode="numeric" placeholder="000.000.000-00" />'+
+
+        '<label class="f">Selfie (foto do seu rosto)</label>'+
+        '<div class="shot"><span class="btn-sec btn-file">📷 Tirar selfie<input id="fSelfie" type="file" accept="image/*" capture="user" /></span>'+
+          '<img id="tSelfie" class="thumb" alt="" /><span id="okSelfie" class="ok">✓ ok</span></div>'+
+
+        '<label class="f">Foto do documento (RG ou CNH)</label>'+
+        '<div class="shot"><span class="btn-sec btn-file">📄 Fotografar documento<input id="fDoc" type="file" accept="image/*" capture="environment" /></span>'+
+          '<img id="tDoc" class="thumb" alt="" /><span id="okDoc" class="ok">✓ ok</span></div>'+
+
+        '<label class="f">Assinatura (desenhe com o dedo ou o mouse)</label>'+
+        '<canvas id="sig"></canvas>'+
+        '<div class="hint">Assine no quadro acima. <button type="button" id="limpar" class="btn-sec" style="padding:4px 10px;margin-top:6px">Limpar</button></div>'+
+
+        '<div class="msg" id="msg"></div>'+
+        '<div style="margin-top:14px"><button id="enviar" class="btn">Assinar contrato</button></div>'+
+        '<div class="hint" style="margin-top:8px">Ao assinar, registramos a data/hora e o endereço de IP do dispositivo usado, para validade do aceite.</div>'+
+      '</div>';
+    setupShot('fSelfie','tSelfie','okSelfie','selfie');
+    setupShot('fDoc','tDoc','okDoc','documento');
+    setupSig();
+    document.getElementById('enviar').addEventListener('click', enviar);
+  }
+
+  // Reduz a imagem (máx 1280px, JPEG 0.7) p/ não estourar o envio
+  function setupShot(inId, imgId, okId, key){
+    document.getElementById(inId).addEventListener('change', function(ev){
+      var file = ev.target.files && ev.target.files[0]; if (!file) return;
+      var fr = new FileReader();
+      fr.onload = function(){
+        var img = new Image();
+        img.onload = function(){
+          var max=1280, w=img.width, h=img.height;
+          if (w>max||h>max){ if(w>h){h=Math.round(h*max/w);w=max;}else{w=Math.round(w*max/h);h=max;} }
+          var cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+          cv.getContext('2d').drawImage(img,0,0,w,h);
+          var url=cv.toDataURL('image/jpeg',0.7);
+          dados[key]=url;
+          var t=document.getElementById(imgId); t.src=url; t.classList.add('on');
+          document.getElementById(okId).classList.add('on');
+        };
+        img.src = fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+
+  function setupSig(){
+    var cv=document.getElementById('sig'); var ctx=cv.getContext('2d');
+    function fit(){ var r=cv.getBoundingClientRect(); cv.width=r.width*2; cv.height=r.height*2; ctx.scale(2,2); ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle='#15302a'; }
+    fit();
+    var drawing=false, got=false, last=null;
+    function pos(e){ var r=cv.getBoundingClientRect(); var p=e.touches?e.touches[0]:e; return {x:p.clientX-r.left, y:p.clientY-r.top}; }
+    function down(e){ e.preventDefault(); drawing=true; last=pos(e); }
+    function move(e){ if(!drawing)return; e.preventDefault(); var p=pos(e); ctx.beginPath(); ctx.moveTo(last.x,last.y); ctx.lineTo(p.x,p.y); ctx.stroke(); last=p; got=true; }
+    function up(){ drawing=false; }
+    cv.addEventListener('mousedown',down); cv.addEventListener('mousemove',move); window.addEventListener('mouseup',up);
+    cv.addEventListener('touchstart',down,{passive:false}); cv.addEventListener('touchmove',move,{passive:false}); cv.addEventListener('touchend',up);
+    document.getElementById('limpar').addEventListener('click',function(){ ctx.clearRect(0,0,cv.width,cv.height); got=false; dados.assinatura=null; });
+    cv._has=function(){ return got; };
+    cv._url=function(){ return cv.toDataURL('image/png'); };
+    window._sigCanvas=cv;
+  }
+
+  function msg(txt, ok){ var m=document.getElementById('msg'); m.textContent=txt; m.className='msg '+(ok?'ok':'err'); }
+
+  function enviar(){
+    var nome=document.getElementById('nome').value.trim();
+    var doc=document.getElementById('doc').value.trim();
+    var cv=window._sigCanvas;
+    if (nome.length<3) return msg('Informe seu nome completo.');
+    if (!dados.selfie) return msg('Tire a selfie.');
+    if (!dados.documento) return msg('Fotografe o documento.');
+    if (!cv || !cv._has()) return msg('Assine no quadro.');
+    var btn=document.getElementById('enviar'); btn.disabled=true; btn.textContent='Enviando…';
+    fetch('/api/publico/trade/contrato/'+encodeURIComponent(token)+'/assinar',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ assinante_nome:nome, assinante_doc:doc, assinatura:cv._url(), selfie:dados.selfie, documento:dados.documento })
+    }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+      .then(function(x){ if(!x.ok) throw new Error(x.j.erro||'Erro ao assinar.'); renderDone(nome, new Date().toISOString(), false); })
+      .catch(function(e){ btn.disabled=false; btn.textContent='Assinar contrato'; msg(e.message); });
+  }
+})();
+</script>
+</body>
+</html>
