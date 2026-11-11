@@ -74,7 +74,7 @@ export default function TradeMarketing() {
       {modelo && <ModeloContrato API={API} onClose={() => setModelo(false)} />}
       {aba === 'portal' && <Portal API={API} gestao={gestao} />}
       {aba === 'cobranca' && <Cobranca API={API} gestao={gestao} />}
-      {aba === 'dashboard' && <Dashboard API={API} />}
+      {aba === 'dashboard' && <Dashboard API={API} onAba={setAba} />}
       {aba === 'vendas' && <Vendas API={API} gestao={gestao} />}
       {aba === 'premvend' && <PremiacaoVendedor API={API} gestao={gestao} />}
       {aba === 'porloja' && <EspacoLoja API={API} gestao={gestao} />}
@@ -1480,15 +1480,15 @@ function Cobranca({ API, gestao }) {
   </div>;
 }
 
-function Dashboard({ API }) {
+function Dashboard({ API, onAba }) {
   const [d, setD] = useState(null); const [loja, setLoja] = useState(''); const [lojas, setLojas] = useState([]);
   const [espItens, setEspItens] = useState([]); const [lojaAberta, setLojaAberta] = useState('');  // clicar na loja → ver os espaços
   const [apur, setApur] = useState([]);
-  const [fil, setFil] = useState({ plano: '', espaco: '' }); const [filD, setFilD] = useState(null);
+  const [fil, setFil] = useState({ plano: '', espaco: '', fornecedor: '', de: '', ate: '', uso: '' }); const [filD, setFilD] = useState(null);
   const carregar = useCallback(() => API.get('/trademkt/dashboard', { params: { loja: loja || undefined } }).then(r => setD(r.data)).catch(() => {}), [API, loja]);
   useEffect(() => { carregar(); }, [carregar]);
   useEffect(() => { API.get('/trademkt/planos-apuracao').then(r => setApur(r.data.planos || [])).catch(() => {}); }, [API]);
-  useEffect(() => { API.get('/trademkt/dashboard-filtro', { params: { plano: fil.plano || undefined, espaco: fil.espaco || undefined } }).then(r => setFilD(r.data)).catch(() => {}); }, [API, fil]);
+  useEffect(() => { API.get('/trademkt/dashboard-filtro', { params: { plano: fil.plano || undefined, espaco: fil.espaco || undefined, fornecedor: fil.fornecedor || undefined, de: fil.de || undefined, ate: fil.ate || undefined, uso: fil.uso || undefined } }).then(r => setFilD(r.data)).catch(() => {}); }, [API, fil]);
   useEffect(() => { API.get('/trademkt/espaco-loja').then(r => { const it = r.data.itens || []; setEspItens(it); setLojas([...new Set(it.map(i => i.loja_nome))]); }).catch(() => {}); }, [API]);
   const k = d?.kpis;
   const cards = k ? [
@@ -1513,12 +1513,18 @@ function Dashboard({ API }) {
         <b style={{ fontSize: 13 }}>📊 Visão geral de espaços e vendas</b>
         <select value={loja} onChange={e => setLoja(e.target.value)} style={{ ...s.inp, marginLeft: 'auto' }}><option value="">Todas as lojas</option>{lojas.map(l => <option key={l} value={l}>{l}</option>)}</select>
       </div>
-      <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <b style={{ fontSize: 12.5 }}>🔎 Filtrar negociações:</b>
-        <select value={fil.plano} onChange={e => setFil(f => ({ ...f, plano: e.target.value }))} style={s.inp}><option value="">Todos os planos</option>{(filD?.planos || []).map(p => <option key={p} value={p}>{p}</option>)}</select>
-        <select value={fil.espaco} onChange={e => setFil(f => ({ ...f, espaco: e.target.value }))} style={s.inp}><option value="">Todos os espaços</option>{(filD?.espacos || []).map(x => <option key={x} value={x}>{x}</option>)}</select>
-        {(fil.plano || fil.espaco) && <button style={s.btnMini} onClick={() => setFil({ plano: '', espaco: '' })}>limpar</button>}
-        {filD && <div style={{ display: 'flex', gap: 14, marginLeft: 'auto', flexWrap: 'wrap', fontSize: 12.5 }}>
+      <div style={{ ...s.card }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <b style={{ fontSize: 12.5 }}>🔎 Filtrar:</b>
+          <select value={fil.plano} onChange={e => setFil(f => ({ ...f, plano: e.target.value }))} style={s.inp}><option value="">Todos os planos</option>{(filD?.planos || []).map(p => <option key={p} value={p}>{p}</option>)}</select>
+          <select value={fil.espaco} onChange={e => setFil(f => ({ ...f, espaco: e.target.value }))} style={s.inp}><option value="">Todos os espaços</option>{(filD?.espacos || []).map(x => <option key={x} value={x}>{x}</option>)}</select>
+          <select value={fil.fornecedor} onChange={e => setFil(f => ({ ...f, fornecedor: e.target.value }))} style={s.inp}><option value="">Todos os fornecedores</option>{(filD?.fornecedores || []).map(x => <option key={x} value={x}>{x}</option>)}</select>
+          <select value={fil.uso} onChange={e => setFil(f => ({ ...f, uso: e.target.value }))} style={s.inp} title="Espaço usado pela própria empresa"><option value="">Venda + uso interno</option><option value="0">Só venda real</option><option value="1">Só uso interno (própria empresa)</option></select>
+          <label style={{ fontSize: 11.5, color: '#7a8a8c' }}>de <input type="date" value={fil.de} onChange={e => setFil(f => ({ ...f, de: e.target.value }))} style={{ ...s.inp, padding: '5px 7px' }} /></label>
+          <label style={{ fontSize: 11.5, color: '#7a8a8c' }}>até <input type="date" value={fil.ate} onChange={e => setFil(f => ({ ...f, ate: e.target.value }))} style={{ ...s.inp, padding: '5px 7px' }} /></label>
+          {(fil.plano || fil.espaco || fil.fornecedor || fil.de || fil.ate || fil.uso) && <button style={s.btnMini} onClick={() => setFil({ plano: '', espaco: '', fornecedor: '', de: '', ate: '', uso: '' })}>limpar</button>}
+        </div>
+        {filD && <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13, marginTop: 10, paddingTop: 8, borderTop: '1px solid #f1f5f9' }}>
           <span><span style={{ color: '#7a8a8c' }}>Negociações:</span> <b>{filD.n}</b></span>
           <span><span style={{ color: '#7a8a8c' }}>Fechado:</span> <b style={{ color: '#1E874B' }}>{brl(filD.fechado)}</b></span>
           <span><span style={{ color: '#7a8a8c' }}>Pendente:</span> <b style={{ color: '#6D4AA8' }}>{brl(filD.pendente)}</b></span>
@@ -1534,13 +1540,13 @@ function Dashboard({ API }) {
         ))}
       </div>
       {k && k.vendidoTotal != null && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
-        {[['Em negociação (pendente)', brl(k.pendenteTotal || 0), '#6D4AA8', k.pendenteQtd ? `${k.pendenteQtd} negociação(ões) em aberto` : null], ['Vendido (fechado)', brl(k.vendidoTotal), '#1E874B'], ['A receber', brl(k.aReceber), '#B7791F'], ['Recebido', brl(k.recebido), '#2E5C9E'], ['Deixado de ganhar', brl(k.deixadoGanhar || 0), '#8A6D3B', k.usoInternoQtd ? `${k.usoInternoQtd} espaço(s) em uso interno` : null]].map(([lab, val, cor, sub]) =>
+        {[['A receber', brl(k.aReceber), '#B7791F'], ['Recebido', brl(k.recebido), '#2E5C9E'], ['Deixado de ganhar', brl(k.deixadoGanhar || 0), '#8A6D3B', k.usoInternoQtd ? `${k.usoInternoQtd} espaço(s) em uso interno` : null]].map(([lab, val, cor, sub]) =>
           <div key={lab} style={{ ...s.card, marginBottom: 0 }}><div style={{ fontSize: 20, fontWeight: 800, color: cor }}>{val}</div><div style={{ fontSize: 11.5, color: '#888' }}>{lab}</div>{sub && <div style={{ fontSize: 10.5, color: '#aaa', marginTop: 1 }}>{sub}</div>}</div>)}
       </div>}
       {d?.pipeline && <div style={{ ...s.card }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Funil de negociações</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {[['pedido', 'Pedido'], ['negociacao', 'Negociação'], ['confirmado', 'Confirmado'], ['briefing', 'Briefing'], ['aguardando', 'Aguardando'], ['vigente', 'Em veiculação'], ['encerrado', 'Encerrado']].map(([st, lab]) => { const p = d.pipeline[st] || { n: 0, valor: 0 }; return <div key={st} style={{ flex: '1 1 120px', minWidth: 110, background: '#f8fafc', borderRadius: 10, padding: 10 }}><div style={{ fontSize: 11, color: '#64748b' }}>{lab}</div><div style={{ fontWeight: 800, fontSize: 18 }}>{p.n}</div><div style={{ fontSize: 11, color: '#1E874B' }}>{brl(p.valor)}</div></div>; })}
+          {[['pedido', 'Pedido'], ['negociacao', 'Negociação'], ['confirmado', 'Confirmado'], ['briefing', 'Briefing'], ['aguardando', 'Aguardando'], ['vigente', 'Em veiculação'], ['encerrado', 'Encerrado']].map(([st, lab]) => { const p = d.pipeline[st] || { n: 0, valor: 0 }; return <div key={st} onClick={() => onAba && onAba('vendas')} title="Ver no funil (Negociações)" style={{ flex: '1 1 120px', minWidth: 110, background: '#f8fafc', borderRadius: 10, padding: 10, cursor: onAba ? 'pointer' : 'default' }}><div style={{ fontSize: 11, color: '#64748b' }}>{lab}</div><div style={{ fontWeight: 800, fontSize: 18 }}>{p.n}</div><div style={{ fontSize: 11, color: '#1E874B' }}>{brl(p.valor)}</div></div>; })}
         </div>
       </div>}
       {apur.length > 0 && <div style={s.card}>

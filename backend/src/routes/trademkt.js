@@ -274,9 +274,16 @@ router.get('/planos-apuracao', (req, res) => {
 router.get('/dashboard-filtro', (req, res) => {
   const emp = req.usuario.empresa_id;
   const plano = (req.query.plano || '').trim(), espaco = (req.query.espaco || '').trim();
+  const forn = (req.query.fornecedor || '').trim(), de = (req.query.de || '').trim(), ate = (req.query.ate || '').trim();
   const conds = ['v.empresa_id=@emp']; const p = { emp };
   if (plano) { conds.push('v.plano_nome=@plano'); p.plano = plano; }
   if (espaco) { conds.push('EXISTS (SELECT 1 FROM tmkt_venda_espacos ve WHERE ve.venda_id=v.id AND ve.espaco_desc=@espaco)'); p.espaco = espaco; }
+  if (forn) { conds.push('v.fornecedor_nome=@forn'); p.forn = forn; }
+  if (de) { conds.push('date(v.criado_em)>=@de'); p.de = de; }
+  if (ate) { conds.push('date(v.criado_em)<=@ate'); p.ate = ate; }
+  const uso = (req.query.uso || '').trim();
+  if (uso === '1') conds.push('COALESCE(v.uso_interno,0)=1');       // só uso interno (da própria empresa)
+  else if (uso === '0') conds.push('COALESCE(v.uso_interno,0)=0');  // só venda real
   const FECHADO = "('confirmado','vendido','vigente','comprovacao','concluido','encerrado')";
   const row = db.prepare(`SELECT
       COUNT(*) FILTER (WHERE v.status NOT IN ('cancelado','recusado','perdido')) n,
@@ -286,7 +293,8 @@ router.get('/dashboard-filtro', (req, res) => {
     FROM tmkt_vendas v WHERE ${conds.join(' AND ')}`).get(p);
   const planos = db.prepare("SELECT DISTINCT plano_nome FROM tmkt_vendas WHERE empresa_id=? AND plano_nome IS NOT NULL ORDER BY plano_nome").all(emp).map(r => r.plano_nome);
   const espacos = db.prepare("SELECT DISTINCT espaco_desc FROM tmkt_venda_espacos WHERE empresa_id=? AND espaco_desc IS NOT NULL AND espaco_desc<>'' ORDER BY espaco_desc").all(emp).map(r => r.espaco_desc);
-  res.json({ ...row, planos, espacos });
+  const fornecedores = db.prepare("SELECT DISTINCT fornecedor_nome FROM tmkt_vendas WHERE empresa_id=? AND fornecedor_nome IS NOT NULL AND fornecedor_nome<>'' ORDER BY fornecedor_nome").all(emp).map(r => r.fornecedor_nome);
+  res.json({ ...row, planos, espacos, fornecedores });
 });
 
 // ── Premiação do VENDEDOR de trade (vendedor = criado_por) — regra POR ESPAÇO, apuração mensal ──
@@ -332,6 +340,26 @@ router.post('/premiacao-vendedor/fechar', exigePerfil(...GESTAO), (req, res) => 
     ON CONFLICT(empresa_id,mes,ano) DO UPDATE SET fechado=excluded.fechado, fechado_em=excluded.fechado_em, fechado_por=excluded.fechado_por`)
     .run(emp, mes, ano, reabrir ? 0 : 1, reabrir ? null : new Date().toISOString(), reabrir ? null : (req.usuario.nome || ''));
   res.json({ ok: true });
+});
+
+// "Minha meta" (do usuário logado): premiação de trade do mês + tarefas de trade dele (atrasadas/em dia).
+router.get('/minha-meta', (req, res) => {
+  const emp = req.usuario.empresa_id, uid = req.usuario.id;
+  const now = new Date(); const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const r = db.prepare(`SELECT COUNT(ve.id) espacos, COALESCE(SUM(ve.valor),0) valor
+    FROM tmkt_vendas v JOIN tmkt_venda_espacos ve ON ve.venda_id=v.id
+    WHERE v.empresa_id=? AND v.criado_por=? AND v.status IN ${PREM_FECHADO} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0
+      AND strftime('%Y-%m', v.criado_em)=?`).get(emp, uid, ym);
+  const faixas = premFaixas(emp);
+  const pct = pctPorEspacos(faixas, r.espacos);
+  const premiacao = Math.round(r.valor * pct) / 100;
+  const ord = [...faixas].sort((a, b) => (a.ate == null ? 1e9 : a.ate) - (b.ate == null ? 1e9 : b.ate));
+  let proxima = null;
+  for (let i = 0; i < ord.length; i++) { const f = ord[i]; if (f.ate == null || r.espacos <= Number(f.ate)) { const next = ord[i + 1]; if (f.ate != null && next && Number(next.pct) > pct) proxima = { faltam: Number(f.ate) - r.espacos + 1, pct: next.pct }; break; } }
+  const hoje = new Date().toISOString();
+  const tarefas = db.prepare(`SELECT id, titulo, prazo, criado_em FROM tarefas WHERE empresa_id=? AND responsavel_id=? AND origem LIKE 'trade%' AND status<>'concluido' ORDER BY (prazo IS NULL), prazo LIMIT 12`).all(emp, uid)
+    .map(t => ({ id: t.id, titulo: t.titulo, prazo: t.prazo, atrasada: !!(t.prazo && t.prazo < hoje) }));
+  res.json({ espacos: r.espacos, valor: r.valor, pct, premiacao, proxima, tarefas, atrasadas: tarefas.filter(t => t.atrasada).length });
 });
 
 // Espaços por loja (quantidade + preço) — o "AreasEEspacosDaLoja" do TradeMkt.
