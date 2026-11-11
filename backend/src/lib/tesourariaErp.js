@@ -368,6 +368,23 @@ function marcarPagoCobranca(empresaId, cobrancaId, { pago = true, usuarioId } = 
   return { ok: true };
 }
 
+// Acertos de caixa (fechamentos SEM quebra = diferença zero) por operador, p/ pontuar +X no Caixa Destaque.
+async function acertosCaixa(empresaId, { ini, fim, lojaId } = {}) {
+  const unis = unisEmpresa(empresaId, lojaId);
+  if (!unis.length || !habilitado()) return { ok: true, porOperador: {} };
+  const rows = await erpQuery(`
+    SELECT p.nome operador, u.login, count(*) FILTER (WHERE f.quebracaixaid IS NULL) acertos
+    FROM fechamentocaixa f
+    JOIN sessaocaixa s ON s.id=f.sessaocaixaid
+    LEFT JOIN usuario u ON u.id=s.usuarioid LEFT JOIN pessoa p ON p.id=u.pessoaid
+    WHERE s.unidadenegocioid = ANY($1::bigint[])
+      AND s.datahorainicial >= $2::date AND s.datahorainicial < ($3::date + 1)
+    GROUP BY p.nome, u.login`, [unis, ini, fim]);
+  const porOperador = {};
+  for (const r of rows) { const k = (r.operador || r.login || '—').trim(); porOperador[k] = (porOperador[k] || 0) + (Number(r.acertos) || 0); }
+  return { ok: true, porOperador };
+}
+
 // Lista de estornos do período (p/ o drill-down do painel da loja).
 async function estornosLista(empresaId, { ini, fim, lojaId } = {}) {
   const unis = unisEmpresa(empresaId, lojaId);
@@ -382,4 +399,4 @@ async function estornosLista(empresaId, { ini, fim, lojaId } = {}) {
   return { ok: true, itens: rows.map(r => ({ data: r.data, operador: (r.operador || r.login || '—').trim(), valor: round(r.valor), motivo: r.motivo || '' })) };
 }
 
-module.exports = { getConfig, setConfig, quebras, marcarCobranca, indicadoresSetor, sessoesDia, cancelamentos, mapaUsuarioColaborador, cuponsPorOperador, premiarTopOperador, aplicarPontosQuebra, debitosOperador, marcarPagoCobranca, conferenciaCaixa, estornosLista };
+module.exports = { getConfig, setConfig, quebras, marcarCobranca, indicadoresSetor, sessoesDia, cancelamentos, mapaUsuarioColaborador, cuponsPorOperador, premiarTopOperador, aplicarPontosQuebra, debitosOperador, marcarPagoCobranca, conferenciaCaixa, estornosLista, acertosCaixa };

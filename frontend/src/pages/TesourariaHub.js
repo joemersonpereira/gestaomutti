@@ -48,7 +48,7 @@ export default function TesourariaHub() {
             <CartaoDespesas API={API} />
           </div>
         )}
-        {aba === 'criterios' && ehGestao && <CriteriosPontos API={API} />}
+        {aba === 'criterios' && ehGestao && <><CriteriosPontos API={API} /><div style={{ height: 14 }} /><HorarioMes API={API} /></>}
         {aba === 'ranking' && ehGestao && <CaixaDestaquePontos API={API} />}
         {!NATIVAS.includes(aba) && <Tesouraria embed soControle tabFixa={aba} />}
       </div>
@@ -202,6 +202,41 @@ const cd = {
   lab: { display: 'flex', flexDirection: 'column', fontSize: 11, color: '#64748b', gap: 3, fontWeight: 600 },
   inp: { border: '1px solid #cbd5e1', borderRadius: 7, padding: '7px 9px', fontSize: 13 },
 };
+
+const MESES_N = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+// Horário padrão do mês (seg-sex) — base da pontualidade (cruza com o Tangerino).
+function HorarioMes({ API }) {
+  const agora = new Date();
+  const [ano, setAno] = useState(agora.getFullYear());
+  const [mes, setMes] = useState(agora.getMonth() + 1);
+  const [h, setH] = useState({ entrada: '', saida_almoco: '', volta_almoco: '', saida: '', tolerancia_min: 5 });
+  const [msg, setMsg] = useState('');
+  const carregar = useCallback(() => {
+    API.get(`/tesouraria/horario-mes?ano=${ano}&mes=${mes}`).then(r => setH({ entrada: r.data.entrada || '', saida_almoco: r.data.saida_almoco || '', volta_almoco: r.data.volta_almoco || '', saida: r.data.saida || '', tolerancia_min: r.data.tolerancia_min != null ? r.data.tolerancia_min : 5 })).catch(() => {});
+  }, [API, ano, mes]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const set = (k, v) => setH(x => ({ ...x, [k]: v }));
+  const salvar = () => API.put('/tesouraria/horario-mes', { ano, mes, ...h }).then(() => { setMsg('✅ Horário salvo.'); setTimeout(() => setMsg(''), 2500); }).catch(() => { setMsg('⚠️ Erro.'); setTimeout(() => setMsg(''), 3000); });
+  return (
+    <div style={{ maxWidth: 820, margin: '0 auto' }}>
+      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
+        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 2 }}>🕐 Horário padrão do mês (seg–sex)</div>
+        <p style={{ fontSize: 12.5, color: '#64748b', margin: '0 0 10px' }}>Base da <b>pontualidade</b>: o sistema compara a 1ª batida do Tangerino com este horário. Cadastre no começo do mês. Atraso de 10–15 min, 16–30 min e acima de 30 min seguem a pontuação dos Critérios.</p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={cd.lab}>Mês<select value={mes} onChange={e => setMes(Number(e.target.value))} style={cd.inp}>{MESES_N.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select></label>
+          <label style={cd.lab}>Ano<input type="number" value={ano} onChange={e => setAno(e.target.value)} style={{ ...cd.inp, width: 90 }} /></label>
+          <label style={cd.lab}>Entrada<input type="time" value={h.entrada} onChange={e => set('entrada', e.target.value)} style={cd.inp} /></label>
+          <label style={cd.lab}>Saída almoço<input type="time" value={h.saida_almoco} onChange={e => set('saida_almoco', e.target.value)} style={cd.inp} /></label>
+          <label style={cd.lab}>Volta almoço<input type="time" value={h.volta_almoco} onChange={e => set('volta_almoco', e.target.value)} style={cd.inp} /></label>
+          <label style={cd.lab}>Saída<input type="time" value={h.saida} onChange={e => set('saida', e.target.value)} style={cd.inp} /></label>
+          <label style={cd.lab}>Tolerância (min)<input type="number" min="0" value={h.tolerancia_min} onChange={e => set('tolerancia_min', e.target.value)} style={{ ...cd.inp, width: 90 }} /></label>
+          <button onClick={salvar} style={{ padding: '9px 16px', borderRadius: 8, border: 'none', background: '#0d6b5e', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>💾 Salvar</button>
+          {msg && <span style={{ fontSize: 13, fontWeight: 600, color: msg.startsWith('⚠️') ? '#b91c1c' : '#15803d' }}>{msg}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const s = {
   wrap: { padding: '18px 20px', maxWidth: 1180, margin: '0 auto' },

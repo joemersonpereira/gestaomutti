@@ -9,8 +9,24 @@
 const db = require('../db/connection');
 const t = require('./tesourariaErp');
 const cc = require('./conciliacaoCartao');
+const tang = require('./tangerino');
 const crypto = require('crypto');
 const uuid = () => crypto.randomUUID();
+
+// Horário padrão do mês (seg-sex) p/ validar pontualidade. loja_id '' = vale p/ todas.
+function getHorario(emp, { ano, mes, lojaId } = {}) {
+  const q = (lj) => db.prepare('SELECT * FROM caixa_horario_mes WHERE empresa_id=? AND ano=? AND mes=? AND loja_id=?').get(emp, Number(ano), Number(mes), lj);
+  return q(lojaId || '') || (lojaId ? q('') : null); // tenta a da loja; cai no global
+}
+function setHorario(emp, { ano, mes, lojaId, entrada, saida_almoco, volta_almoco, saida, tolerancia_min }) {
+  const lj = lojaId || '';
+  const ex = db.prepare('SELECT id FROM caixa_horario_mes WHERE empresa_id=? AND ano=? AND mes=? AND loja_id=?').get(emp, Number(ano), Number(mes), lj);
+  if (ex) db.prepare('UPDATE caixa_horario_mes SET entrada=?, saida_almoco=?, volta_almoco=?, saida=?, tolerancia_min=?, atualizado_em=datetime(\'now\') WHERE id=?')
+    .run(entrada || null, saida_almoco || null, volta_almoco || null, saida || null, Number(tolerancia_min) || 5, ex.id);
+  else db.prepare('INSERT INTO caixa_horario_mes (id, empresa_id, ano, mes, loja_id, entrada, saida_almoco, volta_almoco, saida, tolerancia_min) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(uuid(), emp, Number(ano), Number(mes), lj, entrada || null, saida_almoco || null, volta_almoco || null, saida || null, Number(tolerancia_min) || 5);
+  return { ok: true };
+}
 const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
 const pad = n => String(n).padStart(2, '0');
 
@@ -92,6 +108,45 @@ async function rankingPontos(emp, { ano, tri, lojaId } = {}) {
     for (const l of lanc) add(l.operador_nome, l.regra_chave || 'avulso', Number(l.pontos) || 0, Number(l.n) || 0);
   } catch (e) { /* sem lançamentos */ }
 
+  // 4) ACERTO de caixa (fechamento sem quebra = diferença zero) — ponto positivo automático.
+  try {
+    if (ativo('acerto_caixa')) {
+      const ac = await t.acertosCaixa(emp, { ini, fim, lojaId: lojaId || null });
+      for (const [nome, n] of Object.entries(ac.porOperador || {})) { if (n > 0) add(nome, 'acerto_caixa', pts('acerto_caixa') * n, n); }
+    }
+  } catch (e) { /* ERP indisponível */ }
+
+  // 5) PONTUALIDADE — 1ª batida do Tangerino vs o horário padrão do mês (atraso). Desclassifica acima de 30 min.
+  try {
+    const usaPont = ativo('pontual_1015') || ativo('pontual_1630') || ativo('pontual_mais30');
+    if (usaPont && tang.habilitado()) {
+      // mapa tangerino_id -> nome do colaborador
+      const tgNome = {};
+      db.prepare("SELECT nome, tangerino_id FROM colaboradores WHERE tangerino_id IS NOT NULL AND tangerino_id<>''").all()
+        .forEach(c => { tgNome[String(c.tangerino_id)] = c.nome; });
+      // horário de cada mês do trimestre
+      const m0 = (Number(tri) - 1) * 3 + 1;
+      const hor = {}; [m0, m0 + 1, m0 + 2].forEach(mm => { hor[mm] = getHorario(emp, { ano, mes: mm, lojaId: lojaId || '' }); });
+      const bat = await tang.todasBatidas({ startDate: ini, endDate: fim });
+      const primeira = {}; // employeeId|dia -> ts mínimo
+      for (const b of bat) {
+        if (!b.dateIn) continue; const ts = Number(b.dateIn); const dia = new Date(ts).toISOString().slice(0, 10);
+        const k = String(b.employeeId) + '|' + dia; if (!(k in primeira) || ts < primeira[k]) primeira[k] = ts;
+      }
+      for (const [k, ts] of Object.entries(primeira)) {
+        const [eid, dia] = k.split('|'); const nome = tgNome[eid]; if (!nome) continue;
+        const dow = new Date(dia + 'T12:00:00').getDay(); if (dow === 0 || dow === 6) continue; // só seg-sex
+        const h = hor[Number(dia.slice(5, 7))]; if (!h || !h.entrada) continue;
+        const [eh, em] = String(h.entrada).split(':').map(Number);
+        const esperado = new Date(dia + 'T00:00:00'); esperado.setHours(eh || 0, em || 0, 0, 0);
+        const atraso = Math.round((ts - esperado.getTime()) / 60000);
+        if (atraso > 30 && ativo('pontual_mais30')) add(nome, 'pontual_mais30', 0);
+        else if (atraso >= 16 && ativo('pontual_1630')) add(nome, 'pontual_1630', pts('pontual_1630'));
+        else if (atraso >= 10 && ativo('pontual_1015')) add(nome, 'pontual_1015', pts('pontual_1015'));
+      }
+    }
+  } catch (e) { /* Tangerino indisponível: segue sem pontualidade */ }
+
   const ranking = [...ops.values()].map(o => ({
     operador: o.operador, total: r2(o.total), desclassificado: o.desclassificado,
     elegivel: !o.desclassificado && o.total >= min,
@@ -122,4 +177,4 @@ function removerLancamento(emp, id) {
   return { ok: true };
 }
 
-module.exports = { rankingPontos, lancar, listarLancamentos, removerLancamento, trimestreRange };
+module.exports = { rankingPontos, lancar, listarLancamentos, removerLancamento, trimestreRange, getHorario, setHorario };

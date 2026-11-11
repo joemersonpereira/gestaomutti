@@ -122,6 +122,7 @@ const PENDENTES = [
   './migrations/353_colaborador_tesouraria',
   './migrations/354_caixa_pontos',
   './migrations/355_caixa_pontos_auto',
+  './migrations/356_caixa_horario_mes',
 ];
 
 console.log('=== Rodando migrações pendentes (065–073) ===\n');

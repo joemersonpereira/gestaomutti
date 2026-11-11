@@ -77,6 +77,13 @@ router.post('/pontos/lancamento', soGestao, (req, res) => {
 });
 router.delete('/pontos/lancamento/:id', soGestao, (req, res) => res.json(cpontos.removerLancamento(req.usuario.empresa_id, req.params.id)));
 
+// Horário padrão do mês (p/ validar pontualidade com o Tangerino).
+router.get('/horario-mes', soGestao, (req, res) => res.json(cpontos.getHorario(req.usuario.empresa_id, { ano: req.query.ano, mes: req.query.mes, lojaId: req.query.loja || '' }) || {}));
+router.put('/horario-mes', soGestao, (req, res) => {
+  try { res.json(cpontos.setHorario(req.usuario.empresa_id, { ano: req.body.ano, mes: req.body.mes, lojaId: req.body.loja || '', entrada: req.body.entrada, saida_almoco: req.body.saida_almoco, volta_almoco: req.body.volta_almoco, saida: req.body.saida, tolerancia_min: req.body.tolerancia_min })); }
+  catch (e) { res.status(400).json({ erro: e.message }); }
+});
+
 // Débitos do operador (quebras cobradas em aberto) — "contas a receber do funcionário".
 router.get('/debitos', soGestao, (req, res) => res.json(t.debitosOperador(req.usuario.empresa_id, { lojaId: req.query.loja || null, incluirPagos: req.query.incluirPagos === '1' })));
 router.post('/debitos/:id/pagar', soGestao, (req, res) => res.json(t.marcarPagoCobranca(req.usuario.empresa_id, req.params.id, { pago: req.body.pago !== false, usuarioId: req.usuario.id })));
