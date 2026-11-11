@@ -103,6 +103,7 @@ const PENDENTES = [
   './migrations/334_tmkt_briefing_espaco',
   './migrations/335_tmkt_premiacao_vendedor',
   './migrations/336_tmkt_venda_token_curto',
+  './migrations/337_tmkt_lead_fornecedor',
 ];
 
 console.log('=== Rodando migrações pendentes (065–073) ===\n');

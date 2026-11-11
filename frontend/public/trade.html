@@ -1611,7 +1611,15 @@ function verAcompanhamento(){
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:6px"><b style="color:#0d8a6f">'+brl(e.valor)+'</b>'+(e.arte_status==='reprovada'?'<button class="btn sec" style="padding:4px 9px;font-size:11px" data-reenv="'+h(e.id)+'">↩ Reenviar</button>':'')+'</div>'+
         '</div></div>';}).join('');
     var parH=(d.parcelas||[]).map(function(p){return '<tr><td>'+(p.vencimento||'—')+'</td><td>'+h(p.forma||'')+'</td><td style="text-align:right">'+brl(p.valor)+'</td><td>'+(p.recebido?'✅ confirmado':(p.tem_comprovante?'📎 enviado':'—'))+'</td><td>'+(p.tem_comprovante?'':'<button class="btn sec" style="padding:5px 9px;font-size:12px" data-cp="'+p.numero+'">anexar</button>')+'</td></tr>';}).join('');
-    app.innerHTML='<header class="mini"><h1>📋 Pedido '+h(d.codigo)+'</h1><p>'+h(d.fornecedor||'')+'</p></header>'+
+    app.innerHTML='<div style="background:linear-gradient(135deg,#0d8a6f,#0b6e59 55%,#09513f);color:#fff;border-radius:22px;padding:26px 24px;margin:6px 0 16px;box-shadow:0 14px 34px -14px rgba(11,110,89,.55);position:relative;overflow:hidden">'+
+      '<div style="position:absolute;width:260px;height:260px;border-radius:50%;right:-80px;bottom:-110px;background:radial-gradient(circle,rgba(246,144,42,.38),transparent 70%)"></div>'+
+      '<div style="position:relative">'+
+        '<img src="/logo-grupomutti.png" alt="Grupo Mutti" style="height:30px;background:#fff;border-radius:9px;padding:5px 9px">'+
+        '<div style="font-size:11.5px;opacity:.85;letter-spacing:1px;margin-top:16px">PEDIDO '+h(d.codigo)+'</div>'+
+        '<div style="font-size:clamp(23px,3.4vw,32px);font-weight:800;line-height:1.08;margin-top:2px">'+h(d.fornecedor||'')+'</div>'+
+        '<div style="font-size:13.5px;opacity:.93;margin-top:10px;max-width:64ch;line-height:1.5">A sua marca no ponto certo da jornada de cuidado. Acompanhe o <b>sell-out</b>, veja a <b>comprovação</b> da execução e autorize a <b>veiculação</b> — tudo em um só lugar.</div>'+
+      '</div>'+
+    '</div>'+
       '<div class="note"><b>Situação:</b> '+h(d.status_rotulo)+(d.vigencia_ini?' · período '+h(d.vigencia_ini)+' a '+h(d.vigencia_fim||''):'')+'</div>'+
       (d.status==='aguardando'?'<div class="card" style="padding:14px;margin-top:12px;border:1px solid #f6902a;background:#fff8f0"><b>✅ Confirmar a ação</b><div style="font-size:13px;color:#64748b;margin:4px 0 8px">Material e combinado conferidos? Confirme que está tudo OK para liberar a veiculação.</div><button class="btn" id="aceitarBtn">✅ Está tudo OK — liberar veiculação</button><div class="msg" id="acmsg"></div></div>':'')+
       '<div class="card" style="padding:14px;margin-top:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b>Espaços</b><b>Total '+brl(d.valor)+'</b></div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px">'+espH+'</div></div>'+

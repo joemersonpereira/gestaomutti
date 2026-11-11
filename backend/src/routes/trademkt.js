@@ -362,6 +362,40 @@ router.get('/minha-meta', (req, res) => {
   res.json({ espacos: r.espacos, valor: r.valor, pct, premiacao, proxima, tarefas, atrasadas: tarefas.filter(t => t.atrasada).length });
 });
 
+// ── CRM / Lead de fornecedores: traz do Alpha 7 quem mais compramos + rastreio do relacionamento ──
+const UNIS_GRUPO = '(70417,70418,70419,70420,70421,70422,70423,70424)'; // unidades do grupo no ERP
+router.get('/leads', async (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const dias = Math.min(365, Math.max(30, Number(req.query.dias) || 90));
+  let topo = [];
+  if (habilitado()) {
+    try {
+      topo = await erpQuery(`SELECT f.id fornecedor_id, pe.nome fornecedor, COUNT(DISTINCT nf.id) notas,
+          COALESCE(SUM(inf.quantidade*inf.valorunitario),0) compra
+        FROM notafiscal nf JOIN fornecedor f ON f.id=nf.fornecedorid JOIN pessoa pe ON pe.id=f.pessoaid
+        JOIN itemnotafiscal inf ON inf.notafiscalid=nf.id
+        WHERE nf.unidadenegocioid IN ${UNIS_GRUPO} AND nf.tipooperacao='1' AND nf.status NOT IN ('X','E') AND nf.fornecedorid IS NOT NULL
+          AND nf.datahoraentrada >= now() - ($1 || ' days')::interval
+        GROUP BY f.id, pe.nome ORDER BY compra DESC LIMIT 60`, [String(dias)]);
+    } catch (e) { /* ERP fora do ar */ }
+  }
+  const leads = db.prepare('SELECT * FROM tmkt_lead_fornecedor WHERE empresa_id=?').all(emp);
+  const byId = {}; leads.forEach(l => { byId[String(l.fornecedor_id)] = l; });
+  const itens = topo.map(t => { const l = byId[String(t.fornecedor_id)] || {}; return {
+    fornecedor_id: String(t.fornecedor_id), fornecedor: t.fornecedor, compra: Number(t.compra) || 0, notas: Number(t.notas) || 0,
+    status: l.status || 'novo', periodicidade: l.periodicidade || '', proximo_contato: l.proximo_contato || '', responsavel: l.responsavel || '', contato: l.contato || '', obs: l.obs || '' }; });
+  res.json({ dias, itens });
+});
+router.post('/leads/:fid', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id, b = req.body || {};
+  db.prepare(`INSERT INTO tmkt_lead_fornecedor (empresa_id, fornecedor_id, fornecedor_nome, status, periodicidade, proximo_contato, responsavel, contato, obs, atualizado_em)
+    VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))
+    ON CONFLICT(empresa_id, fornecedor_id) DO UPDATE SET fornecedor_nome=excluded.fornecedor_nome, status=excluded.status, periodicidade=excluded.periodicidade,
+      proximo_contato=excluded.proximo_contato, responsavel=excluded.responsavel, contato=excluded.contato, obs=excluded.obs, atualizado_em=datetime('now')`)
+    .run(emp, String(req.params.fid), b.fornecedor_nome || null, b.status || 'novo', b.periodicidade || '', b.proximo_contato || null, b.responsavel || null, b.contato || null, b.obs || null);
+  res.json({ ok: true });
+});
+
 // Espaços por loja (quantidade + preço) — o "AreasEEspacosDaLoja" do TradeMkt.
 // Vagas ocupadas por espaço-loja = venda_espacos de vendas ativas (não cancelada/encerrada).
 const OCUPA_STATUS = "('pedido','rascunho','negociacao','confirmado','briefing','aguardando','vigente','comprovacao','vendido','concluido')";

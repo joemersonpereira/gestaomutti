@@ -68,7 +68,7 @@ export default function TradeMarketing() {
         {gestao && <button onClick={() => setModelo(true)} style={bannerBtn}>📄 Modelo de contrato</button>}
       </Banner>
       <div style={{ display: 'flex', gap: 6, margin: '12px 0 16px', flexWrap: 'wrap', padding: 6, background: '#fff', border: '1px solid #ecefee', borderRadius: 14, boxShadow: '0 1px 3px rgba(16,40,45,.05)' }}>
-        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['premvend', '💰 Premiação vendedor'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
+        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['premvend', '💰 Premiação vendedor'], ['leads', '🎯 Leads (fornecedores)'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, border: 'none', ...(aba === v ? s.chipOn : { background: 'transparent', color: '#51607a' }) }}>{l}</button>)}
       </div>
       <PainelMeta API={API} />
@@ -78,6 +78,7 @@ export default function TradeMarketing() {
       {aba === 'dashboard' && <Dashboard API={API} onAba={setAba} />}
       {aba === 'vendas' && <Vendas API={API} gestao={gestao} />}
       {aba === 'premvend' && <PremiacaoVendedor API={API} gestao={gestao} />}
+      {aba === 'leads' && <LeadsFornecedor API={API} gestao={gestao} />}
       {aba === 'porloja' && <EspacoLoja API={API} gestao={gestao} />}
       {aba === 'capacidade' && <Capacidade API={API} />}
       {aba === 'espacos' && <Espacos API={API} gestao={gestao} />}
@@ -2287,6 +2288,49 @@ function PainelMeta({ API }) {
           {t.prazo && <div style={{ fontSize: 10.5, color: t.atrasada ? '#C0392B' : '#94a3b8', marginLeft: 16 }}>prazo {dBR(t.prazo)}</div>}
         </div>)}
       </>}
+    </div>
+  );
+}
+
+// ── CRM / Leads: fornecedores que mais compramos (Alpha 7) + rastreio de contato/visita ──
+const LEAD_STATUS = [['novo', '🆕 Novo'], ['a_contatar', '📞 A contatar'], ['contatado', '✅ Contatado'], ['visita_agendada', '📅 Visita agendada'], ['parceiro', '🤝 Parceiro'], ['sem_interesse', '✖ Sem interesse']];
+function LeadsFornecedor({ API, gestao }) {
+  const [dias, setDias] = useState(90); const [d, setD] = useState(null); const [edit, setEdit] = useState({});
+  const carregar = useCallback(() => { setD(null); API.get('/trademkt/leads', { params: { dias } }).then(r => setD(r.data)).catch(() => setD({ itens: [], erro: true })); }, [API, dias]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const setF = (fid, k, v) => setEdit(e => ({ ...e, [fid]: { ...e[fid], [k]: v } }));
+  const val = (it, k) => (edit[it.fornecedor_id] && edit[it.fornecedor_id][k] != null) ? edit[it.fornecedor_id][k] : it[k];
+  const salvar = (it) => API.post(`/trademkt/leads/${it.fornecedor_id}`, { fornecedor_nome: it.fornecedor, status: val(it, 'status'), periodicidade: val(it, 'periodicidade'), proximo_contato: val(it, 'proximo_contato'), responsavel: val(it, 'responsavel'), contato: val(it, 'contato'), obs: val(it, 'obs') }).then(() => { setEdit(e => { const n = { ...e }; delete n[it.fornecedor_id]; return n; }); carregar(); }).catch(er => alert(er.response?.data?.erro || 'Erro'));
+  return (
+    <div>
+      <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <b style={{ fontSize: 13 }}>🎯 Leads — fornecedores que mais compramos</b>
+        <span style={{ fontSize: 11.5, color: '#7a8a8c' }}>do Alpha 7 · pra contato, visita e cadência de trade</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>período
+          <select value={dias} onChange={e => setDias(Number(e.target.value))} style={s.inp}><option value={30}>30 dias</option><option value={90}>90 dias</option><option value={180}>180 dias</option><option value={365}>12 meses</option></select>
+        </div>
+      </div>
+      <div style={s.card}>
+        {!d && <div style={{ fontSize: 13, color: '#999', padding: 10 }}>Carregando do ERP…</div>}
+        {d?.erro && <div style={{ fontSize: 13, color: '#A3372A', padding: 10 }}>ERP indisponível agora.</div>}
+        {d && !d.erro && d.itens.length === 0 && <div style={s.vazio}>Nenhuma compra no período.</div>}
+        {d && d.itens.length > 0 && <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead><tr style={{ textAlign: 'left', color: '#7a8a8c', borderBottom: '2px solid #eef1f4' }}>{['Fornecedor', 'Compra (período)', 'Status', 'Cadência', 'Próx. contato', 'Responsável', 'Contato', 'Obs', ''].map(h => <th key={h} style={{ padding: '7px 8px', whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead>
+            <tbody>{d.itens.map(it => <tr key={it.fornecedor_id} style={{ borderBottom: '1px solid #f3f5f7' }}>
+              <td style={{ padding: '6px 8px', fontWeight: 600 }}>{it.fornecedor}<div style={{ fontSize: 10.5, color: '#94a3b8' }}>{it.notas} nota(s)</div></td>
+              <td style={{ padding: '6px 8px', fontWeight: 700, color: '#1E874B', whiteSpace: 'nowrap' }}>{brl(it.compra)}</td>
+              <td style={{ padding: '6px 8px' }}><select value={val(it, 'status')} onChange={e => setF(it.fornecedor_id, 'status', e.target.value)} style={{ ...s.inp, padding: '4px 6px' }} disabled={!gestao}>{LEAD_STATUS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></td>
+              <td style={{ padding: '6px 8px' }}><select value={val(it, 'periodicidade')} onChange={e => setF(it.fornecedor_id, 'periodicidade', e.target.value)} style={{ ...s.inp, padding: '4px 6px' }} disabled={!gestao}><option value="">—</option><option value="diario">Diário</option><option value="semanal">Semanal</option><option value="mensal">Mensal</option></select></td>
+              <td style={{ padding: '6px 8px' }}><input type="date" value={val(it, 'proximo_contato') || ''} onChange={e => setF(it.fornecedor_id, 'proximo_contato', e.target.value)} style={{ ...s.inp, padding: '4px 6px' }} disabled={!gestao} /></td>
+              <td style={{ padding: '6px 8px' }}><input value={val(it, 'responsavel') || ''} onChange={e => setF(it.fornecedor_id, 'responsavel', e.target.value)} placeholder="—" style={{ ...s.inp, padding: '4px 6px', width: 100 }} disabled={!gestao} /></td>
+              <td style={{ padding: '6px 8px' }}><input value={val(it, 'contato') || ''} onChange={e => setF(it.fornecedor_id, 'contato', e.target.value)} placeholder="tel/e-mail" style={{ ...s.inp, padding: '4px 6px', width: 120 }} disabled={!gestao} /></td>
+              <td style={{ padding: '6px 8px' }}><input value={val(it, 'obs') || ''} onChange={e => setF(it.fornecedor_id, 'obs', e.target.value)} placeholder="—" style={{ ...s.inp, padding: '4px 6px', width: 140 }} disabled={!gestao} /></td>
+              <td style={{ padding: '6px 8px' }}>{gestao && edit[it.fornecedor_id] && <button onClick={() => salvar(it)} style={s.btnMini}>salvar</button>}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>}
+      </div>
     </div>
   );
 }
