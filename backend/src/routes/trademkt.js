@@ -393,6 +393,8 @@ router.post('/vendas', exigePerfil(...GESTAO), (req, res) => {
     db.prepare('UPDATE tmkt_vendas SET contato_cpf=?, contato_nome=? WHERE id=? AND empresa_id=?').run(contatoCpf || null, b.contato_nome || null, id, emp);
     liberarAcessoContato(emp, contatoCpf, b.contato_nome);
   }
+  const lojasCsv = Array.isArray(b.lojas) ? b.lojas.filter(Boolean).join(',') : String(b.lojas || '');
+  if (lojasCsv) db.prepare('UPDATE tmkt_vendas SET lojas=?, loja_id=? WHERE id=? AND empresa_id=?').run(lojasCsv, lojasCsv.split(',')[0] || null, id, emp);
   res.json({ ok: true, id });
 });
 
@@ -457,6 +459,7 @@ router.put('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
   if ('nao_ocupa' in b) { set.push('nao_ocupa=?'); vals.push(b.nao_ocupa ? 1 : 0); }
   if ('contato_nome' in b) { set.push('contato_nome=?'); vals.push(b.contato_nome || null); }
   if ('contato_cpf' in b) { const c = String(b.contato_cpf || '').replace(/\D/g, ''); set.push('contato_cpf=?'); vals.push(c || null); if (c.length === 11) liberarAcessoContato(emp, c, b.contato_nome); }
+  if ('lojas' in b) { const csv = Array.isArray(b.lojas) ? b.lojas.filter(Boolean).join(',') : String(b.lojas || ''); set.push('lojas=?'); vals.push(csv || null); set.push('loja_id=?'); vals.push(csv.split(',')[0] || null); }
   if (set.length) { set.push("atualizado_em=datetime('now')"); db.prepare(`UPDATE tmkt_vendas SET ${set.join(',')} WHERE id=? AND empresa_id=?`).run(...vals, req.params.id, emp); }
   res.json({ ok: true });
 });

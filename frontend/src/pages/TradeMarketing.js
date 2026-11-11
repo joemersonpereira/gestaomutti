@@ -1224,7 +1224,15 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
             {v.fornecedor_id ? <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, padding: '6px 10px', background: '#F3F7F4', border: '1px solid #DDEBE1', borderRadius: 8 }}>✅ <b>{v.fornecedor_nome}</b><button type="button" onClick={() => { set('fornecedor_id', ''); set('fornecedor_nome', ''); }} style={{ ...s.mv, marginLeft: 'auto' }}>trocar</button></div>
               : <BuscaERP API={API} rota="/trademkt/erp/fornecedores" campo="fornecedores" placeholder="buscar fornecedor no ERP…" onPick={f => { set('fornecedor_id', f.id); set('fornecedor_nome', f.nome); }} />}
           </div>
-          <label style={s.lbl}>Loja<select value={v.loja_id || ''} onChange={e => set('loja_id', e.target.value)} style={s.inp}><option value="">—</option>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></label>
+          <label style={{ ...s.lbl, minWidth: 240 }}>Lojas envolvidas <span style={{ fontWeight: 400, color: '#94a3b8' }}>(pode marcar mais de uma)</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+              {lojas.map(l => {
+                const cur = (v.lojas != null && v.lojas !== '') ? String(v.lojas).split(',').filter(Boolean) : (v.loja_id ? [v.loja_id] : []);
+                const on = cur.includes(l.id);
+                return <button type="button" key={l.id} onClick={() => { const next = on ? cur.filter(x => x !== l.id) : [...cur, l.id]; set('lojas', next.join(',')); set('loja_id', next[0] || ''); }} style={{ ...s.chip, ...(on ? s.chipOn : {}), fontSize: 11.5 }}>{on ? '✓ ' : ''}{l.nome}</button>;
+              })}
+            </div>
+          </label>
           <label style={{ ...s.lbl, minWidth: 200 }}>Plano comercial <span style={{ fontWeight: 400, color: '#94a3b8' }}>(p/ apurar depois)</span>
             <select value={v.plano_id || ''} onChange={e => { const p = planos.find(x => x.id === e.target.value); set('plano_id', e.target.value); set('plano_nome', p ? p.nome : ''); }} style={s.inp}>
               <option value="">— nenhum —</option>{planos.map(p => <option key={p.id} value={p.id}>{p.nome}{p.periodo ? ` · ${p.periodo}` : ''}</option>)}
