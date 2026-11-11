@@ -71,6 +71,7 @@ export default function TradeMarketing() {
         {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['premvend', '💰 Premiação vendedor'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, border: 'none', ...(aba === v ? s.chipOn : { background: 'transparent', color: '#51607a' }) }}>{l}</button>)}
       </div>
+      <PainelMeta API={API} />
       {modelo && <ModeloContrato API={API} onClose={() => setModelo(false)} />}
       {aba === 'portal' && <Portal API={API} gestao={gestao} />}
       {aba === 'cobranca' && <Cobranca API={API} gestao={gestao} />}
@@ -2257,6 +2258,35 @@ function PremiacaoVendedor({ API, gestao }) {
           </table>
         </div>}
       </div>
+    </div>
+  );
+}
+
+// Painel lateral fixo: minha meta de trade do mês + minhas atividades (atrasadas/em dia)
+function PainelMeta({ API }) {
+  const [d, setD] = useState(null); const [aberto, setAberto] = useState(true);
+  const carregar = useCallback(() => API.get('/trademkt/minha-meta').then(r => setD(r.data)).catch(() => {}), [API]);
+  useEffect(() => { carregar(); const t = setInterval(carregar, 5 * 60 * 1000); return () => clearInterval(t); }, [carregar]);
+  const dBR = s2 => s2 ? String(s2).slice(0, 10).split('-').reverse().join('/') : '';
+  if (!aberto) return <button onClick={() => setAberto(true)} style={{ position: 'fixed', right: 14, bottom: 18, zIndex: 40, ...s.btn, borderRadius: 999, boxShadow: '0 6px 18px rgba(0,0,0,.25)' }}>📣 Minha meta{d && d.atrasadas > 0 ? ` · ${d.atrasadas}⚠️` : ''}</button>;
+  return (
+    <div style={{ position: 'fixed', right: 12, top: 86, width: 300, maxWidth: 'calc(100vw - 24px)', maxHeight: 'calc(100vh - 110px)', overflowY: 'auto', zIndex: 40, background: '#fff', border: '1px solid #e3e8ea', borderRadius: 16, boxShadow: '0 12px 44px rgba(16,40,45,.16)', padding: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><b style={{ fontSize: 13 }}>📣 Minha meta de trade</b><button onClick={() => setAberto(false)} title="recolher" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 15 }}>✕</button></div>
+      {!d && <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>Carregando…</div>}
+      {d && <>
+        <div style={{ marginTop: 10, background: BRAND_GRAD, color: '#fff', borderRadius: 12, padding: 12 }}>
+          <div style={{ fontSize: 11, opacity: .85 }}>Premiação do mês</div>
+          <div style={{ fontSize: 24, fontWeight: 800 }}>{brl(d.premiacao)}</div>
+          <div style={{ fontSize: 11.5, marginTop: 2 }}>{d.espacos} espaço(s) · {d.pct}% · {brl(d.valor)} vendido</div>
+          {d.proxima && <div style={{ fontSize: 11, marginTop: 6, background: 'rgba(255,255,255,.18)', borderRadius: 8, padding: '5px 8px' }}>🎯 Faltam <b>{d.proxima.faltam}</b> espaço(s) pra <b>{d.proxima.pct}%</b></div>}
+        </div>
+        <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: '#334' }}>Minhas atividades{d.atrasadas > 0 ? <span style={{ color: '#C0392B' }}> · {d.atrasadas} atrasada(s)</span> : ''}</div>
+        {(d.tarefas || []).length === 0 && <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>Nada pendente. 🎉</div>}
+        {(d.tarefas || []).map(t => <div key={t.id} style={{ fontSize: 12, padding: '6px 0', borderTop: '1px solid #f3f3f3' }}>
+          <span>{t.atrasada ? '🔴' : '🟢'}</span> {t.titulo}
+          {t.prazo && <div style={{ fontSize: 10.5, color: t.atrasada ? '#C0392B' : '#94a3b8', marginLeft: 16 }}>prazo {dBR(t.prazo)}</div>}
+        </div>)}
+      </>}
     </div>
   );
 }
