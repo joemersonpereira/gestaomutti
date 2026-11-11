@@ -82,11 +82,12 @@ async function quebras(empresaId, { ini, fim, lojaId } = {}) {
   const rows = await erpQuery(`
     SELECT q.id::text id, q.datahora::date::text data, q.valor::float8 valor,
            q.usuarioresponsavelid::text operador_id, q.unidadenegocioid::int unidade,
-           q.observacao, q.status, u.login, p.nome operador
+           q.observacao, q.status, u.login, p.nome operador,
+           (q.origemcorrecaocartaoreceberid IS NOT NULL) AS correcao_cartao
     FROM quebracaixa q
     LEFT JOIN usuario u ON u.id=q.usuarioresponsavelid
     LEFT JOIN pessoa p ON p.id=u.pessoaid
-    WHERE q.tipo='A' AND q.origemcorrecaocartaoreceberid IS NULL
+    WHERE q.tipo='A'
       AND q.unidadenegocioid = ANY($1::bigint[])
       AND q.datahora >= $2::date AND q.datahora < ($3::date + 1)
     ORDER BY q.datahora DESC, abs(q.valor) DESC`, [unis, ini, fim]);
@@ -112,6 +113,7 @@ async function quebras(empresaId, { ini, fim, lojaId } = {}) {
     if (acobrar) { resumo.acobrar++; resumo.valorAcobrar += Math.abs(valor); if (!c || c.status === 'pendente') resumo.pendentes++; }
     return {
       id: r.id, data: r.data, valor, tipo, acobrar, relevante,
+      origem: r.correcao_cartao ? 'correcao_cartao' : 'fechamento',
       operadorId: r.operador_id, operador: (r.operador || r.login || '—').trim(), login: r.login,
       lojaId: loja?.id || null, loja: loja?.nome || ('Unid. ' + r.unidade),
       observacao: r.observacao || '', erpStatus: r.status,
