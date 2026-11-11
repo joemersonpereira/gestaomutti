@@ -10,6 +10,7 @@ const fsNode = require('fs');
 const pathNode = require('path');
 const { erpQuery } = require('../db/erp');
 const cc = require('../lib/conciliacaoCartao'); // erros de cartão (correções) p/ o painel da loja
+const cpontos = require('../lib/caixaPontos'); // Caixa Destaque por pontos (ranking trimestral + avulso)
 
 // Chefe de tesouraria + gestão (veem tudo, todas as lojas). O GERENTE também acessa, mas SÓ a parte
 // de anexar depósitos/despesas e SÓ as lojas configuradas pra ele (colaborador_lojas). Os indicadores
@@ -63,6 +64,18 @@ router.put('/pontos/regras', soGestao, (req, res) => {
   }
   res.json({ ok: true });
 });
+
+// Ranking de pontos (Caixa Destaque) — trimestral, com o critério de cada ponto.
+router.get('/pontos/ranking', soGestao, async (req, res) => {
+  try { res.json(await cpontos.rankingPontos(req.usuario.empresa_id, { ano: req.query.ano, tri: req.query.tri, lojaId: req.query.loja || null })); }
+  catch (e) { res.status(502).json({ erro: e.message }); }
+});
+router.get('/pontos/lancamentos', soGestao, (req, res) => res.json(cpontos.listarLancamentos(req.usuario.empresa_id, { ano: req.query.ano, tri: req.query.tri })));
+router.post('/pontos/lancamento', soGestao, (req, res) => {
+  try { res.json(cpontos.lancar(req.usuario.empresa_id, { ...req.body, usuario: req.usuario })); }
+  catch (e) { res.status(400).json({ erro: e.message }); }
+});
+router.delete('/pontos/lancamento/:id', soGestao, (req, res) => res.json(cpontos.removerLancamento(req.usuario.empresa_id, req.params.id)));
 
 // Débitos do operador (quebras cobradas em aberto) — "contas a receber do funcionário".
 router.get('/debitos', soGestao, (req, res) => res.json(t.debitosOperador(req.usuario.empresa_id, { lojaId: req.query.loja || null, incluirPagos: req.query.incluirPagos === '1' })));

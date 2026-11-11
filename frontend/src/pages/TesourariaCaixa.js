@@ -104,6 +104,9 @@ export default function TesourariaCaixa({ embed } = {}) {
   const abrirPasta = (tipo) => { setPastaTipo(tipo); API.get('/tesouraria/pasta/listar').then(r => setPasta(r.data)).catch(e => { setPasta({ arquivos: [], erro: e.response?.data?.erro || 'Erro' }); }); };
   const importar = (arq) => { const ff = form.despesa || {}; API.post('/tesouraria/pasta/importar', { caminho: arq.caminho, loja_id: loja, data, tipo: pastaTipo, descricao: ff.desc || arq.arquivo, plano_contas: ff.plano || null, valor: ff.valor !== '' ? Number(ff.valor) : null }).then(() => { setMsg('✅ Importado da pasta.'); setPasta(null); carregar(); setTimeout(() => setMsg(''), 2500); }).catch(e => { setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro ao importar.')); setTimeout(() => setMsg(''), 6000); }); };
 
+  // diferença por operador (login→valor) da loja selecionada, p/ mostrar no grid de Caixas do dia
+  const difPorOp = {};
+  ((geral || []).find(g => g.loja_id === loja)?.diferencas || []).forEach(dd => { const k = (dd.login || dd.operador || '').trim(); if (k) difPorOp[k] = (difPorOp[k] || 0) + (Number(dd.valor) || 0); });
   const depositos = anexos.filter(a => a.tipo === 'deposito');
   const despesas = anexos.filter(a => a.tipo === 'despesa');
   const recargas = anexos.filter(a => a.tipo === 'recarga');
@@ -203,16 +206,9 @@ export default function TesourariaCaixa({ embed } = {}) {
                   </span>
                 </div>
                 <div style={{ fontSize: 11.5, color: '#64748b', margin: '3px 0 7px' }}>💰 {g.n_depositos} · 🧾 {g.n_despesas} · 📱 {g.n_recargas}</div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: g.n_diferencas ? '#b91c1c' : '#15803d', marginBottom: g.n_diferencas ? 4 : 0 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: g.n_diferencas ? '#b91c1c' : '#15803d' }}>
                   {g.n_diferencas ? `⚠️ ${g.n_diferencas} diferença(s)${g.n_relevantes ? ` · ${g.n_relevantes} acima do limite` : ''}` : '✅ sem diferença'}
                 </div>
-                {(g.diferencas || []).slice(0, 6).map((d, i) => (
-                  <div key={i} style={{ fontSize: 11.5, display: 'flex', justifyContent: 'space-between', gap: 8, color: d.relevante ? '#b91c1c' : '#475569' }}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.operador || '—'}{d.login ? ` · ${d.login}` : ''}</span>
-                    <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{d.tipo === 'falta' ? '▼' : '▲'} {brl(Math.abs(d.valor))}</span>
-                  </div>
-                ))}
-                {(g.diferencas || []).length > 6 && <div style={{ fontSize: 11, color: '#94a3b8' }}>+{g.diferencas.length - 6} mais…</div>}
               </div>
             );
           })}
@@ -236,7 +232,7 @@ export default function TesourariaCaixa({ embed } = {}) {
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead><tr style={{ textAlign: 'left', color: '#64748b', borderBottom: '2px solid #eef1f4' }}>
-                {['Caixa', 'Operador', 'Abertura', 'Fechamento', 'Situação'].map(h => <th key={h} style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>{h}</th>)}
+                {['Caixa', 'Operador', 'Abertura', 'Fechamento', 'Diferença', 'Situação'].map(h => <th key={h} style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>{h}</th>)}
               </tr></thead>
               <tbody>{(dia.sessoes || []).map(sx => (
                 <tr key={sx.id} style={{ borderTop: '1px solid #f2f2f2' }}>
@@ -244,6 +240,7 @@ export default function TesourariaCaixa({ embed } = {}) {
                   <td style={{ padding: '6px 8px' }}>{sx.operador || '—'}{sx.login ? <span style={{ color: '#aaa' }}> · {sx.login}</span> : ''}</td>
                   <td style={{ padding: '6px 8px', color: '#475569' }}>{hora(sx.inicio)}</td>
                   <td style={{ padding: '6px 8px', color: '#475569' }}>{sx.fechado ? hora(sx.fim) : '—'}</td>
+                  <td style={{ padding: '6px 8px', fontWeight: 700 }}>{(() => { const k = (sx.login || sx.operador || '').trim(); const v = difPorOp[k]; return (v == null) ? <span style={{ color: '#cbd5e1' }}>—</span> : <span style={{ color: v < 0 ? '#b91c1c' : '#15803d' }}>{v < 0 ? '▼' : '▲'} {brl(Math.abs(v))}</span>; })()}</td>
                   <td style={{ padding: '6px 8px' }}>{sx.fechado
                     ? <span style={{ color: '#15803d', fontWeight: 700 }}>✅ fechado</span>
                     : <span style={{ color: '#b45309', fontWeight: 700 }}>⏳ aberto</span>}</td>

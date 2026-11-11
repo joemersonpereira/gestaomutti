@@ -10,7 +10,7 @@ import { useAuth } from '../context/AuthContext';
 // tinha que estar junto com essas apurações de fechamento"). Sem tarefa/cobrança pro operador.
 // As apurações reusam a página antiga Tesouraria.js com tabFixa (sem barra de abas própria).
 
-const NATIVAS = ['fechamento', 'orcamento', 'criterios'];
+const NATIVAS = ['fechamento', 'orcamento', 'criterios', 'ranking'];
 const ABAS = [
   ['fechamento', '📎 Fechamento do dia'],
   ['ranking', '🏆 Caixa Destaque'],
@@ -49,6 +49,7 @@ export default function TesourariaHub() {
           </div>
         )}
         {aba === 'criterios' && ehGestao && <CriteriosPontos API={API} />}
+        {aba === 'ranking' && ehGestao && <CaixaDestaquePontos API={API} />}
         {!NATIVAS.includes(aba) && <Tesouraria embed soControle tabFixa={aba} />}
       </div>
     </div>
@@ -112,6 +113,95 @@ function CriteriosPontos({ API }) {
     </div>
   );
 }
+
+// Ranking do Caixa Destaque por PONTOS (trimestral) + lançamento avulso (Joe 2026-11-11).
+function CaixaDestaquePontos({ API }) {
+  const agora = new Date();
+  const [ano, setAno] = useState(agora.getFullYear());
+  const [tri, setTri] = useState(Math.floor(agora.getMonth() / 3) + 1);
+  const [d, setD] = useState(null);
+  const [regras, setRegras] = useState([]);
+  const [lanc, setLanc] = useState([]);
+  const [f, setF] = useState({ operador_nome: '', regra_chave: 'avulso', pontos: '', data: new Date().toISOString().slice(0, 10), obs: '' });
+  const [msg, setMsg] = useState('');
+  const [exp, setExp] = useState(null);
+  const carregar = useCallback(() => {
+    API.get(`/tesouraria/pontos/ranking?ano=${ano}&tri=${tri}`).then(r => setD(r.data)).catch(() => setD(null));
+    API.get(`/tesouraria/pontos/lancamentos?ano=${ano}&tri=${tri}`).then(r => setLanc(r.data.lancamentos || [])).catch(() => setLanc([]));
+  }, [API, ano, tri]);
+  useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => { API.get('/tesouraria/pontos/regras').then(r => setRegras(r.data.regras || [])).catch(() => {}); }, [API]);
+  const setFF = (k, v) => setF(x => { const n = { ...x, [k]: v }; if (k === 'regra_chave') { const rg = regras.find(r => r.chave === v); n.pontos = rg ? rg.pontos : ''; } return n; });
+  const lancar = () => {
+    if (!f.operador_nome.trim()) { setMsg('⚠️ Informe o operador.'); setTimeout(() => setMsg(''), 2500); return; }
+    API.post('/tesouraria/pontos/lancamento', { operador_nome: f.operador_nome, regra_chave: f.regra_chave, pontos: Number(f.pontos) || 0, data: f.data, obs: f.obs })
+      .then(() => { setMsg('✅ Lançado.'); setF(x => ({ ...x, operador_nome: '', obs: '', pontos: f.regra_chave === 'avulso' ? '' : f.pontos })); carregar(); setTimeout(() => setMsg(''), 2000); })
+      .catch(e => { setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro.')); setTimeout(() => setMsg(''), 3000); });
+  };
+  const remover = (id) => { if (!window.confirm('Remover este lançamento?')) return; API.delete('/tesouraria/pontos/lancamento/' + id).then(carregar); };
+  const rk = d?.ranking || [];
+  return (
+    <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 12, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 12 }}>
+        <label style={cd.lab}>Ano<input type="number" value={ano} onChange={e => setAno(e.target.value)} style={{ ...cd.inp, width: 90 }} /></label>
+        <label style={cd.lab}>Trimestre<select value={tri} onChange={e => setTri(Number(e.target.value))} style={cd.inp}>{[1, 2, 3, 4].map(q => <option key={q} value={q}>{q}º tri</option>)}</select></label>
+        {d && <span style={{ fontSize: 12, color: '#64748b' }}>Período {d.periodo?.ini} a {d.periodo?.fim} · ganha com ≥ <b>{d.minimo}</b> pts</span>}
+      </div>
+
+      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 14, marginBottom: 14 }}>
+        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 2 }}>🏆 Ranking do trimestre</div>
+        <p style={{ fontSize: 11.5, color: '#94a3b8', margin: '0 0 8px' }}>Automático (ERP): diferença de caixa, erro de sangria e modalidade errada. Os positivos (agilidade, pontualidade na conferência etc.) entram por lançamento avulso abaixo. Clique no operador p/ ver o critério de cada ponto.</p>
+        {!rk.length ? <div style={{ color: '#94a3b8', fontSize: 13, padding: 8 }}>Sem pontos no período.</div> :
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr style={{ textAlign: 'left', color: '#64748b', borderBottom: '2px solid #eef1f4' }}>
+              {['#', 'Operador', 'Pontos', 'Situação'].map(h => <th key={h} style={{ padding: '7px 8px' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>{rk.map((o, i) => (
+              <React.Fragment key={o.operador}>
+                <tr onClick={() => setExp(exp === o.operador ? null : o.operador)} style={{ borderTop: '1px solid #f2f2f2', cursor: 'pointer', background: o.elegivel ? '#f0fdf9' : '#fff' }}>
+                  <td style={{ padding: '7px 8px', color: '#94a3b8' }}>{i + 1}</td>
+                  <td style={{ padding: '7px 8px', fontWeight: 600 }}>{o.operador}</td>
+                  <td style={{ padding: '7px 8px', fontWeight: 800, color: o.total >= 0 ? '#15803d' : '#b91c1c' }}>{o.total}</td>
+                  <td style={{ padding: '7px 8px' }}>{o.desclassificado ? <span style={{ color: '#b91c1c', fontWeight: 700, fontSize: 12 }}>DESCLASSIFICADO</span> : o.elegivel ? <span style={{ color: '#15803d', fontWeight: 700, fontSize: 12 }}>✅ elegível</span> : <span style={{ color: '#94a3b8', fontSize: 12 }}>abaixo do mínimo</span>}</td>
+                </tr>
+                {exp === o.operador && <tr><td colSpan={4} style={{ padding: '4px 8px 10px 32px', background: '#fafbfc' }}>
+                  {o.criterios.map(c => <span key={c.chave} style={{ display: 'inline-block', margin: '3px 6px 3px 0', fontSize: 11.5, background: c.pontos < 0 ? '#fdecea' : '#eaf7ef', color: c.pontos < 0 ? '#b91c1c' : '#15803d', borderRadius: 999, padding: '2px 9px', fontWeight: 600 }}>{c.label}: {c.pontos > 0 ? '+' : ''}{c.pontos}{c.n > 1 ? ` (${c.n}×)` : ''}</span>)}
+                </td></tr>}
+              </React.Fragment>
+            ))}</tbody>
+          </table>
+        </div>}
+      </div>
+
+      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, padding: 14 }}>
+        <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>✍️ Lançamento avulso de pontos</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={cd.lab}>Operador<input value={f.operador_nome} onChange={e => setFF('operador_nome', e.target.value)} style={{ ...cd.inp, minWidth: 200 }} placeholder="nome do operador" /></label>
+          <label style={cd.lab}>Critério<select value={f.regra_chave} onChange={e => setFF('regra_chave', e.target.value)} style={{ ...cd.inp, minWidth: 180 }}><option value="avulso">Avulso (livre)</option>{regras.map(r => <option key={r.chave} value={r.chave}>{r.label}</option>)}</select></label>
+          <label style={cd.lab}>Pontos<input type="number" value={f.pontos} onChange={e => setFF('pontos', e.target.value)} style={{ ...cd.inp, width: 80 }} /></label>
+          <label style={cd.lab}>Data<input type="date" value={f.data} onChange={e => setFF('data', e.target.value)} style={cd.inp} /></label>
+          <label style={cd.lab}>Obs.<input value={f.obs} onChange={e => setFF('obs', e.target.value)} style={{ ...cd.inp, minWidth: 160 }} /></label>
+          <button onClick={lancar} style={{ padding: '9px 16px', borderRadius: 8, border: 'none', background: '#0d6b5e', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>+ Lançar</button>
+          {msg && <span style={{ fontSize: 13, fontWeight: 600, color: msg.startsWith('⚠️') ? '#b91c1c' : '#15803d' }}>{msg}</span>}
+        </div>
+        {lanc.length > 0 && <div style={{ marginTop: 10 }}>
+          {lanc.map(l => <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '4px 0', borderTop: '1px solid #f3f4f6' }}>
+            <span style={{ color: '#64748b', width: 82 }}>{(l.data || '').slice(0, 10).split('-').reverse().join('/')}</span>
+            <b style={{ flex: 1 }}>{l.operador_nome}</b>
+            <span style={{ color: '#64748b' }}>{l.regra_chave}</span>
+            <span style={{ fontWeight: 700, color: l.pontos < 0 ? '#b91c1c' : '#15803d', width: 44, textAlign: 'right' }}>{l.pontos > 0 ? '+' : ''}{l.pontos}</span>
+            <button onClick={() => remover(l.id)} style={{ border: 'none', background: 'none', color: '#b91c1c', cursor: 'pointer' }}>🗑</button>
+          </div>)}
+        </div>}
+      </div>
+    </div>
+  );
+}
+const cd = {
+  lab: { display: 'flex', flexDirection: 'column', fontSize: 11, color: '#64748b', gap: 3, fontWeight: 600 },
+  inp: { border: '1px solid #cbd5e1', borderRadius: 7, padding: '7px 9px', fontSize: 13 },
+};
 
 const s = {
   wrap: { padding: '18px 20px', maxWidth: 1180, margin: '0 auto' },
