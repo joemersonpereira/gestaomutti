@@ -120,7 +120,7 @@ const MODULOS = [
   { id: 'cobranca-trade', label: '💰 Cobrança (Trade)', C: CobrancaTrade, perfis: ['Financeiro', 'Controladoria', 'Diretor Geral', 'Gestor Geral', 'Supervisor', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing', 'Tesouraria'] },
   { id: 'financeiro', label: '💼 Financeiro', C: Financeiro, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
   { id: 'contas-receber', label: '📥 Contas a Receber', C: ContasReceber, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro'] },
-  { id: 'validacao-financeira', label: '💰 Validação Financeira', C: ValidacaoFinanceira, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Tesouraria', 'Contabilidade', 'Comercial', 'Marketing', 'Supervisor'] },
+  { id: 'validacao-financeira', label: '💰 Validação Financeira', C: ValidacaoFinanceira, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Tesouraria', 'Contabilidade', 'Comercial', 'Marketing', 'Supervisor', 'Comprador Beleza', 'Comprador Bem-estar'] },
   { id: 'conciliacao-cartao', label: '💳 Conciliação de Cartões', C: ConciliacaoCartoes, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro', 'Contabilidade'] },
   { id: 'estagios', label: '🧾 Faturas', C: EstagiosFaturas, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'RH'] },
   { id: 'estagio-rh', label: '🎓 Estágios', C: EstagioRH, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'RH', 'Supervisor'] },
@@ -210,7 +210,7 @@ const NAV = [
     { nome: 'Marketing', itens: ['marketing', 'mkt-calendario'] },
     { nome: 'Gente & Gestão', itens: ['cadastros', 'visao360', 'capacitacao', 'indicadores-colab', 'afastamentos', 'ponto', 'ponto-repp', 'ocorrencias', 'documentos-rh', 'beneficios', 'clima', 'desligamentos', 'canal-escuta', 'painel-rh', 'estagio-rh', 'estagios', 'banco-talentos'] },
     { nome: 'Administrativo', itens: [], subs: [
-      { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'tesouraria', 'conciliacao-cartao', 'contas-receber', 'cobranca-trade'] },
+      { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'tesouraria', 'conciliacao-cartao', 'contas-receber'] },
       { nome: 'Controladoria', itens: ['controladoria'] },
       { nome: 'Contabilidade', itens: ['contabilidade', 'fornecedores', 'auditoria-contabil'] },
       { nome: 'Suporte', itens: ['suporte', 'fiscal'] },

@@ -122,6 +122,9 @@ function getComprovante(emp, origem, refId) {
 function confirmar(emp, { origem, ref_id, valor, usuario }) {
   const f = FONTES[origem];
   if (!f) throw new Error('Origem inválida.');
+  // Regra do Joe: a baixa só pode ser confirmada COM comprovante anexado (anexado por quem é do Trade/Comercial).
+  const comp = getComprovante(emp, origem, ref_id);
+  if (!comp || !comp.comprovante) throw new Error('Anexe o comprovante antes de confirmar a baixa.');
   f.confirmar(emp, String(ref_id), valor);   // baixa no módulo de origem
   upsert(emp, origem, String(ref_id), {
     status: 'confirmado', valor_confirmado: valor != null ? r2(valor) : null,
