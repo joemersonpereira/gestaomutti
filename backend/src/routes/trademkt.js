@@ -565,6 +565,83 @@ router.post('/prospeccoes/:id/reabrir', exigePerfil(...GESTAO), (req, res) => {
     .run(prox, p.id);
   res.json({ ok: true });
 });
+
+// ── CALENDÁRIO / AGENDA DA EMPRESA ────────────────────────────────────────────
+// Eventos "empresa" todo mundo vê; "pessoal" só o dono. Agendamentos de lead/prospecção/tarefa
+// são DERIVADOS (não gravados) e sempre pessoais do responsável.
+router.get('/agenda', (req, res) => {
+  const emp = req.usuario.empresa_id, uid = req.usuario.id;
+  const ini = String(req.query.ini || '').slice(0, 10) || '0000-01-01';
+  const fim = String(req.query.fim || '').slice(0, 10) || '9999-12-31';
+  const hoje = new Date().toISOString().slice(0, 10);
+  // eventos manuais: empresa (todos) OU pessoais do próprio usuário, que cruzem o intervalo
+  const manuais = db.prepare(`SELECT id, titulo, descricao, data, hora, fim, local, cor, visibilidade, dono_id, origem, ref_id, criado_por
+      FROM agenda_evento WHERE empresa_id=? AND (visibilidade='empresa' OR dono_id=?)
+        AND data<=? AND COALESCE(fim,data)>=? ORDER BY data, (hora IS NULL), hora`).all(emp, uid, fim, ini)
+    .map(e => ({ ...e, meu: e.dono_id === uid, editavel: (e.visibilidade === 'pessoal' ? e.dono_id === uid : GESTAO.includes(req.usuario.funcao)) }));
+  // DERIVADOS pessoais (só do usuário): próximo contato das prospecções abertas
+  const prosp = db.prepare(`SELECT id, fornecedor_nome, proximo_contato FROM tmkt_prospeccao
+      WHERE empresa_id=? AND responsavel_id=? AND etapa NOT IN ('ganho','perdido') AND proximo_contato IS NOT NULL
+        AND date(substr(proximo_contato,1,10)) BETWEEN ? AND ?`).all(emp, uid, ini, fim)
+    .map(p => ({ id: 'prosp-' + p.id, ref_id: p.id, titulo: '📞 Contato: ' + (p.fornecedor_nome || 'fornecedor'), data: String(p.proximo_contato).slice(0, 10),
+      hora: null, fim: null, visibilidade: 'pessoal', meu: true, editavel: false, origem: 'prospeccao', aba: 'vendas', cor: '#6D4AA8' }));
+  // DERIVADOS pessoais: perdidas com data de "voltar a procurar"
+  const reab = db.prepare(`SELECT id, fornecedor_nome, reabordar_em FROM tmkt_prospeccao
+      WHERE empresa_id=? AND responsavel_id=? AND etapa='perdido' AND reabordar_em IS NOT NULL
+        AND date(substr(reabordar_em,1,10)) BETWEEN ? AND ?`).all(emp, uid, ini, fim)
+    .map(p => ({ id: 'reab-' + p.id, ref_id: p.id, titulo: '🔁 Retomar: ' + (p.fornecedor_nome || 'fornecedor'), data: String(p.reabordar_em).slice(0, 10),
+      hora: null, fim: null, visibilidade: 'pessoal', meu: true, editavel: false, origem: 'reabordar', aba: 'vendas', cor: '#B45309' }));
+  // DERIVADOS pessoais: tarefas de trade do usuário com prazo
+  const tarefas = db.prepare(`SELECT id, titulo, prazo FROM tarefas
+      WHERE empresa_id=? AND responsavel_id=? AND origem LIKE 'trade%' AND status<>'concluido' AND prazo IS NOT NULL
+        AND date(substr(prazo,1,10)) BETWEEN ? AND ?`).all(emp, uid, ini, fim)
+    .map(t => ({ id: 'tar-' + t.id, ref_id: t.id, titulo: '✅ ' + t.titulo, data: String(t.prazo).slice(0, 10),
+      hora: null, fim: null, visibilidade: 'pessoal', meu: true, editavel: false, origem: 'tarefa', cor: '#1E874B' }));
+  const eventos = [...manuais, ...prosp, ...reab, ...tarefas]
+    .map(e => ({ ...e, atrasado: !!(e.data && e.data < hoje && e.origem !== 'manual') }));
+  res.json({ eventos });
+});
+router.post('/agenda', (req, res) => {
+  const b = req.body || {}, emp = req.usuario.empresa_id, uid = req.usuario.id;
+  if (!b.titulo || !String(b.titulo).trim()) return res.status(400).json({ erro: 'Informe o título.' });
+  if (!b.data) return res.status(400).json({ erro: 'Informe a data.' });
+  const vis = b.visibilidade === 'empresa' ? 'empresa' : 'pessoal';
+  if (vis === 'empresa' && !GESTAO.includes(req.usuario.funcao)) return res.status(403).json({ erro: 'Só a gestão pode criar eventos para toda a empresa.' });
+  const id = uuid();
+  db.prepare(`INSERT INTO agenda_evento (id,empresa_id,titulo,descricao,data,hora,fim,local,cor,visibilidade,dono_id,origem,criado_por)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?, 'manual', ?)`)
+    .run(id, emp, String(b.titulo).trim(), b.descricao || null, String(b.data).slice(0, 10), b.hora || null,
+      b.fim ? String(b.fim).slice(0, 10) : null, b.local || null, b.cor || null, vis, vis === 'pessoal' ? uid : null, uid);
+  res.json({ ok: true, id });
+});
+router.put('/agenda/:id', (req, res) => {
+  const b = req.body || {}, emp = req.usuario.empresa_id, uid = req.usuario.id;
+  const e = db.prepare('SELECT * FROM agenda_evento WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!e) return res.status(404).json({ erro: 'não encontrado' });
+  const podeEditar = e.visibilidade === 'pessoal' ? e.dono_id === uid : GESTAO.includes(req.usuario.funcao);
+  if (!podeEditar) return res.status(403).json({ erro: 'Sem permissão para editar este evento.' });
+  let vis = e.visibilidade, dono = e.dono_id;
+  if (b.visibilidade && b.visibilidade !== e.visibilidade) {
+    vis = b.visibilidade === 'empresa' ? 'empresa' : 'pessoal';
+    if (vis === 'empresa' && !GESTAO.includes(req.usuario.funcao)) return res.status(403).json({ erro: 'Só a gestão pode tornar um evento da empresa.' });
+    dono = vis === 'pessoal' ? uid : null;
+  }
+  db.prepare(`UPDATE agenda_evento SET titulo=?, descricao=?, data=?, hora=?, fim=?, local=?, cor=?, visibilidade=?, dono_id=? WHERE id=? AND empresa_id=?`)
+    .run(b.titulo != null ? String(b.titulo).trim() : e.titulo, b.descricao !== undefined ? (b.descricao || null) : e.descricao,
+      b.data ? String(b.data).slice(0, 10) : e.data, b.hora !== undefined ? (b.hora || null) : e.hora,
+      b.fim !== undefined ? (b.fim ? String(b.fim).slice(0, 10) : null) : e.fim, b.local !== undefined ? (b.local || null) : e.local,
+      b.cor !== undefined ? (b.cor || null) : e.cor, vis, dono, e.id, emp);
+  res.json({ ok: true });
+});
+router.delete('/agenda/:id', (req, res) => {
+  const emp = req.usuario.empresa_id, uid = req.usuario.id;
+  const e = db.prepare('SELECT * FROM agenda_evento WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!e) return res.status(404).json({ erro: 'não encontrado' });
+  const pode = e.visibilidade === 'pessoal' ? e.dono_id === uid : GESTAO.includes(req.usuario.funcao);
+  if (!pode) return res.status(403).json({ erro: 'Sem permissão para excluir este evento.' });
+  db.prepare('DELETE FROM agenda_evento WHERE id=? AND empresa_id=?').run(e.id, emp);
+  res.json({ ok: true });
+});
 // Converte uma prospecção em negociação (entra como rascunho no Kanban, já com o fornecedor).
 router.post('/prospeccoes/:id/converter', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id;

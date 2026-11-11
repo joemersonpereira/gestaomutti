@@ -76,7 +76,7 @@ export default function TradeMarketing() {
         {gestao && <button onClick={() => setModelo(true)} style={bannerBtn}>📄 Modelo de contrato</button>}
       </Banner>
       <div style={{ display: 'flex', gap: 6, margin: '12px 0 16px', flexWrap: 'wrap', padding: 6, background: '#fff', border: '1px solid #ecefee', borderRadius: 14, boxShadow: '0 1px 3px rgba(16,40,45,.05)' }}>
-        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['metas', '🎯 Metas'], ['leads', '📇 Leads (fornecedores)'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
+        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['calendario', '📅 Calendário'], ['metas', '🎯 Metas'], ['leads', '📇 Leads (fornecedores)'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, border: 'none', ...(aba === v ? s.chipOn : { background: 'transparent', color: '#51607a' }) }}>{l}</button>)}
       </div>
       <PainelMeta API={API} aba={aba} onNav={setAba} aberto={lateral} setAberto={setLateral} />
@@ -85,6 +85,7 @@ export default function TradeMarketing() {
       {aba === 'cobranca' && <Cobranca API={API} gestao={gestao} />}
       {aba === 'dashboard' && <Dashboard API={API} onAba={setAba} />}
       {aba === 'vendas' && <Vendas API={API} gestao={gestao} />}
+      {aba === 'calendario' && <Calendario API={API} gestao={gestao} onNav={setAba} />}
       {aba === 'metas' && <PremiacaoVendedor API={API} gestao={gestao} />}
       {aba === 'leads' && <LeadsFornecedor API={API} gestao={gestao} onFunil={() => setAba('vendas')} />}
       {aba === 'porloja' && <EspacoLoja API={API} gestao={gestao} />}
@@ -2473,7 +2474,121 @@ function PremiacaoVendedor({ API, gestao }) {
 // Lateral da área de trabalho do colaborador: navegação entre as páginas de trade + as pendências
 // dele sempre à vista (premiação/meta do mês, metas de atividade, cobranças de prospecção, atividades
 // e agenda dos próximos contatos). Fica fixa em altura cheia; o conteúdo se ajusta ao lado.
-const LAT_NAV = [['vendas', '🗂️', 'Negociações'], ['dashboard', '📊', 'Dashboard'], ['metas', '🎯', 'Metas'], ['leads', '📇', 'Leads'], ['porloja', '🏬', 'Espaços'], ['cobranca', '💰', 'Cobrança']];
+const LAT_NAV = [['vendas', '🗂️', 'Negociações'], ['dashboard', '📊', 'Dashboard'], ['calendario', '📅', 'Calendário'], ['metas', '🎯', 'Metas'], ['leads', '📇', 'Leads'], ['porloja', '🏬', 'Espaços'], ['cobranca', '💰', 'Cobrança']];
+
+// ── Calendário da empresa: eventos "empresa" todos veem; "pessoais" só o dono. ──
+const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const DIAS_SEM = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const EV_CORES = ['#0E7C5A', '#2563eb', '#6D4AA8', '#B45309', '#C0392B', '#0891b2'];
+const isoDia = dt => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+function Calendario({ API, gestao, onNav }) {
+  const hoje = new Date(); const hojeISO = isoDia(hoje);
+  const [ano, setAno] = useState(hoje.getFullYear());
+  const [mes, setMes] = useState(hoje.getMonth()); // 0-11
+  const [eventos, setEventos] = useState([]);
+  const [verEmpresa, setVerEmpresa] = useState(true); const [verMeus, setVerMeus] = useState(true);
+  const [diaSel, setDiaSel] = useState(null); const [editEv, setEditEv] = useState(null); // objeto de evento ou {data} p/ novo
+  // grade de 6 semanas começando no domingo
+  const primeiro = new Date(ano, mes, 1);
+  const gridIni = new Date(ano, mes, 1 - primeiro.getDay());
+  const dias = Array.from({ length: 42 }, (_, i) => { const d = new Date(gridIni); d.setDate(gridIni.getDate() + i); return d; });
+  const iniISO = isoDia(dias[0]); const fimISO = isoDia(dias[41]);
+  const carregar = useCallback(() => API.get('/trademkt/agenda', { params: { ini: iniISO, fim: fimISO } }).then(r => setEventos(r.data.eventos || [])).catch(() => setEventos([])), [API, iniISO, fimISO]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const visivel = e => (e.visibilidade === 'empresa' ? verEmpresa : verMeus);
+  const doDia = iso => eventos.filter(visivel).filter(e => e.data <= iso && (e.fim || e.data) >= iso);
+  const navMes = dir => { let m = mes + dir, a = ano; if (m < 0) { m = 11; a--; } if (m > 11) { m = 0; a++; } setMes(m); setAno(a); };
+  const abrirEvento = e => { if (e.editavel) setEditEv(e); else if (e.aba && onNav) onNav(e.aba); };
+  return <div>
+    <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+      <b style={{ fontSize: 14 }}>📅 Calendário</b>
+      <span style={{ fontSize: 11.5, color: '#7a8a8c' }}>da empresa (todos veem) + seus compromissos (só você vê). Contatos de prospecção e tarefas entram sozinhos.</span>
+      <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+        <button onClick={() => navMes(-1)} style={s.btnMini}>◀</button>
+        <b style={{ fontSize: 13, minWidth: 128, textAlign: 'center' }}>{MESES[mes]} {ano}</b>
+        <button onClick={() => navMes(1)} style={s.btnMini}>▶</button>
+        <button onClick={() => { setMes(hoje.getMonth()); setAno(hoje.getFullYear()); }} style={s.btnMini}>hoje</button>
+        <button onClick={() => setEditEv({ data: hojeISO })} style={{ ...s.btn, marginLeft: 4 }}>+ Agendar</button>
+      </div>
+    </div>
+    <div style={{ ...s.card, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+      <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={verEmpresa} onChange={e => setVerEmpresa(e.target.checked)} /><span style={{ width: 11, height: 11, borderRadius: 3, background: '#0E7C5A', display: 'inline-block' }} /> Empresa</label>
+      <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={verMeus} onChange={e => setVerMeus(e.target.checked)} /><span style={{ width: 11, height: 11, borderRadius: 3, background: '#2563eb', display: 'inline-block' }} /> Meus compromissos</label>
+      <span style={{ color: '#94a3b8' }}>Clique num dia para ver/agendar.</span>
+    </div>
+    <div style={{ ...s.card, padding: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4 }}>
+        {DIAS_SEM.map(d => <div key={d} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#7a8a8c', padding: '4px 0' }}>{d}</div>)}
+        {dias.map((dt, i) => { const iso = isoDia(dt); const foraMes = dt.getMonth() !== mes; const evs = doDia(iso); const ehHoje = iso === hojeISO;
+          return <div key={i} onClick={() => setDiaSel(iso)} style={{ minHeight: 78, border: '1px solid ' + (ehHoje ? '#0E7C5A' : '#eef1f4'), borderRadius: 8, padding: 4, background: foraMes ? '#fafbfc' : '#fff', cursor: 'pointer', opacity: foraMes ? .55 : 1, overflow: 'hidden' }}>
+            <div style={{ fontSize: 11, fontWeight: ehHoje ? 800 : 600, color: ehHoje ? '#0E7C5A' : '#51607a', textAlign: 'right' }}>{dt.getDate()}</div>
+            {evs.slice(0, 3).map(e => <div key={e.id} onClick={ev => { ev.stopPropagation(); abrirEvento(e); }} title={e.titulo} style={{ fontSize: 10, marginTop: 2, padding: '1px 4px', borderRadius: 4, background: (e.cor || (e.visibilidade === 'empresa' ? '#0E7C5A' : '#2563eb')) + '22', color: e.cor || (e.visibilidade === 'empresa' ? '#0E7C5A' : '#2563eb'), fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.hora ? e.hora + ' ' : ''}{e.titulo}</div>)}
+            {evs.length > 3 && <div style={{ fontSize: 9.5, color: '#94a3b8', marginTop: 1 }}>+{evs.length - 3} mais</div>}
+          </div>;
+        })}
+      </div>
+    </div>
+    {diaSel && <div style={modalBg} onClick={() => setDiaSel(null)}><div style={{ ...modalCard, maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <b style={{ fontSize: 15 }}>{dBRc(diaSel)}</b>
+        <button onClick={() => setDiaSel(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: '#94a3b8' }}>✕</button>
+      </div>
+      <div style={{ marginTop: 10 }}>
+        {doDia(diaSel).length === 0 && <div style={{ fontSize: 12.5, color: '#999' }}>Nada agendado nesse dia.</div>}
+        {doDia(diaSel).map(e => <div key={e.id} onClick={() => abrirEvento(e)} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 0', borderTop: '1px solid #f3f3f3', cursor: (e.editavel || e.aba) ? 'pointer' : 'default' }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: e.cor || (e.visibilidade === 'empresa' ? '#0E7C5A' : '#2563eb'), flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{e.hora ? <span style={{ color: '#51607a' }}>{e.hora} · </span> : ''}{e.titulo}</div>
+            <div style={{ fontSize: 11, color: '#94a3b8' }}>{e.visibilidade === 'empresa' ? '🏢 empresa' : '🔒 só você'}{e.local ? ' · ' + e.local : ''}{e.origem !== 'manual' ? ' · automático' : ''}{e.editavel ? ' · toque p/ editar' : (e.aba ? ' · toque p/ abrir' : '')}</div>
+          </div>
+        </div>)}
+      </div>
+      <button onClick={() => { setEditEv({ data: diaSel }); setDiaSel(null); }} style={{ ...s.btn, marginTop: 12 }}>+ Agendar nesse dia</button>
+    </div></div>}
+    {editEv && <EventoModal API={API} gestao={gestao} ev={editEv} onClose={() => setEditEv(null)} onSaved={() => { setEditEv(null); carregar(); }} />}
+  </div>;
+}
+function EventoModal({ API, gestao, ev, onClose, onSaved }) {
+  const novo = !ev.id;
+  const [f, setF] = useState({ titulo: ev.titulo || '', data: ev.data || '', hora: ev.hora || '', fim: ev.fim || '', local: ev.local || '', descricao: ev.descricao || '', visibilidade: ev.visibilidade || 'pessoal', cor: ev.cor || '' });
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const salvar = () => {
+    if (!f.titulo.trim()) return alert('Informe o título.');
+    if (!f.data) return alert('Informe a data.');
+    const req = novo ? API.post('/trademkt/agenda', f) : API.put(`/trademkt/agenda/${ev.id}`, f);
+    req.then(onSaved).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  };
+  const excluir = () => { if (window.confirm('Excluir este evento?')) API.delete(`/trademkt/agenda/${ev.id}`).then(onSaved).catch(e => alert(e.response?.data?.erro || 'Erro')); };
+  return <div style={modalBg} onClick={onClose}><div style={modalCard} onClick={e => e.stopPropagation()}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><b style={{ fontSize: 15 }}>{novo ? 'Novo agendamento' : 'Editar evento'}</b><button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: '#94a3b8' }}>✕</button></div>
+    <L lab="Título"><input style={s.inp} value={f.titulo} onChange={e => set('titulo', e.target.value)} placeholder="Ex.: Feira ABCFarma, reunião com lab, visita…" autoFocus /></L>
+    <div style={{ display: 'flex', gap: 8 }}>
+      <L lab="Data" flex><input type="date" style={s.inp} value={f.data} onChange={e => set('data', e.target.value)} /></L>
+      <L lab="Hora (opcional)" flex><input type="time" style={s.inp} value={f.hora} onChange={e => set('hora', e.target.value)} /></L>
+    </div>
+    <div style={{ display: 'flex', gap: 8 }}>
+      <L lab="Termina em (opcional, p/ vários dias)" flex><input type="date" style={s.inp} value={f.fim} onChange={e => set('fim', e.target.value)} /></L>
+      <L lab="Local (opcional)" flex><input style={s.inp} value={f.local} onChange={e => set('local', e.target.value)} /></L>
+    </div>
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontSize: 11.5, color: '#51607a', fontWeight: 600, marginBottom: 4 }}>Quem vê este compromisso?</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button onClick={() => set('visibilidade', 'pessoal')} style={{ ...s.chip, cursor: 'pointer', ...(f.visibilidade === 'pessoal' ? { background: '#2563eb', color: '#fff', fontWeight: 700 } : { background: '#f1f5f7', color: '#51607a' }) }}>🔒 Só eu</button>
+        <button onClick={() => gestao ? set('visibilidade', 'empresa') : alert('Só a gestão pode criar eventos para toda a empresa.')} disabled={!gestao} title={gestao ? '' : 'Só a gestão'} style={{ ...s.chip, cursor: gestao ? 'pointer' : 'not-allowed', opacity: gestao ? 1 : .5, ...(f.visibilidade === 'empresa' ? { background: '#0E7C5A', color: '#fff', fontWeight: 700 } : { background: '#f1f5f7', color: '#51607a' }) }}>🏢 Geral da empresa</button>
+      </div>
+    </div>
+    <L lab="Observação (opcional)"><textarea style={{ ...s.inp, minHeight: 46 }} value={f.descricao} onChange={e => set('descricao', e.target.value)} /></L>
+    <div style={{ marginTop: 8 }}>
+      <div style={{ fontSize: 11.5, color: '#51607a', fontWeight: 600, marginBottom: 4 }}>Cor</div>
+      <div style={{ display: 'flex', gap: 6 }}>{EV_CORES.map(c => <button key={c} onClick={() => set('cor', c)} style={{ width: 24, height: 24, borderRadius: 6, background: c, border: f.cor === c ? '3px solid #334' : '2px solid #fff', boxShadow: '0 0 0 1px #e3e8ea', cursor: 'pointer' }} />)}<button onClick={() => set('cor', '')} title="padrão" style={{ width: 24, height: 24, borderRadius: 6, background: '#fff', border: f.cor === '' ? '3px solid #334' : '2px solid #fff', boxShadow: '0 0 0 1px #e3e8ea', cursor: 'pointer', fontSize: 10 }}>auto</button></div>
+    </div>
+    <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
+      <button style={s.btn} onClick={salvar}>{novo ? 'Agendar' : 'Salvar'}</button>
+      <button style={s.btnMini} onClick={onClose}>cancelar</button>
+      {!novo && <button onClick={excluir} style={{ ...s.mv, color: '#C0392B', marginLeft: 'auto' }}>🗑 excluir</button>}
+    </div>
+  </div></div>;
+}
 function Barra({ lab, feito, meta, cor }) {
   const pct = meta > 0 ? Math.min(100, Math.round((feito / meta) * 100)) : 0;
   const ok = meta > 0 && feito >= meta;
