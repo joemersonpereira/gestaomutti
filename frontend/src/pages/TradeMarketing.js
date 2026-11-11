@@ -1484,9 +1484,11 @@ function Dashboard({ API }) {
   const [d, setD] = useState(null); const [loja, setLoja] = useState(''); const [lojas, setLojas] = useState([]);
   const [espItens, setEspItens] = useState([]); const [lojaAberta, setLojaAberta] = useState('');  // clicar na loja → ver os espaços
   const [apur, setApur] = useState([]);
+  const [fil, setFil] = useState({ plano: '', espaco: '' }); const [filD, setFilD] = useState(null);
   const carregar = useCallback(() => API.get('/trademkt/dashboard', { params: { loja: loja || undefined } }).then(r => setD(r.data)).catch(() => {}), [API, loja]);
   useEffect(() => { carregar(); }, [carregar]);
   useEffect(() => { API.get('/trademkt/planos-apuracao').then(r => setApur(r.data.planos || [])).catch(() => {}); }, [API]);
+  useEffect(() => { API.get('/trademkt/dashboard-filtro', { params: { plano: fil.plano || undefined, espaco: fil.espaco || undefined } }).then(r => setFilD(r.data)).catch(() => {}); }, [API, fil]);
   useEffect(() => { API.get('/trademkt/espaco-loja').then(r => { const it = r.data.itens || []; setEspItens(it); setLojas([...new Set(it.map(i => i.loja_nome))]); }).catch(() => {}); }, [API]);
   const k = d?.kpis;
   const cards = k ? [
@@ -1510,6 +1512,18 @@ function Dashboard({ API }) {
       <div style={{ ...s.card, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <b style={{ fontSize: 13 }}>📊 Visão geral de espaços e vendas</b>
         <select value={loja} onChange={e => setLoja(e.target.value)} style={{ ...s.inp, marginLeft: 'auto' }}><option value="">Todas as lojas</option>{lojas.map(l => <option key={l} value={l}>{l}</option>)}</select>
+      </div>
+      <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <b style={{ fontSize: 12.5 }}>🔎 Filtrar negociações:</b>
+        <select value={fil.plano} onChange={e => setFil(f => ({ ...f, plano: e.target.value }))} style={s.inp}><option value="">Todos os planos</option>{(filD?.planos || []).map(p => <option key={p} value={p}>{p}</option>)}</select>
+        <select value={fil.espaco} onChange={e => setFil(f => ({ ...f, espaco: e.target.value }))} style={s.inp}><option value="">Todos os espaços</option>{(filD?.espacos || []).map(x => <option key={x} value={x}>{x}</option>)}</select>
+        {(fil.plano || fil.espaco) && <button style={s.btnMini} onClick={() => setFil({ plano: '', espaco: '' })}>limpar</button>}
+        {filD && <div style={{ display: 'flex', gap: 14, marginLeft: 'auto', flexWrap: 'wrap', fontSize: 12.5 }}>
+          <span><span style={{ color: '#7a8a8c' }}>Negociações:</span> <b>{filD.n}</b></span>
+          <span><span style={{ color: '#7a8a8c' }}>Fechado:</span> <b style={{ color: '#1E874B' }}>{brl(filD.fechado)}</b></span>
+          <span><span style={{ color: '#7a8a8c' }}>Pendente:</span> <b style={{ color: '#6D4AA8' }}>{brl(filD.pendente)}</b></span>
+          <span><span style={{ color: '#7a8a8c' }}>Deixado de ganhar:</span> <b style={{ color: '#8A6D3B' }}>{brl(filD.deixado)}</b></span>
+        </div>}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
         {cards.map(([lab, val, cor]) => (

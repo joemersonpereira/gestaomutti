@@ -270,6 +270,25 @@ router.get('/planos-apuracao', (req, res) => {
   res.json({ planos: rows });
 });
 
+// Resumo filtrável do dashboard (por plano comercial e/ou por espaço) + listas pros dropdowns.
+router.get('/dashboard-filtro', (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const plano = (req.query.plano || '').trim(), espaco = (req.query.espaco || '').trim();
+  const conds = ['v.empresa_id=@emp']; const p = { emp };
+  if (plano) { conds.push('v.plano_nome=@plano'); p.plano = plano; }
+  if (espaco) { conds.push('EXISTS (SELECT 1 FROM tmkt_venda_espacos ve WHERE ve.venda_id=v.id AND ve.espaco_desc=@espaco)'); p.espaco = espaco; }
+  const FECHADO = "('confirmado','vendido','vigente','comprovacao','concluido','encerrado')";
+  const row = db.prepare(`SELECT
+      COUNT(*) FILTER (WHERE v.status NOT IN ('cancelado','recusado','perdido')) n,
+      COALESCE(SUM(v.valor) FILTER (WHERE v.status IN ${FECHADO} AND COALESCE(v.uso_interno,0)=0),0) fechado,
+      COALESCE(SUM(v.valor) FILTER (WHERE v.status IN ('pedido','rascunho','negociacao')),0) pendente,
+      COALESCE(SUM(v.valor) FILTER (WHERE COALESCE(v.uso_interno,0)=1 AND v.status NOT IN ('cancelado','recusado','perdido')),0) deixado
+    FROM tmkt_vendas v WHERE ${conds.join(' AND ')}`).get(p);
+  const planos = db.prepare("SELECT DISTINCT plano_nome FROM tmkt_vendas WHERE empresa_id=? AND plano_nome IS NOT NULL ORDER BY plano_nome").all(emp).map(r => r.plano_nome);
+  const espacos = db.prepare("SELECT DISTINCT espaco_desc FROM tmkt_venda_espacos WHERE empresa_id=? AND espaco_desc IS NOT NULL AND espaco_desc<>'' ORDER BY espaco_desc").all(emp).map(r => r.espaco_desc);
+  res.json({ ...row, planos, espacos });
+});
+
 // ── Premiação do VENDEDOR de trade (vendedor = criado_por) — regra POR ESPAÇO, apuração mensal ──
 const PREM_FECHADO = "('confirmado','vendido','vigente','comprovacao','concluido','encerrado')";
 const PREM_FAIXAS_PADRAO = [{ ate: 10, pct: 1 }, { ate: null, pct: 2 }];
