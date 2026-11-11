@@ -2419,7 +2419,7 @@ function PremiacaoVendedor({ API, gestao }) {
     <div>
       <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <b style={{ fontSize: 13 }}>🎯 Metas do trade</b>
-        <span style={{ fontSize: 11.5, color: '#7a8a8c' }}>% de premiação por espaços vendidos + metas de atividade (prospecção, contatos, fechamentos)</span>
+        <span style={{ fontSize: 11.5, color: '#7a8a8c' }}>% de premiação por espaço — só conta <b>após o aceite do fornecedor</b> (status Em veiculação) — + metas de atividade (prospecção, contatos, fechamentos)</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
           <select value={mes} onChange={e => setMes(Number(e.target.value))} style={{ ...s.inp, width: 70 }}>{Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}</select>
           <input type="number" value={ano} onChange={e => setAno(Number(e.target.value))} style={{ ...s.inp, width: 90 }} />
@@ -2617,7 +2617,8 @@ function PainelMeta({ API, aba, onNav, aberto, setAberto }) {
         <div style={{ background: BRAND_GRAD, color: '#fff', borderRadius: 12, padding: 12 }}>
           <div style={{ fontSize: 11, opacity: .85 }}>Premiação do mês</div>
           <div style={{ fontSize: 24, fontWeight: 800 }}>{brl(d.premiacao)}</div>
-          <div style={{ fontSize: 11.5, marginTop: 2 }}>{d.espacos} espaço(s) · {d.pct}% · {brl(d.valor)} vendido</div>
+          <div style={{ fontSize: 11.5, marginTop: 2 }}>{d.espacos} espaço(s) com aceite · {d.pct}% · {brl(d.valor)}</div>
+          <div style={{ fontSize: 9.5, opacity: .8, marginTop: 1 }}>só conta após o aceite do fornecedor</div>
           {d.proxima && <div style={{ fontSize: 11, marginTop: 6, background: 'rgba(255,255,255,.18)', borderRadius: 8, padding: '5px 8px' }}>🎯 Faltam <b>{d.proxima.faltam}</b> espaço(s) pra <b>{d.proxima.pct}%</b></div>}
         </div>
         {at && (at.prospeccoes.meta > 0 || at.contatos.meta > 0 || at.fechamentos.meta > 0) && <div style={{ border: '1px solid #eef1f4', borderRadius: 12, padding: '10px 12px' }}>

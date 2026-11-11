@@ -298,7 +298,12 @@ router.get('/dashboard-filtro', (req, res) => {
 });
 
 // ── Premiação do VENDEDOR de trade (vendedor = criado_por) — regra POR ESPAÇO, apuração mensal ──
-const PREM_FECHADO = "('confirmado','vendido','vigente','comprovacao','concluido','encerrado')";
+// A META só conta como REALIZADO depois do ACEITE DO FORNECEDOR. No portal, o aceite leva o status de
+// 'aguardando' → 'vigente' (publico.js /trade/acompanhamento/:token/aceitar). Por isso a meta conta
+// apenas de 'vigente' pra frente — 'confirmado'/'briefing'/'aguardando' (antes do aceite) NÃO contam,
+// pra o vendedor só ganhar quando a vinculação de fato se concretiza (Joe 2026-11-11).
+// (v2.0 Postgres: mesma regra — WHERE status IN ('vigente','comprovacao','concluido','encerrado').)
+const PREM_ACEITE = "('vigente','comprovacao','concluido','encerrado')";
 const PREM_FAIXAS_PADRAO = [{ ate: 10, pct: 1 }, { ate: null, pct: 2 }];
 function premFaixas(emp) {
   const r = db.prepare('SELECT faixas_json FROM tmkt_prem_vend_regra WHERE empresa_id=?').get(emp);
@@ -325,7 +330,7 @@ router.get('/premiacao-vendedor', (req, res) => {
       COUNT(ve.id) espacos, COALESCE(SUM(ve.valor),0) valor
     FROM tmkt_vendas v JOIN tmkt_venda_espacos ve ON ve.venda_id=v.id
     LEFT JOIN colaboradores col ON col.id=v.criado_por
-    WHERE v.empresa_id=? AND v.status IN ${PREM_FECHADO} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0
+    WHERE v.empresa_id=? AND v.status IN ${PREM_ACEITE} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0
       AND v.criado_por IS NOT NULL AND strftime('%Y-%m', v.criado_em)=?
     GROUP BY v.criado_por, col.nome ORDER BY valor DESC`).all(emp, ym);
   const faixas = premFaixas(emp);
@@ -374,7 +379,7 @@ router.get('/minha-meta', (req, res) => {
   const now = new Date(); const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const r = db.prepare(`SELECT COUNT(ve.id) espacos, COALESCE(SUM(ve.valor),0) valor
     FROM tmkt_vendas v JOIN tmkt_venda_espacos ve ON ve.venda_id=v.id
-    WHERE v.empresa_id=? AND v.criado_por=? AND v.status IN ${PREM_FECHADO} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0
+    WHERE v.empresa_id=? AND v.criado_por=? AND v.status IN ${PREM_ACEITE} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0
       AND strftime('%Y-%m', v.criado_em)=?`).get(emp, uid, ym);
   const faixas = premFaixas(emp);
   const pct = pctPorEspacos(faixas, r.espacos);
