@@ -330,7 +330,7 @@ router.get('/premiacao-vendedor', (req, res) => {
       COUNT(ve.id) espacos, COALESCE(SUM(ve.valor),0) valor
     FROM tmkt_vendas v JOIN tmkt_venda_espacos ve ON ve.venda_id=v.id
     LEFT JOIN colaboradores col ON col.id=v.criado_por
-    WHERE v.empresa_id=? AND v.status IN ${PREM_ACEITE} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0
+    WHERE v.empresa_id=? AND v.status IN ${PREM_ACEITE} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0 AND COALESCE(v.nao_premia,0)=0
       AND v.criado_por IS NOT NULL AND strftime('%Y-%m', v.criado_em)=?
     GROUP BY v.criado_por, col.nome ORDER BY valor DESC`).all(emp, ym);
   const faixas = premFaixas(emp);
@@ -463,7 +463,7 @@ router.get('/minha-meta', (req, res) => {
   const now = new Date(); const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const r = db.prepare(`SELECT COUNT(ve.id) espacos, COALESCE(SUM(ve.valor),0) valor
     FROM tmkt_vendas v JOIN tmkt_venda_espacos ve ON ve.venda_id=v.id
-    WHERE v.empresa_id=? AND v.criado_por=? AND v.status IN ${PREM_ACEITE} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0
+    WHERE v.empresa_id=? AND v.criado_por=? AND v.status IN ${PREM_ACEITE} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0 AND COALESCE(v.nao_premia,0)=0
       AND strftime('%Y-%m', v.criado_em)=?`).get(emp, uid, ym);
   const faixas = premFaixas(emp);
   const pct = pctPorEspacos(faixas, r.espacos);
@@ -880,6 +880,17 @@ router.get('/vendas/:id', (req, res) => {
   v.eans = v.eans_monitorados ? JSON.parse(v.eans_monitorados) : [];
   Object.assign(v, resumoVenda(v));
   res.json({ venda: v });
+});
+// Diretor exclui/inclui uma negociação da contagem de PREMIAÇÃO/META (ex.: vendas de campanha de fim
+// de ano que não devem premiar). Só diretoria. A venda continua valendo financeiramente; só sai da meta.
+router.post('/vendas/:id/nao-premia', exigePerfil('Diretor Geral', 'Gestor Geral'), (req, res) => {
+  const b = req.body || {}, emp = req.usuario.empresa_id;
+  const v = db.prepare('SELECT id FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!v) return res.status(404).json({ erro: 'Venda não encontrada.' });
+  const fora = b.nao_premia ? 1 : 0;
+  db.prepare("UPDATE tmkt_vendas SET nao_premia=?, nao_premia_motivo=?, nao_premia_por=?, nao_premia_em=CASE WHEN ?=1 THEN datetime('now') ELSE NULL END, atualizado_em=datetime('now') WHERE id=?")
+    .run(fora, fora ? (b.motivo || null) : null, fora ? req.usuario.id : null, fora, v.id);
+  res.json({ ok: true, nao_premia: fora });
 });
 // Libera o CPF da pessoa de contato no Portal do fornecedor (acompanha a ação: sell-out + comprovação).
 // O CNPJ do fornecedor já costuma passar pelo Alpha; aqui garantimos o CPF na allowlist.

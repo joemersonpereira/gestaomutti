@@ -1101,6 +1101,8 @@ function CalEditor({ API, id: idInicial, evento, onClose, onSaved }) {
 }
 
 function Vendas({ API, gestao }) {
+  const { usuario } = useAuth();
+  const diretor = ['Diretor Geral', 'Gestor Geral'].includes(usuario.funcao);
   const [d, setD] = useState(null); const [busca, setBusca] = useState(''); const [edit, setEdit] = useState(null);
   const [perdendo, setPerdendo] = useState(null); const [motivoSel, setMotivoSel] = useState(''); const [motivoOutro, setMotivoOutro] = useState(''); const [filtroPerda, setFiltroPerda] = useState('');
   const [prosp, setProsp] = useState([]); const [prospSel, setProspSel] = useState(null); const [novaProsp, setNovaProsp] = useState(false); const [colabs, setColabs] = useState([]);
@@ -1110,6 +1112,12 @@ function Vendas({ API, gestao }) {
   const converterProsp = (p) => API.post(`/trademkt/prospeccoes/${p.id}/converter`).then(r => { carregarProsp(); carregar(busca); if (r.data.venda_id) setEdit(r.data.venda_id); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
   const [sincP, setSincP] = useState(false);
   const sincronizarProsp = () => { setSincP(true); API.post('/trademkt/prospeccoes/sincronizar').then(r => { setSincP(false); carregarProsp(); if (r.data && r.data.ok) alert(r.data.criadas ? `${r.data.criadas} fornecedor(es) ≥ R$100 mil trazido(s) para a Prospecção.` : 'Nenhum novo fornecedor para trazer (já estão no funil).'); else alert('ERP indisponível agora, tente de novo.'); }).catch(() => { setSincP(false); alert('Erro ao sincronizar.'); }); };
+  const toggleNaoPremia = (v) => {
+    if (v.nao_premia) { if (!window.confirm(`Voltar a CONTAR "${v.fornecedor_nome}" na premiação/meta?`)) return; API.post(`/trademkt/vendas/${v.id}/nao-premia`, { nao_premia: 0 }).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Erro')); return; }
+    const motivo = window.prompt(`Tirar "${v.fornecedor_nome}" da contagem de premiação/meta.\nMotivo (ex.: campanha de fim de ano):`, '');
+    if (motivo === null) return;
+    API.post(`/trademkt/vendas/${v.id}/nao-premia`, { nao_premia: 1, motivo }).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  };
   if (!d) return <div style={s.card}>Carregando…</div>;
   const prospAbertas = prosp.filter(p => !['ganho', 'perdido'].includes(p.etapa));
   const prospPerdidas = prosp.filter(p => p.etapa === 'perdido');
@@ -1159,7 +1167,7 @@ function Vendas({ API, gestao }) {
                 ))}
                 {itens.map(v => (
                   <div key={v.id} style={s.cardA}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}><span style={{ fontSize: 11.5, fontWeight: 700, color: col.cor }}>📐 {v.codigo}</span><span style={{ display: 'flex', gap: 3 }}>{(v.origem === 'portal' || v.origem === 'recompra') ? <span style={{ ...s.tag, background: '#E7F0FB', color: '#2E5C9E' }}>🌐 {v.origem === 'recompra' ? 'recompra' : 'portal'}</span> : null}{proxVencer(v) ? <span style={{ ...s.tag, background: '#FEF3C7', color: '#B45309' }}>⏰ vence</span> : null}{v.atrasado ? <span style={{ ...s.tag, background: '#FBEAEA', color: '#C0392B' }}>atraso</span> : null}{col.id === 'comprovacao' ? <span style={{ ...s.tag, background: v.tem_comprovacao ? '#E6F4EC' : '#FBF0DA', color: v.tem_comprovacao ? '#1E874B' : '#B45309' }}>{v.tem_comprovacao ? '✅ comprovado' : '⚠️ comprovar'}</span> : null}{v.nao_ocupa ? <span style={{ ...s.tag, background: '#EEF2FF', color: '#6D4AA8' }}>📸 não ocupa</span> : null}{v.uso_interno ? <span style={{ ...s.tag, background: '#FBF0DA', color: '#8A6D3B' }}>🏠 uso interno</span> : null}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}><span style={{ fontSize: 11.5, fontWeight: 700, color: col.cor }}>📐 {v.codigo}</span><span style={{ display: 'flex', gap: 3 }}>{(v.origem === 'portal' || v.origem === 'recompra') ? <span style={{ ...s.tag, background: '#E7F0FB', color: '#2E5C9E' }}>🌐 {v.origem === 'recompra' ? 'recompra' : 'portal'}</span> : null}{proxVencer(v) ? <span style={{ ...s.tag, background: '#FEF3C7', color: '#B45309' }}>⏰ vence</span> : null}{v.atrasado ? <span style={{ ...s.tag, background: '#FBEAEA', color: '#C0392B' }}>atraso</span> : null}{col.id === 'comprovacao' ? <span style={{ ...s.tag, background: v.tem_comprovacao ? '#E6F4EC' : '#FBF0DA', color: v.tem_comprovacao ? '#1E874B' : '#B45309' }}>{v.tem_comprovacao ? '✅ comprovado' : '⚠️ comprovar'}</span> : null}{v.nao_ocupa ? <span style={{ ...s.tag, background: '#EEF2FF', color: '#6D4AA8' }}>📸 não ocupa</span> : null}{v.uso_interno ? <span style={{ ...s.tag, background: '#FBF0DA', color: '#8A6D3B' }}>🏠 uso interno</span> : null}{v.nao_premia ? <span title={v.nao_premia_motivo || ''} style={{ ...s.tag, background: '#FBEAEA', color: '#B45309' }}>🚫 fora da premiação</span> : null}</span></div>
                     <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 4 }}>{v.fornecedor_nome}</div>
                     <div style={{ fontSize: 11.5, color: '#666' }}>{v.espacos} espaço(s){v.tema_desc ? ` · ${v.tema_desc}` : ''}</div>
                     {v.plano_nome && <div style={{ fontSize: 10.5, color: '#6D4AA8', marginTop: 2 }}>📋 {v.plano_nome}</div>}
@@ -1171,6 +1179,7 @@ function Vendas({ API, gestao }) {
                       <button onClick={() => setEdit(v.id)} style={{ ...s.mv, flex: 1 }}>Abrir</button>
                       <button onClick={() => mover(v, 1)} disabled={colDe(v.status) === 'encerrado'} style={s.mv}>▶</button>
                       <button onClick={() => marcarPerdido(v)} title="Finalizar como perdido (com motivo)" style={{ ...s.mv, color: '#B45309' }}>✖ perdido</button>
+                      {diretor && <button onClick={() => toggleNaoPremia(v)} title={v.nao_premia ? 'Voltar a contar na premiação/meta' : 'Tirar da premiação/meta (diretor)'} style={{ ...s.mv, color: v.nao_premia ? '#1E874B' : '#8A6D3B' }}>{v.nao_premia ? '✓ premiar' : '🚫 premiação'}</button>}
                       <button onClick={() => excluir(v)} title="Excluir negociação" style={{ ...s.mv, color: '#C0392B' }}>🗑</button>
                     </div>}
                   </div>
