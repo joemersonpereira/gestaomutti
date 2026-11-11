@@ -267,6 +267,39 @@ function rodarSnapshotPremiacao() {
 setTimeout(rodarSnapshotPremiacao, 25000);            // boot: garante um retrato inicial (tela leve)
 setInterval(rodarSnapshotPremiacao, 10 * 60 * 1000); // checa a cada 10 min; roda 1x/dia após 15h
 
+// Comprovação periódica das ações de trade EM VEICULAÇÃO: cria um lembrete (tarefa) quando a ação
+// está há >7 dias sem foto de comprovação — pra dar credibilidade ao fornecedor de que está rodando.
+function rodarComprovacaoTradePeriodica() {
+  try {
+    const db = require('./db/connection');
+    const { gerarTarefa } = require('./routes/tarefas');
+    const INTERVALO = 7; // dias
+    const hoje = new Date().toISOString().slice(0, 10);
+    const empresas = [...new Set(db.prepare('SELECT empresa_id FROM lojas').all().map(r => r.empresa_id))];
+    empresas.forEach(eid => {
+      const vends = db.prepare(`SELECT id, codigo, fornecedor_nome, loja_id, criado_por, vigencia_ini, vigencia_fim
+        FROM tmkt_vendas WHERE empresa_id=? AND status='vigente' AND COALESCE(nao_ocupa,0)=0 AND COALESCE(uso_interno,0)=0`).all(eid);
+      vends.forEach(v => {
+        const ini = v.vigencia_ini ? String(v.vigencia_ini).slice(0, 10) : null;
+        const fim = v.vigencia_fim ? String(v.vigencia_fim).slice(0, 10) : null;
+        if (ini && ini > hoje) return;            // ainda não começou
+        if (fim && fim < hoje) return;            // já acabou
+        const ult = db.prepare("SELECT MAX(criado_em) m FROM tmkt_venda_briefing WHERE venda_id=? AND tipo='comprovacao'").get(v.id).m;
+        const dias = ult ? Math.floor((Date.now() - new Date(ult).getTime()) / 864e5) : 999;
+        if (dias < INTERVALO) return;             // comprovação recente, ok
+        const temAberta = db.prepare("SELECT 1 FROM tarefas WHERE empresa_id=? AND origem='trade-comprovacao' AND referencia_id=? AND status<>'concluido' LIMIT 1").get(eid, v.id);
+        if (temAberta) return;                    // já há um lembrete aberto
+        gerarTarefa({ empresa_id: eid, loja_id: v.loja_id || null, tipo: 'tarefa', origem: 'trade-comprovacao', referencia_id: v.id,
+          titulo: `📸 Comprovar a ação em veiculação — ${v.fornecedor_nome || ''} (${v.codigo || ''})`,
+          descricao: `A ação está em veiculação e sem comprovação há ${ult ? dias + ' dias' : 'nenhum registro'}. Suba a foto da execução (Material & briefing → marque "comprovação") pra mostrar ao fornecedor que está rodando.`,
+          responsavel_id: v.criado_por || null });
+      });
+    });
+  } catch (e) { /* best-effort */ }
+}
+setTimeout(rodarComprovacaoTradePeriodica, 35000);
+setInterval(rodarComprovacaoTradePeriodica, 12 * 3600 * 1000); // a cada 12h
+
 // Foto MENSAL dos indicadores de compra (ruptura/cobertura/excesso/vencendo) por comprador.
 // Sobrescreve o mês corrente a cada rodada; quando o mês vira, a última foto fica congelada.
 function rodarSnapshotCompras() {
