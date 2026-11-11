@@ -1954,7 +1954,7 @@ router.post('/portal/espaco', exigePerfil(...GESTAO), (req, res) => {
   const precoMin = (b.preco_min === '' || b.preco_min == null) ? null : (Number(b.preco_min) || null);
   db.prepare(`INSERT INTO tmkt_espaco_loja (id, empresa_id, segmento, area, espaco, tamanho, descricao, loja_nome, loja_id, preco_unit, preco_min, quantidade, midia, modo_venda, unidade, foto, disponivel, destaque)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,0)`)
-    .run(id, emp, seg, String(b.area || '').trim() || null, espaco, String(b.tamanho || '').trim() || null,
+    .run(id, emp, seg, String(b.area || '').trim(), espaco, String(b.tamanho || '').trim() || null,
       String(b.descricao || '').trim() || null, loja_nome, b.loja_id || null,
       Number(b.preco_unit) || 0, precoMin, Math.max(1, Number(b.quantidade) || 1), midia, modo_venda, unidade, foto);
   res.json({ ok: true, id });
