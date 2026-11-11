@@ -1436,9 +1436,8 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
         {(v.parcelas || []).map(p => {
           const atras = !p.recebido && p.vencimento && p.vencimento < new Date().toISOString().slice(0, 10);
           const forma = p.forma || '';
-          const precisaNF = forma === 'bonificacao';
-          const precisaAnexo = forma === 'deposito' || forma === 'abatimento' || forma === 'desconto_boleto';
-          const anexoRot = forma === 'deposito' ? 'comprovante do depósito' : (forma === 'abatimento' || forma === 'desconto_boleto') ? 'e-mail de autorização do abatimento' : 'anexo';
+          const precisaNF = forma === 'bonificacao' || forma === 'desconto_boleto';
+          const anexoRot = forma === 'deposito' ? 'comprovante do depósito' : (forma === 'abatimento' || forma === 'desconto_boleto') ? 'autorização/comprovante do desconto' : 'comprovante';
           return <div key={p.id} style={{ padding: '8px 0', borderTop: '1px solid #f2f2f2' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12.5 }}><span style={{ ...s.tag, background: p.recebido ? '#E7F5EC' : atras ? '#FBEAEA' : '#FCF3E2', color: p.recebido ? '#1E874B' : atras ? '#C0392B' : '#B7791F' }}>{p.recebido ? 'recebido' : atras ? 'atrasado' : 'a receber'}</span> parcela {p.numero}</span>
@@ -1450,7 +1449,7 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
               <label style={s.lbl}>Valor R$<input type="number" step="0.01" defaultValue={p.valor} onBlur={e => Number(e.target.value) !== p.valor && updParcela(p.id, { valor: Number(e.target.value) })} style={{ ...s.inp, width: 100 }} /></label>
             </div>
             {precisaNF && <div style={{ marginTop: 6, background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#9A3412', marginBottom: 4 }}>NF da bonificação {!p.nf_numero && <span style={{ color: '#B91C1C' }}>· obrigatória</span>}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#9A3412', marginBottom: 4 }}>NF {forma === 'desconto_boleto' ? 'do desconto em boleto' : 'da bonificação'} {forma === 'bonificacao' && !p.nf_numero && <span style={{ color: '#B91C1C' }}>· obrigatória</span>}</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <div style={{ flex: 1, minWidth: 180 }}><div style={{ fontSize: 11, color: '#64748b' }}>Buscar no Alpha {!v.fornecedor_id && '(vincule o fornecedor)'}</div><BuscaNota API={API} fornecedorId={v.fornecedor_id} onPick={n => updParcela(p.id, { nf_numero: n.numero, nf_data: n.data })} /></div>
                 <label style={s.lbl}>Nº NF<input defaultValue={p.nf_numero || ''} onBlur={e => e.target.value !== (p.nf_numero || '') && updParcela(p.id, { nf_numero: e.target.value })} style={{ ...s.inp, width: 110 }} /></label>
@@ -1458,10 +1457,10 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
                 <label style={s.lbl}>Valor NF<input type="number" step="0.01" defaultValue={p.nf_valor || ''} onBlur={e => Number(e.target.value) !== (p.nf_valor || 0) && updParcela(p.id, { nf_valor: e.target.value })} style={{ ...s.inp, width: 100 }} /></label>
               </div>
             </div>}
-            {(precisaAnexo || p.tem_comprovante) && <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               {p.tem_comprovante ? <Anexo API={API} direct={false} url={`/trademkt/parcelas/${p.id}/comprovante`} mime={p.comprovante_mime} nome={anexoRot} /> : null}
               <label style={{ ...s.mv, cursor: 'pointer', color: '#2E5C9E' }}>📎 {p.tem_comprovante ? 'trocar' : 'anexar'} {anexoRot}<input type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={e => anexarParcela(p.id, e.target.files[0])} /></label>
-            </div>}
+            </div>
           </div>;
         })}
       </div>}
@@ -2796,3 +2795,6 @@ const s = {
   th: { textAlign: 'right', fontSize: 11, color: '#8a97a5', padding: '6px 8px', borderBottom: '1px solid #eef1f0', whiteSpace: 'nowrap', fontWeight: 700 },
   td: { textAlign: 'left', padding: '6px 8px' }, tdR: { textAlign: 'right', padding: '6px 8px' },
 };
+
+// Calendário/agenda da empresa reaproveitado como página geral (menu "📅 Agenda").
+export { Calendario as CalendarioEmpresa };
