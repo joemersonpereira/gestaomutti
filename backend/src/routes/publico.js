@@ -505,11 +505,20 @@ router.get('/trade/acompanhamento/:token/comprovacao/:bid/foto', (req, res) => {
   res.end(Buffer.from(b.anexo_b64, 'base64'));
 });
 // fornecedor ACEITA a ação (valida que está OK) → vai de "aguardando aceite" para "em veiculação"
+// + gera um ALERTA (tarefa) p/ a pessoa da empresa que criou a negociação: pode veicular a ação.
 router.post('/trade/acompanhamento/:token/aceitar', (req, res) => {
-  const v = db.prepare('SELECT id, status FROM tmkt_vendas WHERE empresa_id=? AND token=?').get(EMP, req.params.token);
+  const v = db.prepare('SELECT id, status, codigo, fornecedor_nome, criado_por, loja_id FROM tmkt_vendas WHERE empresa_id=? AND token=?').get(EMP, req.params.token);
   if (!v) return res.status(404).json({ erro: 'Pedido não encontrado.' });
   if (v.status !== 'aguardando') return res.status(400).json({ erro: 'Esta ação não está aguardando o seu aceite.' });
   db.prepare("UPDATE tmkt_vendas SET status='vigente', status_desde=datetime('now'), atualizado_em=datetime('now') WHERE id=?").run(v.id);
+  try {
+    require('./tarefas').gerarTarefa({
+      empresa_id: EMP, loja_id: v.loja_id || null, tipo: 'tarefa', origem: 'trade-veiculacao', referencia_id: v.id,
+      titulo: `📡 Pode veicular — ${v.fornecedor_nome || ''} (${v.codigo || ''})`,
+      descricao: `O fornecedor APROVOU a ação ${v.codigo || ''} (${v.fornecedor_nome || ''}). Já está em veiculação — pode montar/colocar a ação na loja.`,
+      responsavel_id: v.criado_por || null,
+    });
+  } catch (e) { /* alerta é best-effort */ }
   res.json({ ok: true });
 });
 // fornecedor envia a comprovação da ação montada (foto)
