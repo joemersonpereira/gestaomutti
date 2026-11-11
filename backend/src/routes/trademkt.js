@@ -507,6 +507,20 @@ router.get('/prospeccoes/:id/contatos', (req, res) => {
   const contatos = db.prepare(`SELECT c.*, (SELECT nome FROM colaboradores WHERE id=c.criado_por) autor FROM tmkt_prospeccao_contato c WHERE c.prospeccao_id=? ORDER BY c.quando DESC`).all(p.id);
   res.json({ prospeccao: p, contatos });
 });
+// Converte uma prospecção em negociação (entra como rascunho no Kanban, já com o fornecedor).
+router.post('/prospeccoes/:id/converter', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const p = db.prepare('SELECT * FROM tmkt_prospeccao WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!p) return res.status(404).json({ erro: 'Prospecção não encontrada.' });
+  const vid = uuid();
+  db.prepare(`INSERT INTO tmkt_vendas (id,empresa_id,codigo,origem,fornecedor_id,fornecedor_nome,valor,status,status_desde,observacao,criado_por,criado_em)
+    VALUES (?,?,?,?,?,?,?,?,datetime('now'),?,?,datetime('now'))`)
+    .run(vid, emp, proximoCodigo(emp), 'prospeccao', p.fornecedor_id || null, p.fornecedor_nome || null, 0, 'rascunho',
+      p.obs ? ('Da prospecção: ' + p.obs) : null, req.usuario.id);
+  db.prepare("UPDATE tmkt_prospeccao SET etapa='ganho', atualizado_em=datetime('now') WHERE id=?").run(p.id);
+  try { db.prepare("UPDATE tarefas SET status='concluido', atualizado_em=datetime('now') WHERE origem='trade-prospeccao' AND referencia_id=? AND status<>'concluido'").run(p.id); } catch {}
+  res.json({ ok: true, venda_id: vid });
+});
 // Registra uma tentativa de contato. 'proximo' atualiza a data do próximo contato do card (reagendamento).
 router.post('/prospeccoes/:id/contatos', exigePerfil(...GESTAO), (req, res) => {
   const b = req.body || {}, emp = req.usuario.empresa_id;

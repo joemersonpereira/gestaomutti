@@ -11,7 +11,7 @@ function useWide(min = 1120) {
   return w;
 }
 const COLS = [
-  { id: 'rascunho', nome: 'Rascunho', cor: '#7A8794' },
+  { id: 'rascunho', nome: '🧲 Prospecção', cor: '#6D4AA8' },
   { id: 'negociacao', nome: 'Negociação', cor: '#D6409F' },
   { id: 'confirmado', nome: 'Confirmado', cor: '#2E5C9E' },
   { id: 'briefing', nome: 'Briefing / material', cor: '#B45309' },
@@ -76,7 +76,7 @@ export default function TradeMarketing() {
         {gestao && <button onClick={() => setModelo(true)} style={bannerBtn}>📄 Modelo de contrato</button>}
       </Banner>
       <div style={{ display: 'flex', gap: 6, margin: '12px 0 16px', flexWrap: 'wrap', padding: 6, background: '#fff', border: '1px solid #ecefee', borderRadius: 14, boxShadow: '0 1px 3px rgba(16,40,45,.05)' }}>
-        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['funil', '🧲 Funil de prospecção'], ['metas', '🎯 Metas'], ['leads', '📇 Leads (fornecedores)'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
+        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['metas', '🎯 Metas'], ['leads', '📇 Leads (fornecedores)'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, border: 'none', ...(aba === v ? s.chipOn : { background: 'transparent', color: '#51607a' }) }}>{l}</button>)}
       </div>
       <PainelMeta API={API} aba={aba} onNav={setAba} aberto={lateral} setAberto={setLateral} />
@@ -85,9 +85,8 @@ export default function TradeMarketing() {
       {aba === 'cobranca' && <Cobranca API={API} gestao={gestao} />}
       {aba === 'dashboard' && <Dashboard API={API} onAba={setAba} />}
       {aba === 'vendas' && <Vendas API={API} gestao={gestao} />}
-      {aba === 'funil' && <FunilProspeccao API={API} gestao={gestao} usuario={usuario} />}
       {aba === 'metas' && <PremiacaoVendedor API={API} gestao={gestao} />}
-      {aba === 'leads' && <LeadsFornecedor API={API} gestao={gestao} onFunil={() => setAba('funil')} />}
+      {aba === 'leads' && <LeadsFornecedor API={API} gestao={gestao} onFunil={() => setAba('vendas')} />}
       {aba === 'porloja' && <EspacoLoja API={API} gestao={gestao} />}
       {aba === 'capacidade' && <Capacidade API={API} />}
       {aba === 'espacos' && <Espacos API={API} gestao={gestao} />}
@@ -1103,8 +1102,11 @@ function CalEditor({ API, id: idInicial, evento, onClose, onSaved }) {
 function Vendas({ API, gestao }) {
   const [d, setD] = useState(null); const [busca, setBusca] = useState(''); const [edit, setEdit] = useState(null);
   const [perdendo, setPerdendo] = useState(null); const [motivoSel, setMotivoSel] = useState(''); const [motivoOutro, setMotivoOutro] = useState(''); const [filtroPerda, setFiltroPerda] = useState('');
+  const [prosp, setProsp] = useState([]); const [prospSel, setProspSel] = useState(null); const [novaProsp, setNovaProsp] = useState(false); const [colabs, setColabs] = useState([]);
   const carregar = useCallback((b = '') => API.get('/trademkt/vendas', { params: { busca: b || undefined } }).then(r => setD(r.data)).catch(() => setD({ vendas: [] })), [API]);
-  useEffect(() => { carregar(); }, [carregar]);
+  const carregarProsp = useCallback(() => API.get('/trademkt/prospeccoes').then(r => setProsp((r.data.itens || []).filter(p => !['ganho', 'perdido'].includes(p.etapa)))).catch(() => setProsp([])), [API]);
+  useEffect(() => { carregar(); carregarProsp(); API.get('/colaboradores').then(r => setColabs((r.data.colaboradores || r.data || []).filter(c => c.trade))).catch(() => {}); }, [carregar, carregarProsp, API]);
+  const converterProsp = (p) => API.post(`/trademkt/prospeccoes/${p.id}/converter`).then(r => { carregarProsp(); carregar(busca); if (r.data.venda_id) setEdit(r.data.venda_id); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
   if (!d) return <div style={s.card}>Carregando…</div>;
   const mover = (v, dir) => { const ids = COLS.map(c => c.id); const novo = ids[ids.indexOf(colDe(v.status)) + dir]; if (novo) API.post(`/trademkt/vendas/${v.id}/mover`, { status: novo }).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Não foi possível mover.')); };
   const marcarPerdido = (v) => { setPerdendo(v); setMotivoSel(''); setMotivoOutro(''); };
@@ -1116,7 +1118,7 @@ function Vendas({ API, gestao }) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
         <div style={{ fontSize: 12.5, color: '#666' }}>{d.vendas.length} negociação(ões) · vendido {brl(total)} · a receber <b style={{ color: '#B7791F' }}>{brl(aReceber)}</b></div>
-        {gestao && <button onClick={() => setEdit('novo')} style={s.btn}>+ Nova negociação</button>}
+        {gestao && <div style={{ display: 'flex', gap: 6 }}><button onClick={() => setNovaProsp(true)} style={{ ...s.btn, background: '#6D4AA8' }}>+ Prospecção</button><button onClick={() => setEdit('novo')} style={s.btn}>+ Nova negociação</button></div>}
       </div>
       <form onSubmit={e => { e.preventDefault(); carregar(busca); }} style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔎 fornecedor ou código…" style={{ ...s.inp, flex: 1, maxWidth: 380 }} /><button style={s.btnMini}>Buscar</button>
@@ -1126,8 +1128,27 @@ function Vendas({ API, gestao }) {
           const itens = d.vendas.filter(v => colDe(v.status) === col.id && v.status !== 'cancelado' && v.status !== 'recusado' && v.status !== 'perdido');
           return (
             <div key={col.id} style={{ minWidth: 250, flex: '1 1 250px', maxHeight: 'calc(100vh - 250px)', minHeight: 240, overflowY: 'auto', overflowX: 'hidden' }}>
-              <div style={{ ...s.colHead, background: col.cor }}>{col.nome} <span style={s.colN}>{itens.length}</span></div>
+              <div style={{ ...s.colHead, background: col.cor }}>{col.nome} <span style={s.colN}>{itens.length + (col.id === 'rascunho' ? prosp.length : 0)}</span></div>
               <div style={s.colBody}>
+                {col.id === 'rascunho' && prosp.map(p => (
+                  <div key={'p' + p.id} style={{ ...s.cardA, borderLeft: '3px solid #6D4AA8', background: p.vencido ? '#fff7f5' : '#faf7ff' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#6D4AA8' }}>🧲 prospecção</span>
+                      {p.origem === 'automatica' && <span style={{ fontSize: 9, background: '#eef2ff', color: '#4f46e5', borderRadius: 6, padding: '1px 5px', fontWeight: 700 }}>auto ≥100k</span>}
+                    </div>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 4 }}>{p.fornecedor_nome || 'Fornecedor'}</div>
+                    {p.gatilho_valor > 0 && <div style={{ fontSize: 10.5, color: '#94a3b8' }}>compra acum. {brl(p.gatilho_valor)}</div>}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 11, marginTop: 4 }}>
+                      {p.responsavel_nome ? <span style={{ color: '#475569' }}>👤 {p.responsavel_nome}</span> : <span style={{ color: '#f59e0b' }}>⚠ sem responsável</span>}
+                      {p.proximo_contato && <span style={{ fontWeight: 700, color: p.vencido ? '#b91c1c' : (p.hoje ? '#B45309' : '#475569') }}>📅 {dBR(p.proximo_contato)}{p.vencido ? ' (venceu)' : p.hoje ? ' (hoje)' : ''}</span>}
+                      {p.contatos > 0 && <span style={{ color: '#94a3b8' }}>💬 {p.contatos}</span>}
+                    </div>
+                    {gestao && <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+                      <button onClick={() => setProspSel(p)} style={{ ...s.mv, flex: 1 }}>Abrir contato</button>
+                      <button onClick={() => converterProsp(p)} title="Virar negociação" style={{ ...s.mv, color: '#1E874B', fontWeight: 700 }}>→ negociação</button>
+                    </div>}
+                  </div>
+                ))}
                 {itens.map(v => (
                   <div key={v.id} style={s.cardA}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}><span style={{ fontSize: 11.5, fontWeight: 700, color: col.cor }}>📐 {v.codigo}</span><span style={{ display: 'flex', gap: 3 }}>{(v.origem === 'portal' || v.origem === 'recompra') ? <span style={{ ...s.tag, background: '#E7F0FB', color: '#2E5C9E' }}>🌐 {v.origem === 'recompra' ? 'recompra' : 'portal'}</span> : null}{proxVencer(v) ? <span style={{ ...s.tag, background: '#FEF3C7', color: '#B45309' }}>⏰ vence</span> : null}{v.atrasado ? <span style={{ ...s.tag, background: '#FBEAEA', color: '#C0392B' }}>atraso</span> : null}{col.id === 'comprovacao' ? <span style={{ ...s.tag, background: v.tem_comprovacao ? '#E6F4EC' : '#FBF0DA', color: v.tem_comprovacao ? '#1E874B' : '#B45309' }}>{v.tem_comprovacao ? '✅ comprovado' : '⚠️ comprovar'}</span> : null}{v.nao_ocupa ? <span style={{ ...s.tag, background: '#EEF2FF', color: '#6D4AA8' }}>📸 não ocupa</span> : null}{v.uso_interno ? <span style={{ ...s.tag, background: '#FBF0DA', color: '#8A6D3B' }}>🏠 uso interno</span> : null}</span></div>
@@ -1186,6 +1207,8 @@ function Vendas({ API, gestao }) {
         </div>
       </div>}
       {edit && <EditorVenda API={API} idInicial={edit === 'novo' ? null : edit} onClose={() => setEdit(null)} onSaved={() => carregar(busca)} />}
+      {prospSel && <ProspeccaoModal API={API} id={prospSel.id} gestao={gestao} colabs={colabs} onClose={() => setProspSel(null)} onChange={carregarProsp} />}
+      {novaProsp && <NovaProspeccao API={API} colabs={colabs} onClose={() => setNovaProsp(false)} onSaved={() => { setNovaProsp(false); carregarProsp(); }} />}
     </div>
   );
 }
@@ -1526,15 +1549,15 @@ function Dashboard({ API, onAba }) {
         <select value={loja} onChange={e => setLoja(e.target.value)} style={{ ...s.inp, marginLeft: 'auto' }}><option value="">Todas as lojas</option>{lojas.map(l => <option key={l} value={l}>{l}</option>)}</select>
       </div>
       <div style={{ ...s.card }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <b style={{ fontSize: 12.5 }}>🔎 Filtrar:</b>
-          <select value={fil.plano} onChange={e => setFil(f => ({ ...f, plano: e.target.value }))} style={s.inp}><option value="">Todos os planos</option>{(filD?.planos || []).map(p => <option key={p} value={p}>{p}</option>)}</select>
-          <select value={fil.espaco} onChange={e => setFil(f => ({ ...f, espaco: e.target.value }))} style={s.inp}><option value="">Todos os espaços</option>{(filD?.espacos || []).map(x => <option key={x} value={x}>{x}</option>)}</select>
-          <select value={fil.fornecedor} onChange={e => setFil(f => ({ ...f, fornecedor: e.target.value }))} style={s.inp}><option value="">Todos os fornecedores</option>{(filD?.fornecedores || []).map(x => <option key={x} value={x}>{x}</option>)}</select>
-          <select value={fil.uso} onChange={e => setFil(f => ({ ...f, uso: e.target.value }))} style={s.inp} title="Espaço usado pela própria empresa"><option value="">Venda + uso interno</option><option value="0">Só venda real</option><option value="1">Só uso interno (própria empresa)</option></select>
-          <label style={{ fontSize: 11.5, color: '#7a8a8c' }}>de <input type="date" value={fil.de} onChange={e => setFil(f => ({ ...f, de: e.target.value }))} style={{ ...s.inp, padding: '5px 7px' }} /></label>
-          <label style={{ fontSize: 11.5, color: '#7a8a8c' }}>até <input type="date" value={fil.ate} onChange={e => setFil(f => ({ ...f, ate: e.target.value }))} style={{ ...s.inp, padding: '5px 7px' }} /></label>
-          {(fil.plano || fil.espaco || fil.fornecedor || fil.de || fil.ate || fil.uso) && <button style={s.btnMini} onClick={() => setFil({ plano: '', espaco: '', fornecedor: '', de: '', ate: '', uso: '' })}>limpar</button>}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'nowrap', overflowX: 'auto' }}>
+          <b style={{ fontSize: 12.5, flexShrink: 0 }}>🔎 Filtrar:</b>
+          <select value={fil.plano} onChange={e => setFil(f => ({ ...f, plano: e.target.value }))} style={{ ...s.inp, flex: '1 1 120px', minWidth: 110 }}><option value="">Todos os planos</option>{(filD?.planos || []).map(p => <option key={p} value={p}>{p}</option>)}</select>
+          <select value={fil.espaco} onChange={e => setFil(f => ({ ...f, espaco: e.target.value }))} style={{ ...s.inp, flex: '1 1 120px', minWidth: 110 }}><option value="">Todos os espaços</option>{(filD?.espacos || []).map(x => <option key={x} value={x}>{x}</option>)}</select>
+          <select value={fil.fornecedor} onChange={e => setFil(f => ({ ...f, fornecedor: e.target.value }))} style={{ ...s.inp, flex: '1 1 140px', minWidth: 120 }}><option value="">Todos os fornecedores</option>{(filD?.fornecedores || []).map(x => <option key={x} value={x}>{x}</option>)}</select>
+          <select value={fil.uso} onChange={e => setFil(f => ({ ...f, uso: e.target.value }))} style={{ ...s.inp, flex: '1 1 130px', minWidth: 120 }} title="Espaço usado pela própria empresa"><option value="">Venda + uso interno</option><option value="0">Só venda real</option><option value="1">Só uso interno (própria empresa)</option></select>
+          <label style={{ fontSize: 11.5, color: '#7a8a8c', flexShrink: 0 }}>de <input type="date" value={fil.de} onChange={e => setFil(f => ({ ...f, de: e.target.value }))} style={{ ...s.inp, padding: '5px 7px' }} /></label>
+          <label style={{ fontSize: 11.5, color: '#7a8a8c', flexShrink: 0 }}>até <input type="date" value={fil.ate} onChange={e => setFil(f => ({ ...f, ate: e.target.value }))} style={{ ...s.inp, padding: '5px 7px' }} /></label>
+          {(fil.plano || fil.espaco || fil.fornecedor || fil.de || fil.ate || fil.uso) && <button style={{ ...s.btnMini, flexShrink: 0 }} onClick={() => setFil({ plano: '', espaco: '', fornecedor: '', de: '', ate: '', uso: '' })}>limpar</button>}
         </div>
         {filD && <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13, marginTop: 10, paddingTop: 8, borderTop: '1px solid #f1f5f9' }}>
           <span><span style={{ color: '#7a8a8c' }}>Negociações:</span> <b>{filD.n}</b></span>
@@ -1543,17 +1566,17 @@ function Dashboard({ API, onAba }) {
           <span><span style={{ color: '#7a8a8c' }}>Deixado de ganhar:</span> <b style={{ color: '#8A6D3B' }}>{brl(filD.deixado)}</b></span>
         </div>}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 12, overflowX: 'auto', paddingBottom: 2 }}>
         {cards.map(([lab, val, cor]) => (
-          <div key={lab} style={{ ...s.card, marginBottom: 0 }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: cor }}>{val}</div>
+          <div key={lab} style={{ ...s.card, marginBottom: 0, flex: '1 1 0', minWidth: 118 }}>
+            <div style={{ fontSize: 19, fontWeight: 800, color: cor, whiteSpace: 'nowrap' }}>{val}</div>
             <div style={{ fontSize: 11.5, color: '#888' }}>{lab}</div>
           </div>
         ))}
       </div>
-      {k && k.vendidoTotal != null && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
+      {k && k.vendidoTotal != null && <div style={{ display: 'flex', gap: 10, marginBottom: 12, overflowX: 'auto', paddingBottom: 2 }}>
         {[['A receber', brl(k.aReceber), '#B7791F'], ['Recebido', brl(k.recebido), '#2E5C9E'], ['Deixado de ganhar', brl(k.deixadoGanhar || 0), '#8A6D3B', k.usoInternoQtd ? `${k.usoInternoQtd} espaço(s) em uso interno` : null]].map(([lab, val, cor, sub]) =>
-          <div key={lab} style={{ ...s.card, marginBottom: 0 }}><div style={{ fontSize: 20, fontWeight: 800, color: cor }}>{val}</div><div style={{ fontSize: 11.5, color: '#888' }}>{lab}</div>{sub && <div style={{ fontSize: 10.5, color: '#aaa', marginTop: 1 }}>{sub}</div>}</div>)}
+          <div key={lab} style={{ ...s.card, marginBottom: 0, flex: '1 1 0', minWidth: 140 }}><div style={{ fontSize: 19, fontWeight: 800, color: cor, whiteSpace: 'nowrap' }}>{val}</div><div style={{ fontSize: 11.5, color: '#888' }}>{lab}</div>{sub && <div style={{ fontSize: 10.5, color: '#aaa', marginTop: 1 }}>{sub}</div>}</div>)}
       </div>}
       {d?.pipeline && <div style={{ ...s.card }}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Funil de negociações</div>
@@ -2215,50 +2238,6 @@ const PR_ORDEM = ['novo', 'em_contato', 'negociando', 'ganho', 'perdido'];
 const CONTATO_TIPO = [['ligacao', '📞 Ligação'], ['whatsapp', '💬 WhatsApp'], ['email', '✉️ E-mail'], ['visita', '🚗 Visita'], ['reuniao', '👥 Reunião'], ['outro', '• Outro']];
 const CONTATO_RESULT = [['sem_resposta', 'Sem resposta'], ['retornar', 'Pediu p/ retornar'], ['agendou', 'Agendou'], ['avancou', 'Avançou'], ['sem_interesse', 'Sem interesse'], ['fechou', 'Fechou 🎉']];
 const dBRc = v => v ? String(v).slice(0, 10).split('-').reverse().join('/') : '';
-function FunilProspeccao({ API, gestao, usuario }) {
-  const [d, setD] = useState(null); const [sel, setSel] = useState(null); const [nova, setNova] = useState(false); const [colabs, setColabs] = useState([]);
-  const carregar = useCallback(() => API.get('/trademkt/prospeccoes').then(r => setD(r.data)).catch(() => setD({ itens: [], etapas: PR_ORDEM })), [API]);
-  useEffect(() => { carregar(); API.get('/colaboradores').then(r => setColabs(r.data.colaboradores || r.data || [])).catch(() => {}); }, [carregar, API]);
-  const itens = d?.itens || [];
-  const porEtapa = e => itens.filter(i => i.etapa === e);
-  const totVencidas = itens.filter(i => i.vencido).length;
-  const mover = (id, etapa) => API.put(`/trademkt/prospeccoes/${id}`, { etapa }).then(carregar).catch(() => {});
-  return (
-    <div>
-      <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <b style={{ fontSize: 13 }}>🧲 Funil de prospecção</b>
-        <span style={{ fontSize: 11.5, color: '#7a8a8c' }}>a cada R$100 mil comprados de um fornecedor abre uma prospecção automática · registre contatos e o próximo retorno</span>
-        {totVencidas > 0 && <span style={{ ...s.chip, background: '#FBE7E2', color: '#A3372A', fontWeight: 700 }}>⚠️ {totVencidas} contato(s) vencido(s)</span>}
-        {gestao && <button style={{ ...s.btn, marginLeft: 'auto' }} onClick={() => setNova(true)}>+ Nova prospecção</button>}
-      </div>
-      {!d && <div style={{ ...s.card, color: '#999', fontSize: 13 }}>Carregando…</div>}
-      {d && itens.length === 0 && <div style={s.vazio}>Nenhuma prospecção ainda. O sistema abre uma automaticamente a cada R$100 mil comprados de um fornecedor — ou crie manualmente.</div>}
-      {d && itens.length > 0 && <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8 }}>
-        {PR_ORDEM.map(et => <div key={et} style={{ minWidth: 248, flex: '1 0 248px', background: '#f7f9fa', border: '1px solid #eef1f4', borderRadius: 14, padding: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <b style={{ fontSize: 12.5, color: PR_ETAPA[et].c }}>{PR_ETAPA[et].l}</b>
-            <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>{porEtapa(et).length}</span>
-          </div>
-          {porEtapa(et).map(c => <div key={c.id} onClick={() => setSel(c)} style={{ background: '#fff', border: '1px solid ' + (c.vencido ? '#f1b4ab' : '#e8edf0'), borderLeft: '4px solid ' + PR_ETAPA[et].c, borderRadius: 10, padding: '9px 10px', marginBottom: 8, cursor: 'pointer', boxShadow: '0 1px 2px rgba(16,40,45,.05)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-              <b style={{ fontSize: 12.5, lineHeight: 1.25 }}>{c.fornecedor_nome || 'Fornecedor'}</b>
-              {c.origem === 'automatica' && <span title="aberta automaticamente por volume de compra" style={{ fontSize: 9.5, background: '#eef2ff', color: '#4f46e5', borderRadius: 6, padding: '2px 5px', fontWeight: 700, whiteSpace: 'nowrap', height: 'fit-content' }}>auto</span>}
-            </div>
-            {c.gatilho_valor > 0 && <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 2 }}>compra acum. {brl(c.gatilho_valor)}</div>}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, flexWrap: 'wrap', fontSize: 11 }}>
-              {c.responsavel_nome ? <span style={{ color: '#475569' }}>👤 {c.responsavel_nome}</span> : <span style={{ color: '#f59e0b' }}>⚠ sem responsável</span>}
-              {c.proximo_contato && <span style={{ fontWeight: 700, color: c.vencido ? '#b91c1c' : (c.hoje ? '#B45309' : '#475569') }}>📅 {dBRc(c.proximo_contato)}{c.vencido ? ' (venceu)' : c.hoje ? ' (hoje)' : ''}</span>}
-              {c.contatos > 0 && <span style={{ color: '#94a3b8' }}>💬 {c.contatos}</span>}
-            </div>
-          </div>)}
-          {porEtapa(et).length === 0 && <div style={{ fontSize: 11, color: '#b8c0c8', textAlign: 'center', padding: '8px 0' }}>—</div>}
-        </div>)}
-      </div>}
-      {sel && <ProspeccaoModal API={API} id={sel.id} gestao={gestao} colabs={colabs} onClose={() => setSel(null)} onChange={carregar} mover={mover} />}
-      {nova && <NovaProspeccao API={API} colabs={colabs} onClose={() => setNova(false)} onSaved={() => { setNova(false); carregar(); }} />}
-    </div>
-  );
-}
 function NovaProspeccao({ API, colabs, onClose, onSaved }) {
   const [f, setF] = useState({ fornecedor_nome: '', responsavel_id: '', contato_nome: '', contato_fone: '', proximo_contato: '', obs: '' });
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
@@ -2438,7 +2417,7 @@ function PremiacaoVendedor({ API, gestao }) {
 // Lateral da área de trabalho do colaborador: navegação entre as páginas de trade + as pendências
 // dele sempre à vista (premiação/meta do mês, metas de atividade, cobranças de prospecção, atividades
 // e agenda dos próximos contatos). Fica fixa em altura cheia; o conteúdo se ajusta ao lado.
-const LAT_NAV = [['funil', '🧲', 'Funil'], ['vendas', '🗂️', 'Negociações'], ['dashboard', '📊', 'Dashboard'], ['metas', '🎯', 'Metas'], ['leads', '📇', 'Leads'], ['porloja', '🏬', 'Espaços']];
+const LAT_NAV = [['vendas', '🗂️', 'Negociações'], ['dashboard', '📊', 'Dashboard'], ['metas', '🎯', 'Metas'], ['leads', '📇', 'Leads'], ['porloja', '🏬', 'Espaços'], ['cobranca', '💰', 'Cobrança']];
 function Barra({ lab, feito, meta, cor }) {
   const pct = meta > 0 ? Math.min(100, Math.round((feito / meta) * 100)) : 0;
   const ok = meta > 0 && feito >= meta;
@@ -2479,14 +2458,14 @@ function PainelMeta({ API, aba, onNav, aberto, setAberto }) {
         {/* Cobranças: próximos contatos vencidos/hoje */}
         {(d.cobrancas || []).length > 0 && <div style={{ border: '1px solid #f1b4ab', background: '#fff7f5', borderRadius: 12, padding: '10px 12px' }}>
           <b style={{ fontSize: 12, color: '#A3372A' }}>⚠️ Contatos a fazer ({d.cobrancas.length})</b>
-          {d.cobrancas.map(c => <div key={c.id} onClick={() => onNav && onNav('funil')} style={{ fontSize: 12, padding: '6px 0', borderTop: '1px solid #f6ddd6', cursor: 'pointer' }}>
+          {d.cobrancas.map(c => <div key={c.id} onClick={() => onNav && onNav('vendas')} style={{ fontSize: 12, padding: '6px 0', borderTop: '1px solid #f6ddd6', cursor: 'pointer' }}>
             <b>{c.fornecedor || 'Fornecedor'}</b> <span style={{ color: c.quando === 'vencido' ? '#b91c1c' : '#B45309', fontWeight: 700 }}>{c.quando === 'vencido' ? 'venceu ' : 'hoje '}{dBRl(c.data)}</span>
           </div>)}
         </div>}
         {/* Agenda dos próximos contatos (futuros) */}
         {(d.prospeccoes || []).filter(p => p.quando === 'futuro').length > 0 && <div style={{ border: '1px solid #eef1f4', borderRadius: 12, padding: '10px 12px' }}>
           <b style={{ fontSize: 12, color: '#334' }}>📅 Agenda de contatos</b>
-          {d.prospeccoes.filter(p => p.quando === 'futuro').slice(0, 6).map(p => <div key={p.id} onClick={() => onNav && onNav('funil')} style={{ fontSize: 12, padding: '5px 0', borderTop: '1px solid #f3f3f3', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+          {d.prospeccoes.filter(p => p.quando === 'futuro').slice(0, 6).map(p => <div key={p.id} onClick={() => onNav && onNav('vendas')} style={{ fontSize: 12, padding: '5px 0', borderTop: '1px solid #f3f3f3', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 6 }}>
             <span>{p.fornecedor}</span><span style={{ color: '#51607a', whiteSpace: 'nowrap' }}>{dBRl(p.data)}</span>
           </div>)}
         </div>}

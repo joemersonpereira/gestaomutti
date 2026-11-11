@@ -347,7 +347,12 @@ function parseCielo(rows, hi) {
     else if (forma.includes('deb')) grupo = 'DEBITO';
     else if (forma.includes('cred')) grupo = forma.includes('parcelad') ? 'PARCELADO' : 'CREDITO';
     else if (forma.includes('voucher') || forma.includes('aliment') || forma.includes('refei')) grupo = 'VOUCHER';
-    const parcN = Number(soDigitos(r[iParc]));
+    // nº de parcelas: PRIMEIRO do texto da forma de pagamento ("...parcelado loja 04x" → 4),
+    // que é o plano real que o lojista passou; a coluna "parcelado cliente" às vezes traz outro
+    // número (ex.: parcela própria) e gerava falso "parcelamento diferente". Cai na coluna só se o texto não disser.
+    const mForma = String(forma).match(/(\d{1,2})\s*x\b/g);
+    const parcForma = mForma ? Number(soDigitos(mForma[mForma.length - 1])) : 0;
+    const parcN = parcForma || Number(soDigitos(r[iParc]));
     const parcelas = grupo === 'PARCELADO' ? Math.max(2, parcN || 2) : Math.max(1, parcN || 1);
     const st = chave(r[iSt]);
     out.push({
