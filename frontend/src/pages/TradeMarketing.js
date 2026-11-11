@@ -1456,8 +1456,10 @@ function Cobranca({ API, gestao }) {
 function Dashboard({ API }) {
   const [d, setD] = useState(null); const [loja, setLoja] = useState(''); const [lojas, setLojas] = useState([]);
   const [espItens, setEspItens] = useState([]); const [lojaAberta, setLojaAberta] = useState('');  // clicar na loja → ver os espaços
+  const [apur, setApur] = useState([]);
   const carregar = useCallback(() => API.get('/trademkt/dashboard', { params: { loja: loja || undefined } }).then(r => setD(r.data)).catch(() => {}), [API, loja]);
   useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => { API.get('/trademkt/planos-apuracao').then(r => setApur(r.data.planos || [])).catch(() => {}); }, [API]);
   useEffect(() => { API.get('/trademkt/espaco-loja').then(r => { const it = r.data.itens || []; setEspItens(it); setLojas([...new Set(it.map(i => i.loja_nome))]); }).catch(() => {}); }, [API]);
   const k = d?.kpis;
   const cards = k ? [
@@ -1498,6 +1500,26 @@ function Dashboard({ API }) {
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Funil de negociações</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {[['pedido', 'Pedido'], ['negociacao', 'Negociação'], ['confirmado', 'Confirmado'], ['briefing', 'Briefing'], ['aguardando', 'Aguardando'], ['vigente', 'Em veiculação'], ['encerrado', 'Encerrado']].map(([st, lab]) => { const p = d.pipeline[st] || { n: 0, valor: 0 }; return <div key={st} style={{ flex: '1 1 120px', minWidth: 110, background: '#f8fafc', borderRadius: 10, padding: 10 }}><div style={{ fontSize: 11, color: '#64748b' }}>{lab}</div><div style={{ fontWeight: 800, fontSize: 18 }}>{p.n}</div><div style={{ fontSize: 11, color: '#1E874B' }}>{brl(p.valor)}</div></div>; })}
+        </div>
+      </div>}
+      {apur.length > 0 && <div style={s.card}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>📋 Apuração por plano comercial</div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead><tr style={{ textAlign: 'left', color: '#7a8a8c', borderBottom: '2px solid #eef1f4' }}>
+              {['Plano', 'Negociações', 'Fechadas', 'R$ fechado', 'Em aberto', 'R$ total'].map(h => <th key={h} style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>{apur.map(p => (
+              <tr key={p.plano} style={{ borderBottom: '1px solid #f3f5f7' }}>
+                <td style={{ padding: '6px 8px', fontWeight: 600, color: '#6D4AA8' }}>📋 {p.plano}</td>
+                <td style={{ padding: '6px 8px' }}>{p.n}</td>
+                <td style={{ padding: '6px 8px' }}>{p.n_fechado}</td>
+                <td style={{ padding: '6px 8px', fontWeight: 700, color: '#1E874B' }}>{brl(p.valor_fechado)}</td>
+                <td style={{ padding: '6px 8px', color: '#B7791F' }}>{p.n_aberto}</td>
+                <td style={{ padding: '6px 8px' }}>{brl(p.valor)}</td>
+              </tr>
+            ))}</tbody>
+          </table>
         </div>
       </div>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 12, marginBottom: 12 }}>

@@ -256,6 +256,20 @@ router.get('/dashboard', (req, res) => {
   });
 });
 
+// Apuração por PLANO comercial: tudo que foi vinculado a cada plano (p/ medir o plano depois).
+router.get('/planos-apuracao', (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const FECHADO = "('confirmado','vendido','vigente','comprovacao','concluido','encerrado')";
+  const rows = db.prepare(`SELECT plano_nome AS plano, COUNT(*) n, COALESCE(SUM(valor),0) valor,
+      COUNT(*) FILTER (WHERE status IN ${FECHADO} AND COALESCE(uso_interno,0)=0) n_fechado,
+      COALESCE(SUM(valor) FILTER (WHERE status IN ${FECHADO} AND COALESCE(uso_interno,0)=0),0) valor_fechado,
+      COUNT(*) FILTER (WHERE status IN ('pedido','rascunho','negociacao')) n_aberto
+    FROM tmkt_vendas WHERE empresa_id=? AND plano_id IS NOT NULL AND plano_nome IS NOT NULL
+      AND status NOT IN ('cancelado','recusado','perdido')
+    GROUP BY plano_nome ORDER BY valor_fechado DESC, valor DESC`).all(emp);
+  res.json({ planos: rows });
+});
+
 // Espaços por loja (quantidade + preço) — o "AreasEEspacosDaLoja" do TradeMkt.
 // Vagas ocupadas por espaço-loja = venda_espacos de vendas ativas (não cancelada/encerrada).
 const OCUPA_STATUS = "('pedido','rascunho','negociacao','confirmado','briefing','aguardando','vigente','comprovacao','vendido','concluido')";
