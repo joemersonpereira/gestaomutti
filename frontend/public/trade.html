@@ -1595,15 +1595,21 @@ function verAcompanhamento(){
       if(e.criativo_tipo)det.push(tipoRot[e.criativo_tipo]||e.criativo_tipo);
       if(e.producao_isenta)det.push('arte isenta pela Mutti');
       if(e.briefing)det.push('briefing enviado');
-      return '<tr><td>'+(e.quantidade>1?e.quantidade+'× ':'')+h(e.espaco_desc)+
-        '<div style="font-size:11.5px;color:#64748b;margin-top:2px">'+det.join(' · ')+' · <b style="color:#334">'+(arteRot[e.arte_status]||'')+'</b>'+(e.arte_obs?' — <i>'+h(e.arte_obs)+'</i>':'')+'</div>'+
-        (e.arte_status==='reprovada'?'<button class="btn sec" style="padding:4px 9px;font-size:11.5px;margin-top:5px" data-reenv="'+h(e.id)+'">↩ Reenviar material</button>':'')+'</td>'+
-        '<td>'+h(e.loja_nome||'')+'</td><td style="text-align:right">'+brl(e.valor)+'</td></tr>';}).join('');
+      var foto=e.espaco_tem_foto?('/api/publico/trade/espaco/'+e.espaco_id+'/foto'):null;
+      return '<div style="border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;background:#fff;display:flex;flex-direction:column">'+
+        (foto?'<div style="height:120px;background:#f1f5f9 center/cover no-repeat;background-image:url('+foto+')"></div>'
+             :'<div style="height:120px;background:linear-gradient(135deg,#0d8a6f,#0b6e59);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px;text-align:center;padding:8px">'+h(e.espaco_desc||'')+'</div>')+
+        '<div style="padding:11px;display:flex;flex-direction:column;gap:3px;flex:1">'+
+          '<div style="font-weight:700;font-size:13.5px">'+(e.quantidade>1?e.quantidade+'× ':'')+h(e.espaco_desc)+'</div>'+
+          '<div style="font-size:11.5px;color:#64748b">📍 '+h(e.loja_nome||'')+' · '+det.join(' · ')+'</div>'+
+          '<div style="font-size:11px;color:#334"><b>'+(arteRot[e.arte_status]||'')+'</b>'+(e.arte_obs?' — <i>'+h(e.arte_obs)+'</i>':'')+'</div>'+
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:6px"><b style="color:#0d8a6f">'+brl(e.valor)+'</b>'+(e.arte_status==='reprovada'?'<button class="btn sec" style="padding:4px 9px;font-size:11px" data-reenv="'+h(e.id)+'">↩ Reenviar</button>':'')+'</div>'+
+        '</div></div>';}).join('');
     var parH=(d.parcelas||[]).map(function(p){return '<tr><td>'+(p.vencimento||'—')+'</td><td>'+h(p.forma||'')+'</td><td style="text-align:right">'+brl(p.valor)+'</td><td>'+(p.recebido?'✅ confirmado':(p.tem_comprovante?'📎 enviado':'—'))+'</td><td>'+(p.tem_comprovante?'':'<button class="btn sec" style="padding:5px 9px;font-size:12px" data-cp="'+p.numero+'">anexar</button>')+'</td></tr>';}).join('');
     app.innerHTML='<header class="mini"><h1>📋 Pedido '+h(d.codigo)+'</h1><p>'+h(d.fornecedor||'')+'</p></header>'+
       '<div class="note"><b>Situação:</b> '+h(d.status_rotulo)+(d.vigencia_ini?' · período '+h(d.vigencia_ini)+' a '+h(d.vigencia_fim||''):'')+'</div>'+
       (d.status==='aguardando'?'<div class="card" style="padding:14px;margin-top:12px;border:1px solid #f6902a;background:#fff8f0"><b>✅ Confirmar a ação</b><div style="font-size:13px;color:#64748b;margin:4px 0 8px">Material e combinado conferidos? Confirme que está tudo OK para liberar a veiculação.</div><button class="btn" id="aceitarBtn">✅ Está tudo OK — liberar veiculação</button><div class="msg" id="acmsg"></div></div>':'')+
-      '<div class="card" style="padding:14px;margin-top:12px"><b>Espaços</b><table>'+espH+'<tr><td colspan="2"><b>Total</b></td><td style="text-align:right"><b>'+brl(d.valor)+'</b></td></tr></table></div>'+
+      '<div class="card" style="padding:14px;margin-top:12px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b>Espaços</b><b>Total '+brl(d.valor)+'</b></div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px">'+espH+'</div></div>'+
       (esc?'<div class="card" style="padding:14px;margin-top:12px"><b>Produtos da ação</b><div style="color:#475569;font-size:13px;margin-top:4px">'+esc+'</div></div>':'')+
       metaHtml(d)+selloutHtml(d)+
       '<div class="card" style="padding:14px;margin-top:12px"><b>Pagamentos</b>'+(parH?'<table><tr><th>Data</th><th>Forma</th><th style="text-align:right">Valor</th><th>Status</th><th></th></tr>'+parH+'</table>':'<div style="color:#64748b;font-size:13px;margin-top:4px">Nenhum pagamento informado ainda.</div>')+

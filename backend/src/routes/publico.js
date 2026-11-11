@@ -444,11 +444,12 @@ router.get('/trade/acompanhamento/:token', async (req, res) => {
     meta_compra_valor, meta_escopo_tipo, meta_escopo_ref, meta_periodo_ini, meta_periodo_fim, meta_periodicidade
     FROM tmkt_vendas WHERE empresa_id=? AND token=?`).get(EMP, req.params.token);
   if (!v) return res.status(404).json({ erro: 'Pedido não encontrado.' });
-  const espacos = db.prepare(`SELECT id, espaco_desc, area_desc, loja_nome, valor, COALESCE(quantidade,1) AS quantidade,
+  const espacos = db.prepare(`SELECT id, espaco_id, espaco_desc, area_desc, loja_nome, valor, COALESCE(quantidade,1) AS quantidade,
     modo_venda, insercoes, agenda, criativo_tipo, criativo_texto, (arte_b64 IS NOT NULL) AS tem_arte, arte_mime,
     COALESCE(producao,0) AS producao, COALESCE(producao_isenta,0) AS producao_isenta,
-    briefing, COALESCE(briefing_status,'rascunho') AS briefing_status, COALESCE(arte_status,'pendente') AS arte_status, arte_obs
-    FROM tmkt_venda_espacos WHERE venda_id=?`).all(v.id).map(e => ({ ...e, tem_arte: !!e.tem_arte, producao: !!e.producao, producao_isenta: !!e.producao_isenta }));
+    briefing, COALESCE(briefing_status,'rascunho') AS briefing_status, COALESCE(arte_status,'pendente') AS arte_status, arte_obs,
+    (SELECT (el.foto IS NOT NULL AND el.foto<>'') FROM tmkt_espaco_loja el WHERE el.id=tmkt_venda_espacos.espaco_id) AS espaco_tem_foto
+    FROM tmkt_venda_espacos WHERE venda_id=?`).all(v.id).map(e => ({ ...e, tem_arte: !!e.tem_arte, producao: !!e.producao, producao_isenta: !!e.producao_isenta, espaco_tem_foto: !!e.espaco_tem_foto }));
   const parcelas = db.prepare(`SELECT numero, vencimento, valor, forma, recebido, (comprovante_em IS NOT NULL) AS tem_comprovante FROM tmkt_parcelas WHERE venda_id=? ORDER BY numero`).all(v.id);
   const ROT = { rascunho: 'Rascunho', pedido: 'Pedido enviado — aguardando aprovação', negociacao: 'Em negociação', aprovado: 'Aprovado', vendido: 'Confirmado', confirmado: 'Confirmado', briefing: 'Em briefing / material', aguardando: 'Aguardando o seu aceite — confirme para liberar a veiculação', vigente: 'Em veiculação', ativo: 'Em exposição', concluido: 'Concluído', encerrado: 'Encerrado', cancelado: 'Cancelado' };
   const eans = v.eans_monitorados ? (() => { try { return JSON.parse(v.eans_monitorados); } catch { return []; } })() : [];
