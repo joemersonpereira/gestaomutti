@@ -326,6 +326,28 @@ function proximoCodigo(emp) {
   return `TM-${ano}-${String(n).padStart(5, '0')}`;
 }
 
+// ── Cronômetro do funil: registra cada troca de fase (tmkt_fase_hist, migr 352) ──
+// tipo = 'prospeccao' | 'venda'. Fecha a fase atual (saiu_em) e abre a nova (entrou_em). Best-effort.
+function logFase(emp, tipo, refId, novaFase, por) {
+  try {
+    if (!refId || !novaFase) return;
+    const atual = db.prepare('SELECT fase FROM tmkt_fase_hist WHERE tipo=? AND ref_id=? AND saiu_em IS NULL ORDER BY entrou_em DESC LIMIT 1').get(tipo, refId);
+    if (atual && atual.fase === novaFase) return; // já está nessa fase
+    db.prepare("UPDATE tmkt_fase_hist SET saiu_em=datetime('now') WHERE tipo=? AND ref_id=? AND saiu_em IS NULL").run(tipo, refId);
+    db.prepare("INSERT INTO tmkt_fase_hist (id,empresa_id,tipo,ref_id,fase,fase_de,por,entrou_em) VALUES (?,?,?,?,?,?,?,datetime('now'))")
+      .run(uuid(), emp, tipo, refId, novaFase, atual ? atual.fase : null, por || null);
+  } catch (e) { /* best-effort — nunca derruba a ação principal */ }
+}
+// Linha do tempo + tempos de cada fase de uma prospecção/negociação.
+router.get('/funil/:tipo/:id/historico', (req, res) => {
+  const tipo = req.params.tipo === 'venda' ? 'venda' : 'prospeccao';
+  const historico = db.prepare(`SELECT fase, fase_de, por, entrou_em, saiu_em,
+      CAST((julianday(COALESCE(saiu_em, datetime('now'))) - julianday(entrou_em)) * 86400 AS INTEGER) AS seg
+    FROM tmkt_fase_hist WHERE empresa_id=? AND tipo=? AND ref_id=? ORDER BY entrou_em`).all(req.usuario.empresa_id, tipo, req.params.id);
+  const tot = db.prepare("SELECT CAST((julianday(datetime('now')) - julianday(MIN(entrou_em))) * 86400 AS INTEGER) t FROM tmkt_fase_hist WHERE tipo=? AND ref_id=?").get(tipo, req.params.id);
+  res.json({ historico, total_seg: (tot && tot.t) || 0 });
+});
+
 // ── Cadastros: áreas, espaços, temas ─────────────────────────────────────
 router.get('/cadastros', (req, res) => {
   const emp = req.usuario.empresa_id;
@@ -818,6 +840,7 @@ router.post('/prospeccoes', exigePerfil(...GESTAO), (req, res) => {
     VALUES (?,?,?,?,?, 'manual', ?,?,?,?,?,?,?,?,?)`)
     .run(id, emp, String(b.fornecedor_id || ''), b.fornecedor_nome || null, PROSP_ETAPAS.includes(b.etapa) ? b.etapa : 'novo',
       b.responsavel_id || null, b.contato_nome || null, b.contato_fone || null, b.contato_email || null, b.proximo_contato || null, b.periodicidade || '', b.obs || null, b.proposta || null, req.usuario.id);
+  logFase(emp, 'prospeccao', id, PROSP_ETAPAS.includes(b.etapa) ? b.etapa : 'novo', req.usuario.nome);
   res.json({ ok: true, id });
 });
 router.put('/prospeccoes/:id', exigePerfil(...GESTAO), (req, res) => {
@@ -832,6 +855,7 @@ router.put('/prospeccoes/:id', exigePerfil(...GESTAO), (req, res) => {
       b.proposta !== undefined ? (b.proposta || null) : p.proposta,
       b.motivo_perda !== undefined ? (b.motivo_perda || null) : p.motivo_perda,
       b.reabordar_em !== undefined ? (b.reabordar_em || null) : p.reabordar_em, p.id, emp);
+  logFase(emp, 'prospeccao', p.id, PROSP_ETAPAS.includes(b.etapa) ? b.etapa : p.etapa, req.usuario.nome);
   res.json({ ok: true });
 });
 router.delete('/prospeccoes/:id', exigePerfil(...GESTAO), (req, res) => {
@@ -881,6 +905,7 @@ router.post('/prospeccoes/:id/perder', exigePerfil(...GESTAO), (req, res) => {
   if (!p) return res.status(404).json({ erro: 'não encontrada' });
   db.prepare("UPDATE tmkt_prospeccao SET etapa='perdido', motivo_perda=?, reabordar_em=?, atualizado_em=datetime('now') WHERE id=?")
     .run(b.motivo_perda || null, b.reabordar_em || null, p.id);
+  logFase(emp, 'prospeccao', p.id, 'perdido', req.usuario.nome);
   res.json({ ok: true });
 });
 // Reabrir uma prospecção perdida — volta pro funil e já sugere a próxima data de contato.
@@ -891,6 +916,7 @@ router.post('/prospeccoes/:id/reabrir', exigePerfil(...GESTAO), (req, res) => {
   const prox = b.proximo_contato || p.reabordar_em || new Date().toISOString().slice(0, 10);
   db.prepare("UPDATE tmkt_prospeccao SET etapa='em_contato', proximo_contato=?, reabordar_em=NULL, atualizado_em=datetime('now') WHERE id=?")
     .run(prox, p.id);
+  logFase(emp, 'prospeccao', p.id, 'em_contato', req.usuario.nome);
   res.json({ ok: true });
 });
 
@@ -1020,6 +1046,8 @@ router.post('/prospeccoes/:id/converter', exigePerfil(...GESTAO), (req, res) => 
     .run(vid, emp, proximoCodigo(emp), 'prospeccao', p.fornecedor_id || null, p.fornecedor_nome || null, 0, 'rascunho',
       p.obs ? ('Da prospecção: ' + p.obs) : null, req.usuario.id);
   db.prepare("UPDATE tmkt_prospeccao SET etapa='ganho', atualizado_em=datetime('now') WHERE id=?").run(p.id);
+  logFase(emp, 'prospeccao', p.id, 'ganho', req.usuario.nome);
+  logFase(emp, 'venda', vid, 'rascunho', req.usuario.nome);
   try { db.prepare("UPDATE tarefas SET status='concluido', atualizado_em=datetime('now') WHERE origem='trade-prospeccao' AND referencia_id=? AND status<>'concluido'").run(p.id); } catch {}
   res.json({ ok: true, venda_id: vid });
 });
@@ -1203,6 +1231,7 @@ router.post('/vendas', exigePerfil(...GESTAO), (req, res) => {
   const lojasCsv = Array.isArray(b.lojas) ? b.lojas.filter(Boolean).join(',') : String(b.lojas || '');
   if (lojasCsv) db.prepare('UPDATE tmkt_vendas SET lojas=?, loja_id=? WHERE id=? AND empresa_id=?').run(lojasCsv, lojasCsv.split(',')[0] || null, id, emp);
   if (b.uso_interno) db.prepare('UPDATE tmkt_vendas SET uso_interno=1 WHERE id=? AND empresa_id=?').run(id, emp);
+  logFase(emp, 'venda', id, STATUS.includes(b.status) ? b.status : 'rascunho', req.usuario.nome);
   res.json({ ok: true, id });
 });
 
@@ -1270,6 +1299,7 @@ router.put('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
   if ('lojas' in b) { const csv = Array.isArray(b.lojas) ? b.lojas.filter(Boolean).join(',') : String(b.lojas || ''); set.push('lojas=?'); vals.push(csv || null); set.push('loja_id=?'); vals.push(csv.split(',')[0] || null); }
   if ('uso_interno' in b) { set.push('uso_interno=?'); vals.push(b.uso_interno ? 1 : 0); }
   if (set.length) { set.push("atualizado_em=datetime('now')"); db.prepare(`UPDATE tmkt_vendas SET ${set.join(',')} WHERE id=? AND empresa_id=?`).run(...vals, req.params.id, emp); }
+  if ('status' in b && STATUS.includes(b.status)) logFase(emp, 'venda', req.params.id, b.status, req.usuario.nome);
   res.json({ ok: true });
 });
 // gera (ou devolve) o link de aprovação do fornecedor: ele abre, dá ciência e aprova → vai pra veiculação
@@ -1294,6 +1324,7 @@ router.post('/vendas/:id/mover', exigePerfil(...GESTAO), (req, res) => {
     if (fim && fim > hoje) return res.status(400).json({ erro: `Só dá pra encerrar após a data de fim da veiculação (${fim.split('-').reverse().join('/')}). Até lá, a ação fica em veiculação.` });
   }
   db.prepare("UPDATE tmkt_vendas SET status=?, status_desde=datetime('now'), atualizado_em=datetime('now') WHERE id=? AND empresa_id=?").run(novo, req.params.id, emp);
+  logFase(emp, 'venda', req.params.id, novo, req.usuario.nome);
   res.json({ ok: true });
 });
 router.delete('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
@@ -2354,10 +2385,12 @@ async function sincronizarProspeccoes() {
         const temCard = db.prepare('SELECT COUNT(*) n FROM tmkt_prospeccao WHERE empresa_id=? AND fornecedor_id=?').get(eid, fid).n;
         const marcoRow = db.prepare('SELECT marcos_processados, lifetime_base FROM tmkt_prospeccao_marco WHERE empresa_id=? AND fornecedor_id=?').get(eid, fid);
         const criar = (nivel) => {
+          const pid = uuid();
           db.prepare(`INSERT INTO tmkt_prospeccao (id,empresa_id,fornecedor_id,fornecedor_nome,etapa,origem,gatilho_valor,obs)
             VALUES (?,?,?,?, 'novo','automatica',?,?)`)
-            .run(uuid(), eid, fid, r.fornecedor || null, nivel * PROSP_PASSO,
+            .run(pid, eid, fid, r.fornecedor || null, nivel * PROSP_PASSO,
               `Fornecedor com R$ ${(nivel * PROSP_PASSO).toLocaleString('pt-BR')}+ comprados (acumulado) — cruzou mais um marco de R$100 mil, vale procurar para trade.`);
+          logFase(eid, 'prospeccao', pid, 'novo', 'gatilho ≥100k');
           criadas++;
         };
         if (!marcoRow || !marcoRow.lifetime_base) {

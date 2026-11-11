@@ -1427,6 +1427,7 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
             </div>
           );
         })()}
+        {id && <HistoricoFunil API={API} tipo="venda" id={id} />}
       </div>}
 
       {aba === 'material' && id && <div style={{ display: 'grid', gap: 12 }}>
@@ -2451,6 +2452,30 @@ const PR_ORDEM = ['novo', 'em_contato', 'negociando', 'ganho', 'perdido'];
 const CONTATO_TIPO = [['ligacao', '📞 Ligação'], ['whatsapp', '💬 WhatsApp'], ['email', '✉️ E-mail'], ['visita', '🚗 Visita'], ['reuniao', '👥 Reunião'], ['outro', '• Outro']];
 const CONTATO_RESULT = [['sem_resposta', 'Sem resposta'], ['retornar', 'Pediu p/ retornar'], ['agendou', 'Agendou'], ['avancou', 'Avançou'], ['sem_interesse', 'Sem interesse'], ['fechou', 'Fechou 🎉']];
 const dBRc = v => v ? String(v).slice(0, 10).split('-').reverse().join('/') : '';
+// Linha do tempo + tempo em cada fase (cronômetro do funil). tipo = 'prospeccao' | 'venda'.
+const FASE_ROT = { novo: 'Novo', em_contato: 'Em contato', negociando: 'Negociando', ganho: 'Ganho', perdido: 'Perdido', rascunho: 'Prospecção/Rascunho', pedido: 'Pedido', negociacao: 'Negociação', confirmado: 'Confirmado', briefing: 'Briefing', aguardando: 'Aguardando aceite', vigente: 'Em veiculação', comprovacao: 'Comprovação', encerrado: 'Encerrado', cancelado: 'Cancelado' };
+function fmtDur(seg) { seg = Number(seg) || 0; const d = Math.floor(seg / 86400), h = Math.floor((seg % 86400) / 3600), m = Math.floor((seg % 3600) / 60); if (d > 0) return `${d}d ${h}h`; if (h > 0) return `${h}h ${m}min`; return `${m}min`; }
+function fmtDT(t) { try { return new Date(String(t).replace(' ', 'T') + 'Z').toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch { return String(t || '').slice(0, 16); } }
+function HistoricoFunil({ API, tipo, id }) {
+  const [d, setD] = useState(null);
+  useEffect(() => { if (!id) return; API.get(`/trademkt/funil/${tipo}/${id}/historico`).then(r => setD(r.data)).catch(() => setD({ historico: [] })); }, [API, tipo, id]);
+  if (!d || !d.historico || !d.historico.length) return null;
+  return <div style={{ ...s.card, background: '#FBFCFE' }}>
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <b style={{ fontSize: 13 }}>⏱ Histórico de fases</b>
+      <span style={{ ...s.tag, background: '#EEF2FF', color: '#4338ca' }}>tempo total: {fmtDur(d.total_seg)}</span>
+    </div>
+    <div style={{ marginTop: 10 }}>
+      {d.historico.map((h, i) => <div key={i} style={{ display: 'flex', gap: 10 }}>
+        <span style={{ width: 9, height: 9, borderRadius: '50%', background: h.saiu_em ? '#cbd5e1' : '#1E874B', marginTop: 5, flexShrink: 0 }} />
+        <div style={{ flex: 1, borderBottom: i < d.historico.length - 1 ? '1px solid #f1f5f9' : 'none', paddingBottom: 8, marginBottom: 2 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600 }}>{h.fase_de ? <span style={{ color: '#94a3b8', fontWeight: 400 }}>{FASE_ROT[h.fase_de] || h.fase_de} → </span> : 'Entrou · '}{FASE_ROT[h.fase] || h.fase}</div>
+          <div style={{ fontSize: 11, color: '#94a3b8' }}>{fmtDT(h.entrou_em)}{h.por ? ' · ' + h.por : ''} · {h.saiu_em ? 'ficou ' + fmtDur(h.seg) : <b style={{ color: '#1E874B' }}>fase atual · há {fmtDur(h.seg)}</b>}</div>
+        </div>
+      </div>)}
+    </div>
+  </div>;
+}
 function NovaProspeccao({ API, colabs, onClose, onSaved }) {
   const [f, setF] = useState({ fornecedor_nome: '', responsavel_id: '', contato_nome: '', contato_fone: '', proximo_contato: '', periodicidade: '', proposta: '', obs: '' });
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
@@ -2547,6 +2572,7 @@ function ProspeccaoModal({ API, id, gestao, colabs, onClose, onChange }) {
           {ct.proximo && <div style={{ color: '#B45309', marginTop: 2 }}>→ próximo: {dBRc(ct.proximo)}</div>}
         </div>)}
       </div>
+      <div style={{ marginTop: 10 }}><HistoricoFunil API={API} tipo="prospeccao" id={id} /></div>
       {gestao && <button onClick={excluir} style={{ ...s.mv, color: '#C0392B', marginTop: 10 }}>🗑 excluir prospecção</button>}
     </>}
   </div></div>;
