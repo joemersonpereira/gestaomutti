@@ -271,6 +271,26 @@ router.get('/anexos', (req, res) => {
   rows.forEach(r => { total[r.tipo] = (total[r.tipo] || 0) + (Number(r.valor) || 0); });
   res.json({ anexos: rows, total });
 });
+// Despesas anexadas no período (p/ a conferência fiscal dentro do Orçamento loja): lista + totais fiscal/não-fiscal/pendente.
+router.get('/despesas-fiscal', soGestao, (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const de = req.query.de || primeiroDoMes();
+  const ate = req.query.ate || hoje();
+  const loja = req.query.loja || null;
+  const rows = db.prepare(`SELECT id, loja_id, data, descricao, valor, plano_contas, fiscal, tipo_doc, fiscal_conf, fiscal_conf_por
+    FROM tesouraria_anexo WHERE empresa_id=? AND tipo='despesa' AND data>=? AND data<=? ${loja ? 'AND loja_id=?' : ''}
+    ORDER BY data DESC`).all(...(loja ? [emp, de, ate, loja] : [emp, de, ate]));
+  const lojas = {}; try { db.prepare('SELECT id, nome FROM lojas WHERE empresa_id=?').all(emp).forEach(l => { lojas[l.id] = l.nome; }); } catch (e) { /* */ }
+  const tot = { fiscal: 0, nao_fiscal: 0, pendente: 0, vFiscal: 0, vNaoFiscal: 0, vPendente: 0 };
+  rows.forEach(r => {
+    const v = Number(r.valor) || 0;
+    if (r.fiscal_conf === 1) { tot.fiscal++; tot.vFiscal += v; }
+    else if (r.fiscal_conf === 0) { tot.nao_fiscal++; tot.vNaoFiscal += v; }
+    else { tot.pendente++; tot.vPendente += v; }
+  });
+  res.json({ ok: true, despesas: rows.map(r => ({ ...r, loja: lojas[r.loja_id] || r.loja_id })), total: tot });
+});
+
 // Conferência fiscal da despesa pelo escritório: marca fiscal (1) / não fiscal (0) / limpa (null). Só gestão.
 router.post('/anexos/:id/fiscal', soGestao, (req, res) => {
   const v = req.body.fiscal;

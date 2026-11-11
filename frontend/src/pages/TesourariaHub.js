@@ -48,6 +48,8 @@ export default function TesourariaHub() {
         {aba === 'orcamento' && (
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
             <CartaoDespesas API={API} />
+            <div style={{ height: 16 }} />
+            <ConferenciaFiscalDespesas API={API} />
           </div>
         )}
         {aba === 'criterios' && ehGestao && <><CriteriosPontos API={API} /><div style={{ height: 14 }} /><HorarioMes API={API} /></>}
@@ -249,6 +251,67 @@ function CaixaDestaquePontos({ API }) {
 const cd = {
   lab: { display: 'flex', flexDirection: 'column', fontSize: 11, color: '#64748b', gap: 3, fontWeight: 600 },
   inp: { border: '1px solid #cbd5e1', borderRadius: 7, padding: '7px 9px', fontSize: 13 },
+};
+
+const _brl = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+// Conferência fiscal das despesas anexadas (Joe 2026-11-11) — o escritório valida fiscal × não-fiscal
+// dentro do Orçamento loja, amarrando a despesa fotografada pelo gerente (com plano de contas) ao orçamento.
+function ConferenciaFiscalDespesas({ API }) {
+  const iniMes = new Date().toISOString().slice(0, 8) + '01';
+  const hojeS = new Date().toISOString().slice(0, 10);
+  const [lojas, setLojas] = useState([]);
+  const [loja, setLoja] = useState('');
+  const [de, setDe] = useState(iniMes);
+  const [ate, setAte] = useState(hojeS);
+  const [d, setD] = useState(null);
+  useEffect(() => { API.get('/tesouraria/lojas').then(r => setLojas(r.data.lojas || [])).catch(() => {}); }, [API]);
+  const carregar = useCallback(() => {
+    const qs = `de=${de}&ate=${ate}` + (loja ? `&loja=${loja}` : '');
+    API.get('/tesouraria/despesas-fiscal?' + qs).then(r => setD(r.data)).catch(() => setD(null));
+  }, [API, de, ate, loja]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const validar = (id, fiscal) => API.post(`/tesouraria/anexos/${id}/fiscal`, { fiscal }).then(carregar).catch(() => {});
+  const t = d?.total || {};
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16 }}>
+      <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 2 }}>🧾 Conferência fiscal das despesas</div>
+      <p style={{ fontSize: 12.5, color: '#64748b', margin: '0 0 10px' }}>As despesas que o gerente anexou (com plano de contas). O escritório marca <b>fiscal</b> ou <b>não fiscal</b> aqui.</p>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
+        <label style={cd.lab}>Loja<select value={loja} onChange={e => setLoja(e.target.value)} style={cd.inp}><option value="">Todas</option>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></label>
+        <label style={cd.lab}>De<input type="date" value={de} onChange={e => setDe(e.target.value)} style={cd.inp} /></label>
+        <label style={cd.lab}>Até<input type="date" value={ate} onChange={e => setAte(e.target.value)} style={cd.inp} /></label>
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={fc.box}><div style={fc.lab}>📄 Fiscais</div><div style={{ ...fc.val, color: '#15803d' }}>{_brl(t.vFiscal)}</div><div style={fc.sub}>{t.fiscal || 0} nota(s)</div></div>
+        <div style={fc.box}><div style={fc.lab}>⚠️ Não fiscais</div><div style={{ ...fc.val, color: '#b45309' }}>{_brl(t.vNaoFiscal)}</div><div style={fc.sub}>{t.nao_fiscal || 0} recibo(s)</div></div>
+        <div style={fc.box}><div style={fc.lab}>⏳ A conferir</div><div style={{ ...fc.val, color: '#64748b' }}>{_brl(t.vPendente)}</div><div style={fc.sub}>{t.pendente || 0} pendente(s)</div></div>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+          <thead><tr style={{ textAlign: 'left', color: '#64748b', borderBottom: '2px solid #eef1f4' }}>{['Data', 'Loja', 'Descrição', 'Plano de contas', 'Valor', 'Conferência'].map(h => <th key={h} style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>{h}</th>)}</tr></thead>
+          <tbody>{(d?.despesas || []).map(x => (
+            <tr key={x.id} style={{ borderTop: '1px solid #f3f4f6' }}>
+              <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>{String(x.data).slice(0, 10).split('-').reverse().join('/')}</td>
+              <td style={{ padding: '6px 8px', color: '#64748b' }}>{x.loja}</td>
+              <td style={{ padding: '6px 8px' }}>{x.descricao || '—'}{x.fiscal != null && <span style={{ fontSize: 10, color: '#94a3b8' }}> · OCR: {x.fiscal ? 'NF' : 'recibo'}</span>}</td>
+              <td style={{ padding: '6px 8px', color: '#64748b' }}>{x.plano_contas || '—'}</td>
+              <td style={{ padding: '6px 8px', fontWeight: 600 }}>{_brl(x.valor)}</td>
+              <td style={{ padding: '6px 8px' }}>{x.fiscal_conf != null
+                ? <span style={{ fontWeight: 700, color: x.fiscal_conf ? '#15803d' : '#b45309' }}>{x.fiscal_conf ? '✅ fiscal' : '❌ não fiscal'} <button onClick={() => validar(x.id, null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8' }}>↺</button></span>
+                : <span style={{ display: 'inline-flex', gap: 4 }}><button onClick={() => validar(x.id, true)} style={fc.btnF}>fiscal</button><button onClick={() => validar(x.id, false)} style={fc.btnN}>não fiscal</button></span>}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+        {!(d?.despesas || []).length && <div style={{ fontSize: 13, color: '#94a3b8', padding: 8 }}>Nenhuma despesa anexada no período.</div>}
+      </div>
+    </div>
+  );
+}
+const fc = {
+  box: { flex: 1, minWidth: 150, background: '#f8fafc', border: '1px solid #eef2f0', borderRadius: 10, padding: '8px 11px' },
+  lab: { fontSize: 11, color: '#64748b', fontWeight: 600 }, val: { fontSize: 17, fontWeight: 800 }, sub: { fontSize: 11, color: '#94a3b8' },
+  btnF: { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 7, padding: '3px 8px', fontSize: 11, color: '#15803d', fontWeight: 600, cursor: 'pointer' },
+  btnN: { border: '1px solid #cbd5e1', background: '#fff', borderRadius: 7, padding: '3px 8px', fontSize: 11, color: '#b45309', fontWeight: 600, cursor: 'pointer' },
 };
 
 const MESES_N = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
