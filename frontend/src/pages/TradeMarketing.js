@@ -279,6 +279,7 @@ function MaterialEspacos({ API, venda, onChange }) {
           <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
             <b>{brl(e.valor)}</b>
             <span style={{ fontSize: 10.5, fontWeight: 700, color: bd.c, background: bd.b, padding: '2px 7px', borderRadius: 999 }}>{bd.t}</span>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: e.comprovacoes > 0 ? '#16a34a' : '#94a3b8', background: e.comprovacoes > 0 ? '#E6F4EC' : '#f1f5f7', padding: '2px 7px', borderRadius: 999 }}>{e.comprovacoes > 0 ? `✅ ${e.comprovacoes} comprovação(ões)` : '📸 sem comprovação'}</span>
             {e.tem_arte && <ArtePreview API={API} iid={e.id} />}
           </div>
         </div>
