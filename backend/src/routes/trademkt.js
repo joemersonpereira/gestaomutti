@@ -212,7 +212,7 @@ router.get('/dashboard', (req, res) => {
   // vendidos e receita atribuídos à loja do ESPAÇO vendido (negociação pode ter espaços de várias lojas)
   // "vendido/ocupado" = negócio COMPROMETIDO (fechado), não só os já vigentes — senão um confirmado
   // de R$ 3.700 aparece como "tudo disponível". Mesma régua do resto do sistema (menos rascunho/pedido/negociação, que ainda não fecharam).
-  const vend = db.prepare(`SELECT COALESCE(ve.loja_id, v.loja_id) loja_id, COUNT(ve.id) vendidos, COALESCE(SUM(ve.valor),0) receita
+  const vend = db.prepare(`SELECT COALESCE(ve.loja_id, v.loja_id) loja_id, COUNT(ve.id) vendidos, COALESCE(SUM(ve.valor) FILTER (WHERE COALESCE(v.uso_interno,0)=0),0) receita
     FROM tmkt_venda_espacos ve JOIN tmkt_vendas v ON v.id=ve.venda_id WHERE v.empresa_id=? AND v.status IN ('confirmado','briefing','aguardando','vigente','comprovacao','vendido','concluido','encerrado') AND COALESCE(v.nao_ocupa,0)=0
     GROUP BY COALESCE(ve.loja_id, v.loja_id)`).all(emp).reduce((m, r) => (m[r.loja_id] = r, m), {});
   const monitorados = db.prepare(`SELECT COALESCE(SUM(json_array_length(eans_monitorados)),0) n FROM tmkt_vendas WHERE empresa_id=? AND eans_monitorados IS NOT NULL`).get(emp).n || 0;
@@ -230,10 +230,13 @@ router.get('/dashboard', (req, res) => {
     FROM tmkt_vendas WHERE empresa_id=? AND status NOT IN ('cancelado','recusado','perdido') GROUP BY status`).all(emp)
     .reduce((m, r) => (m[r.status] = { n: r.n, valor: r.valor }, m), {});
   // financeiro: vendido (negócios fechados), a receber e recebido
-  const vendidoTotal = db.prepare(`SELECT COALESCE(SUM(valor),0) v FROM tmkt_vendas WHERE empresa_id=? AND status IN ('confirmado','vendido','vigente','comprovacao','concluido','encerrado')`).get(emp).v || 0;
+  const vendidoTotal = db.prepare(`SELECT COALESCE(SUM(valor),0) v FROM tmkt_vendas WHERE empresa_id=? AND status IN ('confirmado','vendido','vigente','comprovacao','concluido','encerrado') AND COALESCE(uso_interno,0)=0`).get(emp).v || 0;
   // pendente = negociações ainda em aberto (não fecharam nem foram perdidas) — o pipeline em R$
-  const pendenteRow = db.prepare(`SELECT COALESCE(SUM(valor),0) v, COUNT(*) n FROM tmkt_vendas WHERE empresa_id=? AND status IN ('pedido','rascunho','negociacao')`).get(emp);
+  const pendenteRow = db.prepare(`SELECT COALESCE(SUM(valor),0) v, COUNT(*) n FROM tmkt_vendas WHERE empresa_id=? AND status IN ('pedido','rascunho','negociacao') AND COALESCE(uso_interno,0)=0`).get(emp);
   const pendenteTotal = pendenteRow.v || 0, pendenteQtd = pendenteRow.n || 0;
+  // "deixado de ganhar": espaços usados pela PRÓPRIA empresa (uso interno) — ocupam mas não geram receita
+  const diRow = db.prepare(`SELECT COALESCE(SUM(valor),0) v, COUNT(*) n FROM tmkt_vendas WHERE empresa_id=? AND COALESCE(uso_interno,0)=1 AND status NOT IN ('cancelado','recusado','perdido')`).get(emp);
+  const deixadoGanhar = diRow.v || 0, usoInternoQtd = diRow.n || 0;
   const aReceber = db.prepare(`SELECT COALESCE(SUM(p.valor),0) v FROM tmkt_parcelas p JOIN tmkt_vendas v ON v.id=p.venda_id WHERE p.empresa_id=? AND COALESCE(p.recebido,0)=0 AND v.status NOT IN ('cancelado','perdido')`).get(emp).v || 0;
   const recebido = db.prepare(`SELECT COALESCE(SUM(recebido_valor),0) v FROM tmkt_parcelas WHERE empresa_id=? AND recebido=1`).get(emp).v || 0;
   // negociações recentes
@@ -247,7 +250,7 @@ router.get('/dashboard', (req, res) => {
       total: tot.total, vendidos: tot.vendidos, disponiveis: tot.total - tot.vendidos,
       ocupacao: tot.total ? Math.round(tot.vendidos / tot.total * 100) : 0,
       potencial: tot.potencial, potencialPerdido: tot.potencial - tot.receita, receita: tot.receita, monitorados,
-      vendidoTotal, aReceber, recebido, pendenteTotal, pendenteQtd,
+      vendidoTotal, aReceber, recebido, pendenteTotal, pendenteQtd, deixadoGanhar, usoInternoQtd,
     },
     lojas, pipeline, recentes, topForn,
   });
@@ -395,6 +398,7 @@ router.post('/vendas', exigePerfil(...GESTAO), (req, res) => {
   }
   const lojasCsv = Array.isArray(b.lojas) ? b.lojas.filter(Boolean).join(',') : String(b.lojas || '');
   if (lojasCsv) db.prepare('UPDATE tmkt_vendas SET lojas=?, loja_id=? WHERE id=? AND empresa_id=?').run(lojasCsv, lojasCsv.split(',')[0] || null, id, emp);
+  if (b.uso_interno) db.prepare('UPDATE tmkt_vendas SET uso_interno=1 WHERE id=? AND empresa_id=?').run(id, emp);
   res.json({ ok: true, id });
 });
 
@@ -460,6 +464,7 @@ router.put('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
   if ('contato_nome' in b) { set.push('contato_nome=?'); vals.push(b.contato_nome || null); }
   if ('contato_cpf' in b) { const c = String(b.contato_cpf || '').replace(/\D/g, ''); set.push('contato_cpf=?'); vals.push(c || null); if (c.length === 11) liberarAcessoContato(emp, c, b.contato_nome); }
   if ('lojas' in b) { const csv = Array.isArray(b.lojas) ? b.lojas.filter(Boolean).join(',') : String(b.lojas || ''); set.push('lojas=?'); vals.push(csv || null); set.push('loja_id=?'); vals.push(csv.split(',')[0] || null); }
+  if ('uso_interno' in b) { set.push('uso_interno=?'); vals.push(b.uso_interno ? 1 : 0); }
   if (set.length) { set.push("atualizado_em=datetime('now')"); db.prepare(`UPDATE tmkt_vendas SET ${set.join(',')} WHERE id=? AND empresa_id=?`).run(...vals, req.params.id, emp); }
   res.json({ ok: true });
 });

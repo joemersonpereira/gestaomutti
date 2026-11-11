@@ -1111,7 +1111,7 @@ function Vendas({ API, gestao }) {
               <div style={s.colBody}>
                 {itens.map(v => (
                   <div key={v.id} style={s.cardA}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}><span style={{ fontSize: 11.5, fontWeight: 700, color: col.cor }}>📐 {v.codigo}</span><span style={{ display: 'flex', gap: 3 }}>{(v.origem === 'portal' || v.origem === 'recompra') ? <span style={{ ...s.tag, background: '#E7F0FB', color: '#2E5C9E' }}>🌐 {v.origem === 'recompra' ? 'recompra' : 'portal'}</span> : null}{proxVencer(v) ? <span style={{ ...s.tag, background: '#FEF3C7', color: '#B45309' }}>⏰ vence</span> : null}{v.atrasado ? <span style={{ ...s.tag, background: '#FBEAEA', color: '#C0392B' }}>atraso</span> : null}{col.id === 'comprovacao' ? <span style={{ ...s.tag, background: v.tem_comprovacao ? '#E6F4EC' : '#FBF0DA', color: v.tem_comprovacao ? '#1E874B' : '#B45309' }}>{v.tem_comprovacao ? '✅ comprovado' : '⚠️ comprovar'}</span> : null}{v.nao_ocupa ? <span style={{ ...s.tag, background: '#EEF2FF', color: '#6D4AA8' }}>📸 não ocupa</span> : null}</span></div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}><span style={{ fontSize: 11.5, fontWeight: 700, color: col.cor }}>📐 {v.codigo}</span><span style={{ display: 'flex', gap: 3 }}>{(v.origem === 'portal' || v.origem === 'recompra') ? <span style={{ ...s.tag, background: '#E7F0FB', color: '#2E5C9E' }}>🌐 {v.origem === 'recompra' ? 'recompra' : 'portal'}</span> : null}{proxVencer(v) ? <span style={{ ...s.tag, background: '#FEF3C7', color: '#B45309' }}>⏰ vence</span> : null}{v.atrasado ? <span style={{ ...s.tag, background: '#FBEAEA', color: '#C0392B' }}>atraso</span> : null}{col.id === 'comprovacao' ? <span style={{ ...s.tag, background: v.tem_comprovacao ? '#E6F4EC' : '#FBF0DA', color: v.tem_comprovacao ? '#1E874B' : '#B45309' }}>{v.tem_comprovacao ? '✅ comprovado' : '⚠️ comprovar'}</span> : null}{v.nao_ocupa ? <span style={{ ...s.tag, background: '#EEF2FF', color: '#6D4AA8' }}>📸 não ocupa</span> : null}{v.uso_interno ? <span style={{ ...s.tag, background: '#FBF0DA', color: '#8A6D3B' }}>🏠 uso interno</span> : null}</span></div>
                     <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 4 }}>{v.fornecedor_nome}</div>
                     <div style={{ fontSize: 11.5, color: '#666' }}>{v.espacos} espaço(s){v.tema_desc ? ` · ${v.tema_desc}` : ''}</div>
                     {v.plano_nome && <div style={{ fontSize: 10.5, color: '#6D4AA8', marginTop: 2 }}>📋 {v.plano_nome}</div>}
@@ -1255,10 +1255,14 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
           <label style={s.lbl}>Valor total R$<input type="number" value={v.valor} onChange={e => set('valor', e.target.value)} style={{ ...s.inp, width: 120 }} /></label>
           <label style={s.lbl}>Status<select value={v.status} onChange={e => set('status', e.target.value)} style={s.inp}>{COLS.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}<option value="cancelado">Cancelado</option></select></label>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
           <label style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }} title="Trade só pra comprovação/foto — não ocupa a vaga do espaço (continua disponível pra venda real).">
             <input type="checkbox" checked={!!v.nao_ocupa} onChange={e => set('nao_ocupa', e.target.checked)} />
-            📸 Não ocupa o espaço <span style={{ color: '#94a3b8' }}>(só comprovação/foto — a vaga continua disponível)</span>
+            📸 Não ocupa o espaço <span style={{ color: '#94a3b8' }}>(só comprovação/foto)</span>
+          </label>
+          <label style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }} title="Espaço usado pela própria farmácia: ocupa a vaga, mas não é venda — conta como oportunidade deixada de ganhar.">
+            <input type="checkbox" checked={!!v.uso_interno} onChange={e => set('uso_interno', e.target.checked)} />
+            🏠 Uso interno da farmácia <span style={{ color: '#94a3b8' }}>(ocupa, mas conta como deixado de ganhar)</span>
           </label>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -1485,7 +1489,7 @@ function Dashboard({ API }) {
         ))}
       </div>
       {k && k.vendidoTotal != null && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
-        {[['Em negociação (pendente)', brl(k.pendenteTotal || 0), '#6D4AA8', k.pendenteQtd ? `${k.pendenteQtd} negociação(ões) em aberto` : null], ['Vendido (fechado)', brl(k.vendidoTotal), '#1E874B'], ['A receber', brl(k.aReceber), '#B7791F'], ['Recebido', brl(k.recebido), '#2E5C9E']].map(([lab, val, cor, sub]) =>
+        {[['Em negociação (pendente)', brl(k.pendenteTotal || 0), '#6D4AA8', k.pendenteQtd ? `${k.pendenteQtd} negociação(ões) em aberto` : null], ['Vendido (fechado)', brl(k.vendidoTotal), '#1E874B'], ['A receber', brl(k.aReceber), '#B7791F'], ['Recebido', brl(k.recebido), '#2E5C9E'], ['Deixado de ganhar', brl(k.deixadoGanhar || 0), '#8A6D3B', k.usoInternoQtd ? `${k.usoInternoQtd} espaço(s) em uso interno` : null]].map(([lab, val, cor, sub]) =>
           <div key={lab} style={{ ...s.card, marginBottom: 0 }}><div style={{ fontSize: 20, fontWeight: 800, color: cor }}>{val}</div><div style={{ fontSize: 11.5, color: '#888' }}>{lab}</div>{sub && <div style={{ fontSize: 10.5, color: '#aaa', marginTop: 1 }}>{sub}</div>}</div>)}
       </div>}
       {d?.pipeline && <div style={{ ...s.card }}>
