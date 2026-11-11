@@ -168,7 +168,17 @@ router.get('/vendas/:id/contrato', async (req, res) => {
     assinante_nome: c?.assinante_nome || null, assinante_doc: c?.assinante_doc || null,
     ip: c?.ip || null, assinado_em: c?.assinado_em || null, solicitado_em: c?.solicitado_em || null,
     tem_selfie: !!(c && c.selfie_img), tem_documento: !!(c && c.documento_img), tem_assinatura: !!(c && c.assinatura_img),
+    tem_pdf: !!(c && c.pdf_b64),
   });
+});
+// Serve o PDF do contrato assinado (anexado automaticamente após a assinatura).
+router.get('/vendas/:id/contrato/pdf', exigePerfil(...GESTAO), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const c = db.prepare('SELECT c.pdf_b64, v.codigo FROM tmkt_contrato c JOIN tmkt_vendas v ON v.id=c.venda_id WHERE v.id=? AND v.empresa_id=?').get(req.params.id, emp);
+  if (!c || !c.pdf_b64) return res.status(404).json({ erro: 'PDF ainda não disponível (contrato não assinado).' });
+  res.set('Content-Type', 'application/pdf');
+  res.set('Content-Disposition', `inline; filename="contrato-${(c.codigo || 'assinado')}.pdf"`);
+  res.send(Buffer.from(c.pdf_b64, 'base64'));
 });
 // Salva OBJETO + dados editáveis do contratante e do representante (upsert em rascunho).
 router.put('/vendas/:id/contrato', exigePerfil(...GESTAO), (req, res) => {

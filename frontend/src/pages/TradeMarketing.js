@@ -1602,6 +1602,7 @@ function ContratoTab({ API, vendaId }) {
         {d.tem_selfie && <button onClick={() => verEv('selfie')} style={s.btnMini}>🤳 Selfie</button>}
         {d.tem_documento && <button onClick={() => verEv('documento')} style={s.btnMini}>📄 Documento</button>}
         {d.tem_assinatura && <button onClick={() => verEv('assinatura')} style={s.btnMini}>✍️ Assinatura</button>}
+        {d.tem_pdf && <button onClick={() => API.get(`/trademkt/vendas/${vendaId}/contrato/pdf`, { responseType: 'blob' }).then(r => window.open(URL.createObjectURL(r.data), '_blank')).catch(() => alert('PDF indisponível.'))} style={{ ...s.btn }}>📄 PDF do contrato assinado</button>}
       </div>
     </div>}
   </div>;

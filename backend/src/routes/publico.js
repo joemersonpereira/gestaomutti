@@ -7,6 +7,15 @@ const { erpQuery, habilitado } = require('../db/erp');
 const bcrypt = require('bcryptjs');
 const EMP = 'empresa-mutti-001';
 const soDig = s => String(s || '').replace(/\D/g, '');
+// dados da matriz que cede o espaço (para o papel timbrado do PDF) — mesmos defaults do trademkt.js
+function cedentePub() {
+  const g = k => db.prepare("SELECT valor FROM configuracoes WHERE empresa_id=? AND chave=?").get(EMP, k)?.valor;
+  return {
+    nome: g('tmkt_cedente_nome') || 'FARMÁCIA MUTTI LTDA',
+    cnpj: g('tmkt_cedente_cnpj') || '18.681.698/0003-85',
+    endereco: g('tmkt_cedente_endereco') || 'Praça Barão do Rio Branco, nº 59, Centro, Entre Rios-BA, CEP 48.180-000',
+  };
+}
 
 // Questões do teste (sem revelar a resposta correta)
 router.get('/estagio/questoes', (req, res) => {
@@ -682,7 +691,7 @@ router.get('/trade/contrato/:token', (req, res) => {
     assinado: c.status === 'assinado', assinante_nome: c.assinante_nome || null, assinado_em: c.assinado_em || null,
   });
 });
-router.post('/trade/contrato/:token/assinar', (req, res) => {
+router.post('/trade/contrato/:token/assinar', async (req, res) => {
   const b = req.body || {};
   const c = db.prepare("SELECT * FROM tmkt_contrato WHERE token=? AND empresa_id=?").get(req.params.token, EMP);
   if (!c || !c.token) return res.status(404).json({ erro: 'Link inválido ou expirado.' });
@@ -715,6 +724,16 @@ router.post('/trade/contrato/:token/assinar', (req, res) => {
       });
     } catch (e) { /* alerta best-effort */ }
   }
+  // gera o PDF do contrato assinado (corpo + evidências) e anexa (pdf_b64)
+  try {
+    const { gerarPdfAssinado } = require('../lib/assinaturaPdf');
+    const pdf = await gerarPdfAssinado({
+      titulo: 'Contrato', codigo: v && v.codigo, corpo: c.corpo, cedente: cedentePub(),
+      assinante_nome: nome, assinante_doc: cpf, ip, assinado_em: new Date().toISOString(),
+      assinatura_img: b.assinatura, selfie_img: b.selfie, documento_img: b.documento,
+    });
+    db.prepare("UPDATE tmkt_contrato SET pdf_b64=? WHERE id=?").run(pdf.toString('base64'), c.id);
+  } catch (e) { /* PDF best-effort — não bloqueia a assinatura */ }
   res.json({ ok: true });
 });
 
