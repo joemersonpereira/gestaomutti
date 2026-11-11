@@ -326,6 +326,7 @@ function Colaboradores({ API }) {
             ['conferente', 'É conferente', 'entra no checklist e na comissão de conferente'],
             ['perfumista', '💄 É perfumista', 'recebe a premiação sobre a venda de perfumaria (os demais vendedores não entram nessa base)'],
             ['trade', '📣 É de Trade', 'faz parte do time de Trade Marketing — pode ser responsável por prospecções e entra na premiação/metas de trade'],
+            ['tesouraria', '🏦 É da Tesouraria', 'responsável pelo fechamento do dia, conferência de caixa e lançamento de depósitos/despesas — entra nas metas da Tesouraria'],
             ['premiacao_caixa', '💰 Caixa (prêmio kits)', 'recebe premiação por meta de kits: ≥100 un ou <100 un (valores no fechamento)'],
             ['is_estagiario', '🎓 É estagiário', 'cria/vincula a ficha no módulo Estágios (nome, CPF e loja) para completar lá'],
             ['is_socio', '🤝 É sócio', 'sócio da empresa — fica disponível para assinar os contratos de estágio']].map(([k, t, d]) => (

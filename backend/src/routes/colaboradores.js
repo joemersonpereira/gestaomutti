@@ -52,7 +52,7 @@ function syncEstagiario(empresaId, colabId) {
 router.get('/', (req, res) => {
   const { loja_id, funcao_id } = req.query;
   let q = `
-    SELECT c.id, c.nome, c.email, c.cpf, c.salario, c.admissao, c.nascimento, c.ativo, c.senha_provisoria, c.chefe_setor, c.lideranca, c.conferente, c.perfumista, c.trade, c.premiacao_gestao, c.premiacao_caixa, c.id_premiacao, c.payx_cnpj, c.is_estagiario, c.is_socio,
+    SELECT c.id, c.nome, c.email, c.cpf, c.salario, c.admissao, c.nascimento, c.ativo, c.senha_provisoria, c.chefe_setor, c.lideranca, c.conferente, c.perfumista, c.trade, c.tesouraria, c.premiacao_gestao, c.premiacao_caixa, c.id_premiacao, c.payx_cnpj, c.is_estagiario, c.is_socio,
       f.nome as funcao, l.nome as loja, c.loja_id, c.funcao_id, c.departamento, c.empresa_registro, c.empresa_atuacao,
       c.telefone, c.endereco, c.apelido, c.contato_emergencia_nome, c.contato_emergencia_telefone, (c.foto IS NOT NULL) as tem_foto,
       c.cep, c.endereco_numero, c.complemento, c.bairro, c.cidade, c.uf, c.num_calcado, c.tam_blusa, c.tam_calca, c.tam_jaleco, c.inicio_loja,
@@ -120,6 +120,7 @@ router.post('/', exigePerfil('Gestor Geral', 'Diretor Geral', 'RH'), (req, res) 
   if (req.body.conferente) db.prepare(`UPDATE colaboradores SET conferente=1 WHERE id=?`).run(id);
   if (req.body.perfumista) db.prepare(`UPDATE colaboradores SET perfumista=1 WHERE id=?`).run(id);
   if (req.body.trade) db.prepare(`UPDATE colaboradores SET trade=1 WHERE id=?`).run(id);
+  if (req.body.tesouraria) db.prepare(`UPDATE colaboradores SET tesouraria=1 WHERE id=?`).run(id);
   if (req.body.premiacao_gestao) db.prepare(`UPDATE colaboradores SET premiacao_gestao=? WHERE id=?`).run(String(req.body.premiacao_gestao), id);
   if (req.body.premiacao_caixa) db.prepare(`UPDATE colaboradores SET premiacao_caixa=1 WHERE id=?`).run(id);
   if (req.body.id_premiacao) db.prepare(`UPDATE colaboradores SET id_premiacao=? WHERE id=?`).run(String(req.body.id_premiacao).trim(), id);
@@ -169,6 +170,7 @@ router.patch('/:id', exigePerfil('Gestor Geral', 'Diretor Geral', 'RH'), (req, r
   if (req.body.conferente !== undefined) db.prepare(`UPDATE colaboradores SET conferente=? WHERE id=?`).run(req.body.conferente ? 1 : 0, c.id);
   if (req.body.perfumista !== undefined) db.prepare(`UPDATE colaboradores SET perfumista=? WHERE id=?`).run(req.body.perfumista ? 1 : 0, c.id);
   if (req.body.trade !== undefined) db.prepare(`UPDATE colaboradores SET trade=? WHERE id=?`).run(req.body.trade ? 1 : 0, c.id);
+  if (req.body.tesouraria !== undefined) db.prepare(`UPDATE colaboradores SET tesouraria=? WHERE id=?`).run(req.body.tesouraria ? 1 : 0, c.id);
   if (req.body.premiacao_gestao !== undefined) db.prepare(`UPDATE colaboradores SET premiacao_gestao=? WHERE id=?`).run(String(req.body.premiacao_gestao || ''), c.id);
   if (req.body.premiacao_caixa !== undefined) db.prepare(`UPDATE colaboradores SET premiacao_caixa=? WHERE id=?`).run(req.body.premiacao_caixa ? 1 : 0, c.id);
   if (req.body.id_premiacao !== undefined) db.prepare(`UPDATE colaboradores SET id_premiacao=? WHERE id=?`).run(String(req.body.id_premiacao || '').trim(), c.id);

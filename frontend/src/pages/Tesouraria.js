@@ -10,34 +10,38 @@ const inicioMes = () => { const d = new Date(); return new Date(d.getFullYear(),
 const dBR = d => d ? String(d).slice(0, 10).split('-').reverse().join('/') : '';
 const pctf = n => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
 
-export default function Tesouraria() {
+// embed: sem Banner (renderizada dentro do hub da Tesouraria).
+// soControle: modo "controle da gestão" — mostra só o que é leitura/monitoramento; esconde o que
+// abre tarefa/cobrança pro operador (débitos, lançar diferença, justificativas) e a cobrança na tela
+// de Quebras. Pedido do Joe 2026-11-11: "é só um controle pra gestão, sem abrir tarefa pro operador".
+export default function Tesouraria({ embed, soControle } = {}) {
   const { API, usuario } = useAuth();
-  const ehTesouraria = ['Tesouraria', 'Supervisor', 'Gestor Geral', 'Diretor Geral'].includes(usuario.funcao);
+  const ehTesouraria = ['Tesouraria', 'Financeiro', 'Controladoria', 'Supervisor', 'Gestor Geral', 'Diretor Geral'].includes(usuario.funcao);
   const [aba, setAba] = useState('ranking');
   return (
     <div style={s.wrap}>
-      <Banner emoji="🏦" titulo="Tesouraria" cor="roxo" sub="Diferenças de caixa — sobra (+) e falta (−). No ranking, tudo soma em módulo." />
+      {!embed && <Banner emoji="🏦" titulo="Tesouraria" cor="roxo" sub="Diferenças de caixa — sobra (+) e falta (−). No ranking, tudo soma em módulo." />}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-        <Tab a="ranking" aba={aba} set={setAba}>Caixa Destaque</Tab>
-        {ehTesouraria && <Tab a="quebras" aba={aba} set={setAba}>💸 Quebras (ERP)</Tab>}
+        <Tab a="ranking" aba={aba} set={setAba}>🏆 Caixa Destaque</Tab>
+        {ehTesouraria && <Tab a="quebras" aba={aba} set={setAba}>💸 Diferenças (ERP)</Tab>}
         {ehTesouraria && <Tab a="indicadores" aba={aba} set={setAba}>📈 Setor</Tab>}
         {ehTesouraria && <Tab a="cancelamentos" aba={aba} set={setAba}>🚫 Cancelamentos</Tab>}
         {ehTesouraria && <Tab a="atendimento" aba={aba} set={setAba}>🧾 Atendimento do caixa</Tab>}
-        {ehTesouraria && <Tab a="debitos" aba={aba} set={setAba}>💵 Débitos do operador</Tab>}
         {ehTesouraria && <Tab a="conferencia" aba={aba} set={setAba}>✅ Conferência</Tab>}
-        {ehTesouraria && <Tab a="lancar" aba={aba} set={setAba}>Lançar</Tab>}
-        <Tab a="justif" aba={aba} set={setAba}>{ehTesouraria ? 'Justificativas' : 'Minhas justificativas'}</Tab>
+        {!soControle && ehTesouraria && <Tab a="debitos" aba={aba} set={setAba}>💵 Débitos do operador</Tab>}
+        {!soControle && ehTesouraria && <Tab a="lancar" aba={aba} set={setAba}>Lançar</Tab>}
+        {!soControle && <Tab a="justif" aba={aba} set={setAba}>{ehTesouraria ? 'Justificativas' : 'Minhas justificativas'}</Tab>}
         <Tab a="criterios" aba={aba} set={setAba}>Critérios</Tab>
       </div>
       {aba === 'ranking' && <Ranking API={API} usuario={usuario} ehTesouraria={ehTesouraria} />}
-      {aba === 'quebras' && ehTesouraria && <QuebrasErp API={API} />}
+      {aba === 'quebras' && ehTesouraria && <QuebrasErp API={API} soControle={soControle} />}
       {aba === 'indicadores' && ehTesouraria && <IndicadoresSetor API={API} />}
       {aba === 'cancelamentos' && ehTesouraria && <CancelamentosPonto API={API} />}
       {aba === 'atendimento' && ehTesouraria && <AtendimentoCaixa API={API} />}
-      {aba === 'debitos' && ehTesouraria && <DebitosOperador API={API} />}
+      {aba === 'debitos' && !soControle && ehTesouraria && <DebitosOperador API={API} />}
       {aba === 'conferencia' && ehTesouraria && <Conferencia API={API} />}
-      {aba === 'lancar' && ehTesouraria && <Lancar API={API} usuario={usuario} ehTesouraria={ehTesouraria} />}
-      {aba === 'justif' && <Justificativas API={API} />}
+      {aba === 'lancar' && !soControle && ehTesouraria && <Lancar API={API} usuario={usuario} ehTesouraria={ehTesouraria} />}
+      {aba === 'justif' && !soControle && <Justificativas API={API} />}
       {aba === 'criterios' && <CriteriosCaixa API={API} />}
     </div>
   );
@@ -339,7 +343,7 @@ function useLojasTes(API) {
 
 // ── Aba: Quebras de caixa do ERP + cobrança do operador ─────────────────────
 const ST_COBR = { pendente: ['#B7791F', 'pendente'], cobrado: ['#1E874B', 'cobrado'], perdoado: ['#2E5C9E', 'perdoado'], pontuado: ['#7A4FB0', 'só pontuado'] };
-function QuebrasErp({ API }) {
+function QuebrasErp({ API, soControle }) {
   const lojas = useLojasTes(API);
   const [ini, setIni] = useState(inicioMes()); const [fim, setFim] = useState(hojeISO());
   const [loja, setLoja] = useState(''); const [d, setD] = useState(null); const [carreg, setCarreg] = useState(false);
@@ -372,24 +376,24 @@ function QuebrasErp({ API }) {
   return (
     <>
       <PeriodoTes {...{ ini, setIni, fim, setFim, loja, setLoja, lojas }}>
-        <label style={s.fld}>Limiar cobrança
+        {!soControle && <label style={s.fld}>Limiar cobrança
           <span style={{ display: 'flex', gap: 4 }}>
             <input type="number" step="0.5" value={limiar} onChange={e => setLimiar(e.target.value)} style={{ ...s.inp, width: 68 }} />
             <button onClick={salvarLimiar} style={s.btnMini}>salvar</button>
           </span>
-        </label>
-        <label style={s.fld}>Pontos −/quebra (só pontuar)
+        </label>}
+        {!soControle && <label style={s.fld}>Pontos −/quebra (só pontuar)
           <span style={{ display: 'flex', gap: 4 }}>
             <input type="number" min="0" value={pontosQuebra} onChange={e => setPontosQuebra(e.target.value)} style={{ ...s.inp, width: 68 }} title="Pontos da gamificação descontados do operador quando a quebra é marcada como 'só pontuar'" />
             <button onClick={salvarPontos} style={s.btnMini}>salvar</button>
           </span>
-        </label>
-        <label style={s.fld}>Pontos +/caixa zerado
+        </label>}
+        {!soControle && <label style={s.fld}>Pontos +/caixa zerado
           <span style={{ display: 'flex', gap: 4 }}>
             <input type="number" min="0" value={czCfg} onChange={e => setCzCfg(e.target.value)} style={{ ...s.inp, width: 68 }} title="Pontos ganhos pelo operador quando fecha o caixa com diferença zero (0 = desliga). Padrão 100." />
             <button onClick={salvarCz} style={s.btnMini}>salvar</button>
           </span>
-        </label>
+        </label>}
         <label style={{ ...s.fld, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
           <input type="checkbox" checked={soRel} onChange={e => setSoRel(e.target.checked)} /> só relevantes (&gt; R${limiar})
         </label>
@@ -419,7 +423,8 @@ function QuebrasErp({ API }) {
               </td>
               <td style={s.td}><span style={{ color: cor, fontWeight: 700, fontSize: 11.5 }}>{lab}</span>{q.cobranca?.valorCobrado > 0 ? <span style={{ color: '#888' }}> · {brl(q.cobranca.valorCobrado)}</span> : ''}</td>
               <td style={s.td}>
-                {q.cobranca?.status === 'pendente'
+                {soControle ? <span style={{ color: '#bbb' }}>—</span>
+                  : q.cobranca?.status === 'pendente'
                   ? <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                       {q.tipo === 'falta' && <button onClick={() => marcar(q, 'cobrado')} style={s.actGreen}>cobrar {brl(Math.abs(q.valor))}</button>}
                       <button onClick={() => marcar(q, 'pontuado')} style={s.actGray}>só pontuar</button>

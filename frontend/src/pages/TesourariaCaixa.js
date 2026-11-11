@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 
 const brl = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const hojeStr = new Date().toISOString().slice(0, 10);
+const hora = dh => { if (!dh) return '—'; const d = new Date(dh); return isNaN(d) ? '—' : d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
 
 const s = {
   wrap: { padding: 20, maxWidth: 1100, margin: '0 auto' },
@@ -22,7 +23,7 @@ const s = {
 
 const lerArq = file => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); });
 
-export default function TesourariaCaixa() {
+export default function TesourariaCaixa({ embed } = {}) {
   const { API } = useAuth();
   const [lojas, setLojas] = useState([]);
   const [loja, setLoja] = useState('');
@@ -141,12 +142,13 @@ export default function TesourariaCaixa() {
 
   return (
     <div style={s.wrap}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '6px 0 12px', borderBottom: '1px solid var(--line,#ddd8cf)', marginBottom: 16 }}>
-        <h1 style={s.h1}>🏦 Tesouraria</h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: embed ? '0 0 10px' : '6px 0 12px', borderBottom: '1px solid var(--line,#ddd8cf)', marginBottom: 16 }}>
+        {!embed && <h1 style={s.h1}>🏦 Tesouraria</h1>}
+        {embed && <div style={{ fontWeight: 800, fontSize: 15 }}>📎 Fechamento do dia</div>}
         <div style={{ flex: 1 }} />
         <button style={s.btn} onClick={() => setCfg(v => !v)}>⚙️ Pasta da nuvem</button>
       </div>
-      <p style={{ fontSize: 13, color: 'var(--fg-soft,#64748b)', margin: '0 0 16px' }}>Quando os caixas da loja fecham, anexe aqui os <b>depósitos</b> (PDF/foto do comprovante) e as <b>despesas</b> do dia (foto pela câmera ou puxando da pasta da nuvem onde o gerente subiu).</p>
+      <p style={{ fontSize: 13, color: 'var(--fg-soft,#64748b)', margin: '0 0 16px' }}>Entre na loja e veja os <b>caixas do dia</b>; quando fecham, anexe aqui os <b>depósitos</b> (PDF/foto do comprovante), as <b>despesas</b> (foto pela câmera ou da pasta da nuvem) e as <b>recargas</b>.</p>
 
       {cfg && (
         <div style={s.card}>
@@ -174,7 +176,31 @@ export default function TesourariaCaixa() {
           <div style={{ fontSize: 22 }}>{dia.todos_fechados ? '✅' : '⏳'}</div>
           <div>
             <div style={{ fontWeight: 700 }}>{dia.total_caixas === 0 ? 'Nenhum caixa aberto neste dia' : dia.todos_fechados ? 'Todos os caixas fechados — hora de anexar depósitos e despesas' : `${dia.fechados} de ${dia.total_caixas} caixa(s) fechado(s)`}</div>
-            <div style={{ fontSize: 12, color: '#64748b' }}>{dia.n_depositos} depósito(s) · {dia.n_despesas} despesa(s) anexada(s)</div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>{dia.n_depositos} depósito(s) · {dia.n_despesas} despesa(s) · {dia.n_recargas || 0} recarga(s) anexada(s)</div>
+          </div>
+        </div>
+      )}
+
+      {dia && (dia.sessoes || []).length > 0 && (
+        <div style={s.card}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>🧰 Caixas do dia</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead><tr style={{ textAlign: 'left', color: '#64748b', borderBottom: '2px solid #eef1f4' }}>
+                {['Caixa', 'Operador', 'Abertura', 'Fechamento', 'Situação'].map(h => <th key={h} style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>{h}</th>)}
+              </tr></thead>
+              <tbody>{(dia.sessoes || []).map(sx => (
+                <tr key={sx.id} style={{ borderTop: '1px solid #f2f2f2' }}>
+                  <td style={{ padding: '6px 8px', fontWeight: 600 }}>#{sx.caixa || sx.pdv || '—'}</td>
+                  <td style={{ padding: '6px 8px' }}>{sx.operador || '—'}{sx.login ? <span style={{ color: '#aaa' }}> · {sx.login}</span> : ''}</td>
+                  <td style={{ padding: '6px 8px', color: '#475569' }}>{hora(sx.inicio)}</td>
+                  <td style={{ padding: '6px 8px', color: '#475569' }}>{sx.fechado ? hora(sx.fim) : '—'}</td>
+                  <td style={{ padding: '6px 8px' }}>{sx.fechado
+                    ? <span style={{ color: '#15803d', fontWeight: 700 }}>✅ fechado</span>
+                    : <span style={{ color: '#b45309', fontWeight: 700 }}>⏳ aberto</span>}</td>
+                </tr>
+              ))}</tbody>
+            </table>
           </div>
         </div>
       )}

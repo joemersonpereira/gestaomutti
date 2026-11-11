@@ -799,7 +799,7 @@ function ExtratoContas({ API }) {
 }
 
 // ============================ CARTÃO-DESPESAS / CONTA ORÇAMENTÁRIA ============================
-function CartaoDespesas({ API }) {
+export function CartaoDespesas({ API }) {
   const [loja, setLoja] = useState('');
   const [de, setDe] = useState(iniMes);
   const [ate, setAte] = useState(hojeStr);

@@ -74,7 +74,7 @@ import Fiscal from './pages/Fiscal';
 import BancoTalentos from './pages/BancoTalentos';
 import Fornecedores from './pages/Fornecedores';
 import AuditoriaContabil from './pages/AuditoriaContabil';
-import TesourariaCaixa from './pages/TesourariaCaixa';
+import TesourariaHub from './pages/TesourariaHub';
 
 // Registro de módulos. perfis '*' = todos; senão lista de funções que enxergam.
 const GESTAO = ['Gerente', 'Supervisor', 'Gestor Geral', 'Diretor Geral'];
@@ -146,7 +146,7 @@ const MODULOS = [
   { id: 'fiscal', label: '📋 Fiscal', C: Fiscal, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Suporte'] },
   { id: 'fornecedores', label: '🏭 Fornecedores', C: Fornecedores, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Financeiro'] },
   { id: 'auditoria-contabil', label: '🔎 Auditoria', C: AuditoriaContabil, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'] },
-  { id: 'tesouraria', label: '🏦 Tesouraria', C: TesourariaCaixa, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Supervisor', 'Gerente', 'Subgerente'] },
+  { id: 'tesouraria', label: '🏦 Tesouraria', C: TesourariaHub, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro'] },
   { id: 'integracoes', label: '🔌 Status de Integrações', C: Integracoes, perfis: ['Diretor Geral', 'Gestor Geral', 'Suporte', 'Controladoria'] },
   { id: 'email-tarefas', label: '📧 E-mail → Tarefa', C: EmailTarefas, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro'] },
 ];
@@ -211,12 +211,11 @@ const NAV = [
     ] },
     { nome: 'Marketing', itens: ['marketing', 'mkt-calendario'] },
     { nome: 'Gente & Gestão', itens: ['cadastros', 'visao360', 'capacitacao', 'indicadores-colab', 'afastamentos', 'ponto', 'ponto-repp', 'ocorrencias', 'documentos-rh', 'beneficios', 'clima', 'desligamentos', 'canal-escuta', 'painel-rh', 'estagio-rh', 'banco-talentos'] },
-    { nome: 'Administrativo', itens: [], subs: [
-      { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'tesouraria', 'conciliacao-cartao', 'contas-receber', 'estagios'] },
+    { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'tesouraria', 'conciliacao-cartao', 'contas-receber', 'estagios'], subs: [
       { nome: 'Controladoria', itens: ['controladoria'] },
-      { nome: 'Suporte', itens: ['suporte', 'fiscal'] },
     ] },
     { nome: 'Contabilidade', itens: ['contabilidade', 'fornecedores', 'auditoria-contabil'] },
+    { nome: 'Suporte', itens: ['suporte', 'fiscal'] },
     { nome: 'Logística', itens: ['conferentes', 'devolucoes', 'almoxarifado'] },
   ] },
   { camada: 'Gestão', grupos: [

@@ -119,6 +119,7 @@ const PENDENTES = [
   './migrations/350_tmkt_veic_termo',
   './migrations/351_tmkt_contrato_pdf',
   './migrations/352_tmkt_fase_hist',
+  './migrations/353_colaborador_tesouraria',
 ];
 
 console.log('=== Rodando migrações pendentes (065–073) ===\n');
