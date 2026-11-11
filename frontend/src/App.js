@@ -146,7 +146,7 @@ const MODULOS = [
   { id: 'fiscal', label: '📋 Fiscal', C: Fiscal, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Suporte'] },
   { id: 'fornecedores', label: '🏭 Fornecedores', C: Fornecedores, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Financeiro'] },
   { id: 'auditoria-contabil', label: '🔎 Auditoria', C: AuditoriaContabil, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'] },
-  { id: 'tesouraria', label: '🏦 Tesouraria', C: TesourariaHub, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro'] },
+  { id: 'tesouraria', label: '🏦 Tesouraria', C: TesourariaHub, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Gerente', 'Subgerente'] },
   { id: 'integracoes', label: '🔌 Status de Integrações', C: Integracoes, perfis: ['Diretor Geral', 'Gestor Geral', 'Suporte', 'Controladoria'] },
   { id: 'email-tarefas', label: '📧 E-mail → Tarefa', C: EmailTarefas, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro'] },
 ];

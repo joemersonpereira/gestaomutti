@@ -23,17 +23,23 @@ const ABAS = [
   ['orcamento', '💰 Orçamento loja'],
 ];
 
+// Gestão/Financeiro vê tudo; o GERENTE (e subgerente) vê SÓ o Fechamento do dia — anexa as fotos e
+// apenas VISUALIZA quem teve diferença; a apuração e o orçamento são da gestão (Joe 2026-11-11).
+const GESTAO_TES = ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Tesouraria', 'Supervisor'];
+
 export default function TesourariaHub() {
-  const { API } = useAuth();
+  const { API, usuario } = useAuth();
+  const ehGestao = GESTAO_TES.includes(usuario?.funcao);
+  const abas = ehGestao ? ABAS : ABAS.filter(([k]) => k === 'fechamento');
   const [aba, setAba] = useState('fechamento');
   return (
     <div style={s.wrap}>
-      <Banner emoji="🏦" titulo="Tesouraria" cor="roxo" sub="Controle de caixa da gestão — fechamento do dia por loja junto com as apurações e o orçamento. Sem tarefa pro operador." />
-      <div style={s.tabs}>
-        {ABAS.map(([k, l]) => (
+      <Banner emoji="🏦" titulo="Tesouraria" cor="roxo" sub={ehGestao ? 'Controle de caixa da gestão — fechamento do dia por loja junto com as apurações e o orçamento. Sem tarefa pro operador.' : 'Fechamento do dia — anexe os depósitos, despesas e recargas da sua loja e acompanhe os caixas e diferenças do dia.'} />
+      {abas.length > 1 && <div style={s.tabs}>
+        {abas.map(([k, l]) => (
           <button key={k} onClick={() => setAba(k)} style={{ ...s.tab, ...(aba === k ? s.tabOn : {}) }}>{l}</button>
         ))}
-      </div>
+      </div>}
       <div style={{ marginTop: 14 }}>
         {aba === 'fechamento' && <TesourariaCaixa embed />}
         {aba === 'orcamento' && (

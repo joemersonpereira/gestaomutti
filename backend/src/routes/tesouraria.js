@@ -120,6 +120,37 @@ router.get('/dia', tesCache, async (req, res) => {
   } catch (e) { res.status(503).json({ erro: 'ERP indisponível para o fechamento do dia.', detalhe: String(e.message || e) }); }
 });
 
+// Visão GERAL do dia (todas as lojas do usuário, lado a lado): caixas + diferenças (read-only) + contagem de anexos.
+// Acessível ao GERENTE (anexa as fotos e SÓ VISUALIZA quem teve diferença — a apuração é da gestão). Joe 2026-11-11.
+router.get('/dia-geral', async (req, res) => {
+  try {
+    const emp = req.usuario.empresa_id;
+    const data = req.query.data || hoje();
+    const lojas = lojasDoUsuario(req);
+    const cnt = db.prepare(`SELECT SUM(CASE WHEN tipo='deposito' THEN 1 ELSE 0 END) dep, SUM(CASE WHEN tipo='despesa' THEN 1 ELSE 0 END) desp, SUM(CASE WHEN tipo='recarga' THEN 1 ELSE 0 END) rec FROM tesouraria_anexo WHERE empresa_id=? AND loja_id=? AND data=?`);
+    const out = [];
+    for (const l of lojas) {
+      let sessoes = [], difs = [];
+      try { sessoes = (await t.sessoesDia(emp, { data, lojaId: l.id })).sessoes || []; } catch (e) { /* ERP pode falhar p/ uma loja */ }
+      try {
+        const q = await t.quebras(emp, { ini: data, fim: data, lojaId: l.id });
+        difs = (q.quebras || []).map(x => ({ operador: x.operador, login: x.login, valor: x.valor, tipo: x.tipo, relevante: !!x.relevante }));
+      } catch (e) { /* idem */ }
+      const a = cnt.get(emp, l.id, data) || {};
+      const fechados = sessoes.filter(s => s.fechado).length;
+      out.push({
+        loja_id: l.id, loja_nome: l.nome,
+        caixas: sessoes, total_caixas: sessoes.length, fechados,
+        todos_fechados: sessoes.length > 0 && fechados === sessoes.length,
+        diferencas: difs,
+        n_diferencas: difs.length, n_relevantes: difs.filter(d => d.relevante).length,
+        n_depositos: a.dep || 0, n_despesas: a.desp || 0, n_recargas: a.rec || 0,
+      });
+    }
+    res.json({ data, lojas: out });
+  } catch (e) { res.status(503).json({ erro: 'ERP indisponível para a visão do dia.', detalhe: String(e.message || e) }); }
+});
+
 // OCR do comprovante (foto/PDF) → lê o valor (e fornecedor) pra preencher na hora.
 router.post('/ler-valor', async (req, res) => {
   const b = req.body || {};

@@ -29,6 +29,7 @@ export default function TesourariaCaixa({ embed } = {}) {
   const [loja, setLoja] = useState('');
   const [data, setData] = useState(hojeStr);
   const [dia, setDia] = useState(null);
+  const [geral, setGeral] = useState(null); // visão de todas as lojas do dia (caixas + diferenças + anexos)
   const [anexos, setAnexos] = useState([]);
   const [msg, setMsg] = useState('');
   const [cfg, setCfg] = useState(false);
@@ -48,6 +49,7 @@ export default function TesourariaCaixa({ embed } = {}) {
   useEffect(() => { API.get('/tesouraria/planos').then(r => setPlanos(r.data.planos || [])).catch(() => {}); }, [API]);
 
   const carregar = useCallback(() => {
+    API.get(`/tesouraria/dia-geral?data=${data}`).then(r => setGeral(r.data.lojas || [])).catch(() => setGeral(null));
     if (!loja) return;
     API.get(`/tesouraria/dia?loja=${loja}&data=${data}`).then(r => setDia(r.data)).catch(() => setDia(null));
     API.get(`/tesouraria/anexos?loja=${loja}&data=${data}`).then(r => setAnexos(r.data.anexos || [])).catch(() => setAnexos([]));
@@ -171,7 +173,39 @@ export default function TesourariaCaixa({ embed } = {}) {
         {msg && <span style={{ color: msg.startsWith('⚠️') ? '#b91c1c' : '#15803d', fontSize: 13, fontWeight: 600 }}>{msg}</span>}
       </div>
 
-      {dia && (
+      {/* Visão de TODAS as lojas do dia, lado a lado: caixas + diferenças (só visualizar) + anexos. Clique numa loja p/ anexar. */}
+      {geral && geral.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(250px,1fr))', gap: 10, marginBottom: 16 }}>
+          {geral.map(g => {
+            const sel = g.loja_id === loja;
+            const okFech = g.todos_fechados;
+            return (
+              <div key={g.loja_id} onClick={() => setLoja(g.loja_id)} title="Clique para anexar nesta loja"
+                style={{ cursor: 'pointer', border: '1px solid ' + (sel ? '#0d6b5e' : '#e5e7eb'), borderRadius: 12, padding: 12, background: sel ? '#f0fdf9' : '#fff', boxShadow: sel ? '0 0 0 2px #0d6b5e22' : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                  <b style={{ fontSize: 13.5 }}>{g.loja_nome}</b>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: g.total_caixas === 0 ? '#94a3b8' : okFech ? '#15803d' : '#b45309' }}>
+                    {g.total_caixas === 0 ? 'sem caixa' : okFech ? '✅ fechados' : `⏳ ${g.fechados}/${g.total_caixas}`}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11.5, color: '#64748b', margin: '3px 0 7px' }}>💰 {g.n_depositos} · 🧾 {g.n_despesas} · 📱 {g.n_recargas}</div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: g.n_diferencas ? '#b91c1c' : '#15803d', marginBottom: g.n_diferencas ? 4 : 0 }}>
+                  {g.n_diferencas ? `⚠️ ${g.n_diferencas} diferença(s)${g.n_relevantes ? ` · ${g.n_relevantes} acima do limite` : ''}` : '✅ sem diferença'}
+                </div>
+                {(g.diferencas || []).slice(0, 6).map((d, i) => (
+                  <div key={i} style={{ fontSize: 11.5, display: 'flex', justifyContent: 'space-between', gap: 8, color: d.relevante ? '#b91c1c' : '#475569' }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.operador || '—'}{d.login ? ` · ${d.login}` : ''}</span>
+                    <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{d.tipo === 'falta' ? '▼' : '▲'} {brl(Math.abs(d.valor))}</span>
+                  </div>
+                ))}
+                {(g.diferencas || []).length > 6 && <div style={{ fontSize: 11, color: '#94a3b8' }}>+{g.diferencas.length - 6} mais…</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {loja && dia && (
         <div style={{ ...s.card, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', background: dia.todos_fechados ? '#f0fdf4' : '#fffbeb', borderColor: dia.todos_fechados ? '#bbf7d0' : '#fde68a' }}>
           <div style={{ fontSize: 22 }}>{dia.todos_fechados ? '✅' : '⏳'}</div>
           <div>
