@@ -464,14 +464,20 @@ router.post('/leads/:fid', exigePerfil(...GESTAO), (req, res) => {
 const PROSP_ETAPAS = ['novo', 'em_contato', 'negociando', 'ganho', 'perdido'];
 function prospeccaoResumo(emp) {
   const hoje = new Date().toISOString().slice(0, 10);
-  const cards = db.prepare(`SELECT p.*,
+  // Colunas explícitas: NÃO trazer proposta_arquivo (base64 grande) na listagem — só um flag.
+  const cards = db.prepare(`SELECT p.id, p.empresa_id, p.fornecedor_id, p.fornecedor_nome, p.etapa, p.origem,
+      p.gatilho_valor, p.responsavel_id, p.contato_nome, p.contato_fone, p.contato_email, p.proximo_contato,
+      p.periodicidade, p.obs, p.proposta, p.proposta_nome, p.motivo_perda, p.reabordar_em, p.criado_em, p.atualizado_em,
+      (p.proposta_arquivo IS NOT NULL) AS tem_proposta_arquivo,
       (SELECT COUNT(*) FROM tmkt_prospeccao_contato c WHERE c.prospeccao_id=p.id) contatos,
       (SELECT MAX(quando) FROM tmkt_prospeccao_contato c WHERE c.prospeccao_id=p.id) ultimo_contato,
       (SELECT nome FROM colaboradores WHERE id=p.responsavel_id) responsavel_nome
     FROM tmkt_prospeccao p WHERE p.empresa_id=? ORDER BY (p.proximo_contato IS NULL), p.proximo_contato, p.criado_em DESC`).all(emp);
-  return cards.map(c => ({ ...c,
+  return cards.map(c => ({ ...c, tem_proposta_arquivo: !!c.tem_proposta_arquivo,
     vencido: !!(c.proximo_contato && String(c.proximo_contato).slice(0, 10) < hoje && !['ganho', 'perdido'].includes(c.etapa)),
-    hoje: !!(c.proximo_contato && String(c.proximo_contato).slice(0, 10) === hoje) }));
+    hoje: !!(c.proximo_contato && String(c.proximo_contato).slice(0, 10) === hoje),
+    // perdida que já passou da data de "voltar a procurar" → reacender como lembrete
+    reabordar_vencido: !!(c.etapa === 'perdido' && c.reabordar_em && String(c.reabordar_em).slice(0, 10) <= hoje) }));
 }
 router.get('/prospeccoes', (req, res) => {
   res.json({ etapas: PROSP_ETAPAS, itens: prospeccaoResumo(req.usuario.empresa_id) });
@@ -480,21 +486,24 @@ router.post('/prospeccoes', exigePerfil(...GESTAO), (req, res) => {
   const b = req.body || {}, emp = req.usuario.empresa_id;
   if (!b.fornecedor_nome && !b.fornecedor_id) return res.status(400).json({ erro: 'Informe o fornecedor.' });
   const id = uuid();
-  db.prepare(`INSERT INTO tmkt_prospeccao (id,empresa_id,fornecedor_id,fornecedor_nome,etapa,origem,responsavel_id,contato_nome,contato_fone,contato_email,proximo_contato,periodicidade,obs,criado_por)
-    VALUES (?,?,?,?,?, 'manual', ?,?,?,?,?,?,?,?)`)
+  db.prepare(`INSERT INTO tmkt_prospeccao (id,empresa_id,fornecedor_id,fornecedor_nome,etapa,origem,responsavel_id,contato_nome,contato_fone,contato_email,proximo_contato,periodicidade,obs,proposta,criado_por)
+    VALUES (?,?,?,?,?, 'manual', ?,?,?,?,?,?,?,?,?)`)
     .run(id, emp, String(b.fornecedor_id || ''), b.fornecedor_nome || null, PROSP_ETAPAS.includes(b.etapa) ? b.etapa : 'novo',
-      b.responsavel_id || null, b.contato_nome || null, b.contato_fone || null, b.contato_email || null, b.proximo_contato || null, b.periodicidade || '', b.obs || null, req.usuario.id);
+      b.responsavel_id || null, b.contato_nome || null, b.contato_fone || null, b.contato_email || null, b.proximo_contato || null, b.periodicidade || '', b.obs || null, b.proposta || null, req.usuario.id);
   res.json({ ok: true, id });
 });
 router.put('/prospeccoes/:id', exigePerfil(...GESTAO), (req, res) => {
   const b = req.body || {}, emp = req.usuario.empresa_id;
   const p = db.prepare('SELECT * FROM tmkt_prospeccao WHERE id=? AND empresa_id=?').get(req.params.id, emp);
   if (!p) return res.status(404).json({ erro: 'Prospecção não encontrada.' });
-  db.prepare(`UPDATE tmkt_prospeccao SET etapa=?, responsavel_id=?, contato_nome=?, contato_fone=?, contato_email=?, proximo_contato=?, periodicidade=?, obs=?, atualizado_em=datetime('now') WHERE id=? AND empresa_id=?`)
+  db.prepare(`UPDATE tmkt_prospeccao SET etapa=?, responsavel_id=?, contato_nome=?, contato_fone=?, contato_email=?, proximo_contato=?, periodicidade=?, obs=?, proposta=?, motivo_perda=?, reabordar_em=?, atualizado_em=datetime('now') WHERE id=? AND empresa_id=?`)
     .run(PROSP_ETAPAS.includes(b.etapa) ? b.etapa : p.etapa, b.responsavel_id ?? p.responsavel_id,
       b.contato_nome ?? p.contato_nome, b.contato_fone ?? p.contato_fone, b.contato_email ?? p.contato_email,
       b.proximo_contato !== undefined ? (b.proximo_contato || null) : p.proximo_contato,
-      b.periodicidade !== undefined ? (b.periodicidade || '') : p.periodicidade, b.obs ?? p.obs, p.id, emp);
+      b.periodicidade !== undefined ? (b.periodicidade || '') : p.periodicidade, b.obs ?? p.obs,
+      b.proposta !== undefined ? (b.proposta || null) : p.proposta,
+      b.motivo_perda !== undefined ? (b.motivo_perda || null) : p.motivo_perda,
+      b.reabordar_em !== undefined ? (b.reabordar_em || null) : p.reabordar_em, p.id, emp);
   res.json({ ok: true });
 });
 router.delete('/prospeccoes/:id', exigePerfil(...GESTAO), (req, res) => {
@@ -503,10 +512,58 @@ router.delete('/prospeccoes/:id', exigePerfil(...GESTAO), (req, res) => {
   res.json({ ok: true });
 });
 router.get('/prospeccoes/:id/contatos', (req, res) => {
-  const p = db.prepare('SELECT * FROM tmkt_prospeccao WHERE id=? AND empresa_id=?').get(req.params.id, req.usuario.empresa_id);
+  // colunas explícitas: não devolver o base64 do arquivo da proposta (pesado) — só o flag
+  const p = db.prepare(`SELECT id, empresa_id, fornecedor_id, fornecedor_nome, etapa, origem, gatilho_valor,
+      responsavel_id, contato_nome, contato_fone, contato_email, proximo_contato, periodicidade, obs,
+      proposta, proposta_nome, motivo_perda, reabordar_em, criado_em, atualizado_em,
+      (proposta_arquivo IS NOT NULL) AS tem_proposta_arquivo
+    FROM tmkt_prospeccao WHERE id=? AND empresa_id=?`).get(req.params.id, req.usuario.empresa_id);
   if (!p) return res.status(404).json({ erro: 'não encontrada' });
+  p.tem_proposta_arquivo = !!p.tem_proposta_arquivo;
   const contatos = db.prepare(`SELECT c.*, (SELECT nome FROM colaboradores WHERE id=c.criado_por) autor FROM tmkt_prospeccao_contato c WHERE c.prospeccao_id=? ORDER BY c.quando DESC`).all(p.id);
   res.json({ prospeccao: p, contatos });
+});
+// Arquivo da proposta/estudo (apresentação de oportunidades) — grava e serve base64, igual às artes do trade.
+router.post('/prospeccoes/:id/proposta-arquivo', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body || {}, emp = req.usuario.empresa_id;
+  const p = db.prepare('SELECT id FROM tmkt_prospeccao WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!p) return res.status(404).json({ erro: 'não encontrada' });
+  if (b.arquivo === null || b.arquivo === '') { // remover
+    db.prepare("UPDATE tmkt_prospeccao SET proposta_arquivo=NULL, proposta_mime=NULL, proposta_nome=NULL, atualizado_em=datetime('now') WHERE id=?").run(p.id);
+    return res.json({ ok: true, removido: true });
+  }
+  if (!/^data:([^;]+);base64,/.test(String(b.arquivo || ''))) return res.status(400).json({ erro: 'Envie um arquivo (PDF, imagem ou apresentação).' });
+  db.prepare("UPDATE tmkt_prospeccao SET proposta_arquivo=?, proposta_mime=?, proposta_nome=?, atualizado_em=datetime('now') WHERE id=?")
+    .run(String(b.arquivo).slice(0, 12_000_000), b.mime || null, b.nome || null, p.id);
+  res.json({ ok: true });
+});
+router.get('/prospeccoes/:id/proposta-arquivo', (req, res) => {
+  const r = db.prepare('SELECT proposta_arquivo, proposta_mime, proposta_nome FROM tmkt_prospeccao WHERE id=? AND empresa_id=?').get(req.params.id, req.usuario.empresa_id);
+  if (!r || !r.proposta_arquivo) return res.status(404).send('sem arquivo');
+  if (r.proposta_nome) res.set('Content-Disposition', `inline; filename="${String(r.proposta_nome).replace(/[^\w.\- ]/g, '_')}"`);
+  const m = /^data:([^;]+);base64,(.+)$/.exec(r.proposta_arquivo || '');
+  if (m) { res.set('Content-Type', m[1]); return res.send(Buffer.from(m[2], 'base64')); }
+  res.set('Content-Type', r.proposta_mime || 'application/octet-stream');
+  res.send(Buffer.from(String(r.proposta_arquivo).replace(/^data:[^,]+,/, ''), 'base64'));
+});
+// Marcar como perdida ("sem interesse") guardando o motivo e a data para voltar a procurar.
+router.post('/prospeccoes/:id/perder', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body || {}, emp = req.usuario.empresa_id;
+  const p = db.prepare('SELECT id FROM tmkt_prospeccao WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!p) return res.status(404).json({ erro: 'não encontrada' });
+  db.prepare("UPDATE tmkt_prospeccao SET etapa='perdido', motivo_perda=?, reabordar_em=?, atualizado_em=datetime('now') WHERE id=?")
+    .run(b.motivo_perda || null, b.reabordar_em || null, p.id);
+  res.json({ ok: true });
+});
+// Reabrir uma prospecção perdida — volta pro funil e já sugere a próxima data de contato.
+router.post('/prospeccoes/:id/reabrir', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body || {}, emp = req.usuario.empresa_id;
+  const p = db.prepare('SELECT * FROM tmkt_prospeccao WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!p) return res.status(404).json({ erro: 'não encontrada' });
+  const prox = b.proximo_contato || p.reabordar_em || new Date().toISOString().slice(0, 10);
+  db.prepare("UPDATE tmkt_prospeccao SET etapa='em_contato', proximo_contato=?, reabordar_em=NULL, atualizado_em=datetime('now') WHERE id=?")
+    .run(prox, p.id);
+  res.json({ ok: true });
 });
 // Converte uma prospecção em negociação (entra como rascunho no Kanban, já com o fornecedor).
 router.post('/prospeccoes/:id/converter', exigePerfil(...GESTAO), (req, res) => {

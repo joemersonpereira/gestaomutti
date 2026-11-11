@@ -1104,12 +1104,15 @@ function Vendas({ API, gestao }) {
   const [perdendo, setPerdendo] = useState(null); const [motivoSel, setMotivoSel] = useState(''); const [motivoOutro, setMotivoOutro] = useState(''); const [filtroPerda, setFiltroPerda] = useState('');
   const [prosp, setProsp] = useState([]); const [prospSel, setProspSel] = useState(null); const [novaProsp, setNovaProsp] = useState(false); const [colabs, setColabs] = useState([]);
   const carregar = useCallback((b = '') => API.get('/trademkt/vendas', { params: { busca: b || undefined } }).then(r => setD(r.data)).catch(() => setD({ vendas: [] })), [API]);
-  const carregarProsp = useCallback(() => API.get('/trademkt/prospeccoes').then(r => setProsp((r.data.itens || []).filter(p => !['ganho', 'perdido'].includes(p.etapa)))).catch(() => setProsp([])), [API]);
+  const carregarProsp = useCallback(() => API.get('/trademkt/prospeccoes').then(r => setProsp(r.data.itens || [])).catch(() => setProsp([])), [API]);
   useEffect(() => { carregar(); carregarProsp(); API.get('/colaboradores').then(r => setColabs((r.data.colaboradores || r.data || []).filter(c => c.trade))).catch(() => {}); }, [carregar, carregarProsp, API]);
   const converterProsp = (p) => API.post(`/trademkt/prospeccoes/${p.id}/converter`).then(r => { carregarProsp(); carregar(busca); if (r.data.venda_id) setEdit(r.data.venda_id); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
   const [sincP, setSincP] = useState(false);
   const sincronizarProsp = () => { setSincP(true); API.post('/trademkt/prospeccoes/sincronizar').then(r => { setSincP(false); carregarProsp(); if (r.data && r.data.ok) alert(r.data.criadas ? `${r.data.criadas} fornecedor(es) ≥ R$100 mil trazido(s) para a Prospecção.` : 'Nenhum novo fornecedor para trazer (já estão no funil).'); else alert('ERP indisponível agora, tente de novo.'); }).catch(() => { setSincP(false); alert('Erro ao sincronizar.'); }); };
   if (!d) return <div style={s.card}>Carregando…</div>;
+  const prospAbertas = prosp.filter(p => !['ganho', 'perdido'].includes(p.etapa));
+  const prospPerdidas = prosp.filter(p => p.etapa === 'perdido');
+  const reabrirProsp = (p) => API.post(`/trademkt/prospeccoes/${p.id}/reabrir`).then(() => carregarProsp()).catch(e => alert(e.response?.data?.erro || 'Erro'));
   const mover = (v, dir) => { const ids = COLS.map(c => c.id); const novo = ids[ids.indexOf(colDe(v.status)) + dir]; if (novo) API.post(`/trademkt/vendas/${v.id}/mover`, { status: novo }).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Não foi possível mover.')); };
   const marcarPerdido = (v) => { setPerdendo(v); setMotivoSel(''); setMotivoOutro(''); };
   const confirmarPerda = () => { if (!perdendo) return; const motivo = motivoSel === 'Outro' ? (motivoOutro.trim() || 'Outro') : motivoSel; if (!motivo) return alert('Escolha o motivo.'); API.put(`/trademkt/vendas/${perdendo.id}`, { status: 'perdido', motivo_perda: motivo }).then(() => { setPerdendo(null); carregar(busca); }).catch(e => alert(e.response?.data?.erro || 'Erro ao marcar como perdido')); };
@@ -1130,9 +1133,9 @@ function Vendas({ API, gestao }) {
           const itens = d.vendas.filter(v => colDe(v.status) === col.id && v.status !== 'cancelado' && v.status !== 'recusado' && v.status !== 'perdido');
           return (
             <div key={col.id} style={{ minWidth: 250, flex: '1 1 250px', maxHeight: 'calc(100vh - 250px)', minHeight: 240, overflowY: 'auto', overflowX: 'hidden' }}>
-              <div style={{ ...s.colHead, background: col.cor }}>{col.nome} <span style={s.colN}>{itens.length + (col.id === 'rascunho' ? prosp.length : 0)}</span></div>
+              <div style={{ ...s.colHead, background: col.cor }}>{col.nome} <span style={s.colN}>{itens.length + (col.id === 'rascunho' ? prospAbertas.length : 0)}</span></div>
               <div style={s.colBody}>
-                {col.id === 'rascunho' && prosp.map(p => (
+                {col.id === 'rascunho' && prospAbertas.map(p => (
                   <div key={'p' + p.id} style={{ ...s.cardA, borderLeft: '3px solid #6D4AA8', background: p.vencido ? '#fff7f5' : '#faf7ff' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
                       <span style={{ fontSize: 10.5, fontWeight: 700, color: '#6D4AA8' }}>🧲 prospecção</span>
@@ -1145,6 +1148,7 @@ function Vendas({ API, gestao }) {
                       {p.proximo_contato && <span style={{ fontWeight: 700, color: p.vencido ? '#b91c1c' : (p.hoje ? '#B45309' : '#475569') }}>📅 {dBR(p.proximo_contato)}{p.vencido ? ' (venceu)' : p.hoje ? ' (hoje)' : ''}</span>}
                       {p.periodicidade && <span style={{ color: '#6D4AA8' }}>🔁 {p.periodicidade}</span>}
                       {p.contatos > 0 && <span style={{ color: '#94a3b8' }}>💬 {p.contatos}</span>}
+                      {(p.proposta || p.tem_proposta_arquivo) && <span style={{ color: '#1E874B' }} title={p.proposta || 'Proposta anexada'}>📑 proposta{p.tem_proposta_arquivo ? ' 📎' : ''}</span>}
                     </div>
                     {gestao && <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
                       <button onClick={() => setProspSel(p)} style={{ ...s.mv, flex: 1 }}>Abrir contato</button>
@@ -1191,6 +1195,27 @@ function Vendas({ API, gestao }) {
               <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12.5, padding: '7px 0', borderTop: '1px solid #f3f3f3', flexWrap: 'wrap', alignItems: 'center' }}>
                 <span><b>{v.fornecedor_nome}</b> <span style={{ color: '#999' }}>{v.codigo}</span>{v.valor ? ` · ${brl(v.valor)}` : ''} — <span style={{ color: '#B45309' }}>{v.motivo_perda || 'sem motivo'}</span></span>
                 {gestao && <span style={{ display: 'flex', gap: 6 }}><button onClick={() => API.post(`/trademkt/vendas/${v.id}/mover`, { status: 'negociacao' }).then(() => carregar(busca))} style={s.mv}>reabrir</button><button onClick={() => excluir(v)} style={{ ...s.mv, color: '#C0392B' }}>🗑</button></span>}
+              </div>
+            ))}</div>
+          </details>
+        );
+      })()}
+      {prospPerdidas.length > 0 && (() => {
+        const motivos = [...new Set(prospPerdidas.map(p => p.motivo_perda || 'sem interesse'))].sort();
+        const lista = filtroPerda ? prospPerdidas.filter(p => (p.motivo_perda || 'sem interesse') === filtroPerda) : prospPerdidas;
+        const retomar = prospPerdidas.filter(p => p.reabordar_vencido).length;
+        return (
+          <details style={{ marginTop: 10 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#6D4AA8' }}>💤 Prospecções perdidas / sem interesse ({prospPerdidas.length}){retomar > 0 ? <span style={{ color: '#b91c1c' }}> · {retomar} para retomar</span> : ''}</summary>
+            <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>Ficam guardadas aqui. Dê <b>Reabrir</b> quando quiser voltar a procurar — quem tem data de retomar vencida aparece em vermelho.</div>
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: '#7a8a8c' }}>Filtrar por motivo:</span>
+              <select value={filtroPerda} onChange={e => setFiltroPerda(e.target.value)} style={{ ...s.inp, width: 'auto' }}><option value="">Todos ({prospPerdidas.length})</option>{motivos.map(m => <option key={m} value={m}>{m} ({prospPerdidas.filter(p => (p.motivo_perda || 'sem interesse') === m).length})</option>)}</select>
+            </div>
+            <div style={{ marginTop: 8 }}>{lista.map(p => (
+              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12.5, padding: '7px 0', borderTop: '1px solid #f3f3f3', flexWrap: 'wrap', alignItems: 'center' }}>
+                <span><b>{p.fornecedor_nome}</b> — <span style={{ color: '#6D4AA8' }}>{p.motivo_perda || 'sem interesse'}</span>{p.reabordar_em ? <span style={{ color: p.reabordar_vencido ? '#b91c1c' : '#64748b' }}> · 🔁 voltar {dBR(p.reabordar_em)}{p.reabordar_vencido ? ' (chegou a hora)' : ''}</span> : ''}</span>
+                {gestao && <span style={{ display: 'flex', gap: 6 }}><button onClick={() => setProspSel(p)} style={s.mv}>ver</button><button onClick={() => reabrirProsp(p)} style={{ ...s.mv, color: '#1E874B', fontWeight: 700 }}>↩ reabrir</button></span>}
               </div>
             ))}</div>
           </details>
@@ -2242,7 +2267,7 @@ const CONTATO_TIPO = [['ligacao', '📞 Ligação'], ['whatsapp', '💬 WhatsApp
 const CONTATO_RESULT = [['sem_resposta', 'Sem resposta'], ['retornar', 'Pediu p/ retornar'], ['agendou', 'Agendou'], ['avancou', 'Avançou'], ['sem_interesse', 'Sem interesse'], ['fechou', 'Fechou 🎉']];
 const dBRc = v => v ? String(v).slice(0, 10).split('-').reverse().join('/') : '';
 function NovaProspeccao({ API, colabs, onClose, onSaved }) {
-  const [f, setF] = useState({ fornecedor_nome: '', responsavel_id: '', contato_nome: '', contato_fone: '', proximo_contato: '', periodicidade: '', obs: '' });
+  const [f, setF] = useState({ fornecedor_nome: '', responsavel_id: '', contato_nome: '', contato_fone: '', proximo_contato: '', periodicidade: '', proposta: '', obs: '' });
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const salvar = () => { if (!f.fornecedor_nome) return alert('Informe o fornecedor.'); API.post('/trademkt/prospeccoes', f).then(onSaved).catch(e => alert(e.response?.data?.erro || 'Erro')); };
   return <div style={modalBg} onClick={onClose}><div style={modalCard} onClick={e => e.stopPropagation()}>
@@ -2257,7 +2282,8 @@ function NovaProspeccao({ API, colabs, onClose, onSaved }) {
       <L lab="Cadência" flex><select style={s.inp} value={f.periodicidade} onChange={e => set('periodicidade', e.target.value)}><option value="">— sem cadência</option><option value="diario">Diário</option><option value="semanal">Semanal</option><option value="quinzenal">Quinzenal</option><option value="mensal">Mensal</option></select></L>
       <L lab="Próximo contato" flex><input type="date" style={s.inp} value={f.proximo_contato} onChange={e => set('proximo_contato', e.target.value)} /></L>
     </div>
-    <L lab="Observação"><textarea style={{ ...s.inp, minHeight: 54 }} value={f.obs} onChange={e => set('obs', e.target.value)} /></L>
+    <L lab="📑 Proposta — o que vamos oferecer (apresentação/estudo)"><textarea style={{ ...s.inp, minHeight: 54 }} value={f.proposta} onChange={e => set('proposta', e.target.value)} placeholder="Opcional — pode anexar a apresentação depois, ao abrir o card" /></L>
+    <L lab="Observação"><textarea style={{ ...s.inp, minHeight: 44 }} value={f.obs} onChange={e => set('obs', e.target.value)} /></L>
     <div style={{ display: 'flex', gap: 8, marginTop: 6 }}><button style={s.btn} onClick={salvar}>Criar</button><button style={s.btnMini} onClick={onClose}>cancelar</button></div>
   </div></div>;
 }
@@ -2270,6 +2296,10 @@ function ProspeccaoModal({ API, id, gestao, colabs, onClose, onChange }) {
   const registrar = () => { if (!c.anotacao && !c.resultado) return alert('Descreva o contato.'); API.post(`/trademkt/prospeccoes/${id}/contatos`, c).then(() => { setC({ tipo: 'ligacao', resultado: 'sem_resposta', anotacao: '', proximo: '' }); carregar(); onChange && onChange(); }).catch(e => alert(e.response?.data?.erro || 'Erro')); };
   const excluir = () => { if (window.confirm('Excluir esta prospecção e seu histórico?')) API.delete(`/trademkt/prospeccoes/${id}`).then(() => { onClose(); onChange && onChange(); }); };
   const waLink = p && p.contato_fone ? `https://wa.me/55${String(p.contato_fone).replace(/\D/g, '')}` : null;
+  const enviarProposta = (file) => { if (!file) return; if (file.size > 10 * 1024 * 1024) return alert('Arquivo muito grande (máx. 10 MB).'); const rd = new FileReader(); rd.onload = () => API.post(`/trademkt/prospeccoes/${id}/proposta-arquivo`, { arquivo: rd.result, mime: file.type, nome: file.name }).then(() => { carregar(); onChange && onChange(); }).catch(e => alert(e.response?.data?.erro || 'Erro ao enviar.')); rd.readAsDataURL(file); };
+  const removerProposta = () => { if (window.confirm('Remover o arquivo da proposta?')) API.post(`/trademkt/prospeccoes/${id}/proposta-arquivo`, { arquivo: '' }).then(() => { carregar(); onChange && onChange(); }); };
+  const verProposta = () => API.get(`/trademkt/prospeccoes/${id}/proposta-arquivo`, { responseType: 'blob' }).then(r => window.open(URL.createObjectURL(r.data), '_blank')).catch(() => alert('Não foi possível abrir.'));
+  const reabrir = () => API.post(`/trademkt/prospeccoes/${id}/reabrir`).then(() => { carregar(); onChange && onChange(); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
   return <div style={modalBg} onClick={onClose}><div style={{ ...modalCard, maxWidth: 560 }} onClick={e => e.stopPropagation()}>
     {!p && <div style={{ color: '#999', fontSize: 13 }}>Carregando…</div>}
     {p && <>
@@ -2281,6 +2311,14 @@ function ProspeccaoModal({ API, id, gestao, colabs, onClose, onChange }) {
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '10px 0' }}>
         {PR_ORDEM.map(et => <button key={et} onClick={() => upd({ etapa: et })} style={{ ...s.chip, cursor: 'pointer', ...(p.etapa === et ? { background: PR_ETAPA[et].c, color: '#fff', fontWeight: 700 } : { background: '#f1f5f7', color: '#51607a' }) }}>{PR_ETAPA[et].l}</button>)}
       </div>
+      {p.etapa === 'perdido' && <div style={{ background: '#faf7ff', border: '1px solid #e6def7', borderRadius: 10, padding: '8px 10px', marginBottom: 8 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#6D4AA8' }}>💤 Sem interesse / perdida — fica guardada para retomar depois</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <L lab="Motivo" flex><select style={s.inp} value={p.motivo_perda || ''} onChange={e => upd({ motivo_perda: e.target.value })}><option value="">— sem interesse —</option>{MOTIVOS_PERDA.map(m => <option key={m} value={m}>{m}</option>)}</select></L>
+          <L lab="Voltar a procurar em" flex><input type="date" style={s.inp} value={p.reabordar_em ? String(p.reabordar_em).slice(0, 10) : ''} onChange={e => upd({ reabordar_em: e.target.value })} /></L>
+        </div>
+        {gestao && <button onClick={reabrir} style={{ ...s.btnMini, marginTop: 8, borderColor: '#1E874B', color: '#1E874B', fontWeight: 700 }}>↩ Reabrir agora (volta pro funil)</button>}
+      </div>}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <L lab="Responsável" flex><select style={s.inp} value={p.responsavel_id || ''} onChange={e => upd({ responsavel_id: e.target.value })}><option value="">—</option>{colabs.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></L>
         <L lab="Cadência" flex><select style={s.inp} value={p.periodicidade || ''} onChange={e => upd({ periodicidade: e.target.value })}><option value="">— sem cadência</option><option value="diario">Diário</option><option value="semanal">Semanal</option><option value="quinzenal">Quinzenal</option><option value="mensal">Mensal</option></select></L>
@@ -2291,6 +2329,17 @@ function ProspeccaoModal({ API, id, gestao, colabs, onClose, onChange }) {
         <L lab="Telefone/WhatsApp" flex><input style={s.inp} defaultValue={p.contato_fone || ''} onBlur={e => e.target.value !== (p.contato_fone || '') && upd({ contato_fone: e.target.value })} /></L>
       </div>
       {waLink && <a href={waLink} target="_blank" rel="noreferrer" style={{ display: 'inline-block', margin: '2px 0 6px', fontSize: 12, color: '#1E874B', fontWeight: 700 }}>💬 Abrir WhatsApp do contato</a>}
+      <div style={{ borderTop: '1px solid #eef1f4', margin: '8px 0', paddingTop: 10 }}>
+        <b style={{ fontSize: 13 }}>📑 Proposta — o que foi oferecido</b>
+        <span style={{ fontSize: 11.5, color: '#7a8a8c', marginLeft: 6 }}>a apresentação de oportunidades / estudo</span>
+        <textarea style={{ ...s.inp, minHeight: 56, marginTop: 6 }} placeholder="Ex.: ponta de gôndola na entrada + 2 inserções no tabloide do mês + ativação com degustação. Estudo: a categoria vende R$X na rede…" defaultValue={p.proposta || ''} onBlur={e => e.target.value !== (p.proposta || '') && upd({ proposta: e.target.value })} />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+          {p.tem_proposta_arquivo
+            ? <><button onClick={verProposta} style={{ ...s.btnMini, borderColor: '#1E874B', color: '#1E874B' }}>📎 ver apresentação{p.proposta_nome ? ` (${p.proposta_nome})` : ''}</button>{gestao && <button onClick={removerProposta} style={{ ...s.mv, color: '#C0392B' }}>remover</button>}</>
+            : <span style={{ fontSize: 12, color: '#94a3b8' }}>Sem arquivo anexado.</span>}
+          {gestao && <label style={{ ...s.btnMini, cursor: 'pointer', margin: 0 }}>{p.tem_proposta_arquivo ? '↻ trocar arquivo' : '📎 anexar apresentação/estudo'}<input type="file" accept=".pdf,.ppt,.pptx,.doc,.docx,image/*" style={{ display: 'none' }} onChange={e => { enviarProposta(e.target.files[0]); e.target.value = ''; }} /></label>}
+        </div>
+      </div>
       <div style={{ borderTop: '1px solid #eef1f4', margin: '8px 0', paddingTop: 10 }}>
         <b style={{ fontSize: 13 }}>Registrar contato</b>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
