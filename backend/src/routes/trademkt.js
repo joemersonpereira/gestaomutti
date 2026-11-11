@@ -342,6 +342,32 @@ router.post('/premiacao-vendedor/fechar', exigePerfil(...GESTAO), (req, res) => 
   res.json({ ok: true });
 });
 
+// Metas de ATIVIDADE do trade (prospecções/mês, contatos/dia, fechamentos/mês). Escopo 'geral' + por colaborador.
+function tradeMetaDe(emp, uid) {
+  const ind = uid && db.prepare("SELECT * FROM tmkt_trade_meta WHERE empresa_id=? AND escopo=?").get(emp, String(uid));
+  const geral = db.prepare("SELECT * FROM tmkt_trade_meta WHERE empresa_id=? AND escopo='geral'").get(emp);
+  const m = ind || geral || {};
+  return { prospeccoes_mes: m.prospeccoes_mes || 0, contatos_dia: m.contatos_dia || 0, fechamentos_mes: m.fechamentos_mes || 0, origem: ind ? 'individual' : (geral ? 'geral' : 'vazia') };
+}
+router.get('/trade-metas', (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const linhas = db.prepare("SELECT * FROM tmkt_trade_meta WHERE empresa_id=? ORDER BY (escopo<>'geral'), escopo").all(emp)
+    .map(l => ({ ...l, escopo_nome: l.escopo === 'geral' ? 'Todos (geral)' : (db.prepare('SELECT nome FROM colaboradores WHERE id=?').get(l.escopo)?.nome || l.escopo) }));
+  res.json({ linhas });
+});
+router.post('/trade-metas', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body || {}, emp = req.usuario.empresa_id, escopo = String(b.escopo || 'geral');
+  db.prepare(`INSERT INTO tmkt_trade_meta (empresa_id,escopo,prospeccoes_mes,contatos_dia,fechamentos_mes,atualizado_em) VALUES (?,?,?,?,?,datetime('now'))
+    ON CONFLICT(empresa_id,escopo) DO UPDATE SET prospeccoes_mes=excluded.prospeccoes_mes, contatos_dia=excluded.contatos_dia, fechamentos_mes=excluded.fechamentos_mes, atualizado_em=datetime('now')`)
+    .run(emp, escopo, Number(b.prospeccoes_mes) || 0, Number(b.contatos_dia) || 0, Number(b.fechamentos_mes) || 0);
+  res.json({ ok: true });
+});
+router.delete('/trade-metas/:escopo', exigePerfil(...GESTAO), (req, res) => {
+  if (req.params.escopo === 'geral') return res.status(400).json({ erro: 'A meta geral não pode ser removida (zere os valores).' });
+  db.prepare('DELETE FROM tmkt_trade_meta WHERE empresa_id=? AND escopo=?').run(req.usuario.empresa_id, req.params.escopo);
+  res.json({ ok: true });
+});
+
 // "Minha meta" (do usuário logado): premiação de trade do mês + tarefas de trade dele (atrasadas/em dia).
 router.get('/minha-meta', (req, res) => {
   const emp = req.usuario.empresa_id, uid = req.usuario.id;
@@ -357,9 +383,47 @@ router.get('/minha-meta', (req, res) => {
   let proxima = null;
   for (let i = 0; i < ord.length; i++) { const f = ord[i]; if (f.ate == null || r.espacos <= Number(f.ate)) { const next = ord[i + 1]; if (f.ate != null && next && Number(next.pct) > pct) proxima = { faltam: Number(f.ate) - r.espacos + 1, pct: next.pct }; break; } }
   const hoje = new Date().toISOString();
+  const hojeD = hoje.slice(0, 10);
   const tarefas = db.prepare(`SELECT id, titulo, prazo, criado_em FROM tarefas WHERE empresa_id=? AND responsavel_id=? AND origem LIKE 'trade%' AND status<>'concluido' ORDER BY (prazo IS NULL), prazo LIMIT 12`).all(emp, uid)
     .map(t => ({ id: t.id, titulo: t.titulo, prazo: t.prazo, atrasada: !!(t.prazo && t.prazo < hoje) }));
-  res.json({ espacos: r.espacos, valor: r.valor, pct, premiacao, proxima, tarefas, atrasadas: tarefas.filter(t => t.atrasada).length });
+  // Cobranças de prospecção do funil (cards do usuário com próximo contato marcado) — alimentam a agenda/lembretes da lateral.
+  const prosp = db.prepare(`SELECT id, fornecedor_nome, etapa, proximo_contato, gatilho_valor, origem FROM tmkt_prospeccao
+    WHERE empresa_id=? AND responsavel_id=? AND etapa NOT IN ('ganho','perdido') AND proximo_contato IS NOT NULL
+    ORDER BY proximo_contato LIMIT 20`).all(emp, uid)
+    .map(p => ({ id: p.id, fornecedor: p.fornecedor_nome, etapa: p.etapa, data: String(p.proximo_contato).slice(0, 10), origem: p.origem,
+      quando: String(p.proximo_contato).slice(0, 10) < hojeD ? 'vencido' : (String(p.proximo_contato).slice(0, 10) === hojeD ? 'hoje' : 'futuro') }));
+  const cobrancas = prosp.filter(p => p.quando !== 'futuro');
+  // Progresso das metas de atividade (prospecções no mês / contatos hoje / fechamentos no mês) do usuário.
+  const metas = tradeMetaDe(emp, uid);
+  const feitoProsp = db.prepare(`SELECT COUNT(*) n FROM tmkt_prospeccao WHERE empresa_id=? AND responsavel_id=? AND strftime('%Y-%m',criado_em)=?`).get(emp, uid, ym).n;
+  const feitoContatos = db.prepare(`SELECT COUNT(*) n FROM tmkt_prospeccao_contato WHERE criado_por=? AND date(quando)=date('now')`).get(uid).n;
+  const feitoFech = db.prepare(`SELECT COUNT(*) n FROM tmkt_prospeccao WHERE empresa_id=? AND responsavel_id=? AND etapa='ganho' AND strftime('%Y-%m',atualizado_em)=?`).get(emp, uid, ym).n;
+  const atividade = {
+    prospeccoes: { meta: metas.prospeccoes_mes, feito: feitoProsp },
+    contatos: { meta: metas.contatos_dia, feito: feitoContatos },
+    fechamentos: { meta: metas.fechamentos_mes, feito: feitoFech },
+    origem: metas.origem };
+  res.json({ espacos: r.espacos, valor: r.valor, pct, premiacao, proxima, tarefas, atrasadas: tarefas.filter(t => t.atrasada).length,
+    prospeccoes: prosp, cobrancas, cobrancas_n: cobrancas.length, atividade });
+});
+// Anotações pessoais do painel de trade (bloco de notas da lateral).
+router.get('/anotacoes', (req, res) => {
+  const itens = db.prepare("SELECT id, texto, feito, criado_em FROM tmkt_anotacao WHERE empresa_id=? AND usuario_id=? ORDER BY feito, criado_em DESC LIMIT 50").all(req.usuario.empresa_id, req.usuario.id);
+  res.json({ itens: itens.map(i => ({ ...i, feito: !!i.feito })) });
+});
+router.post('/anotacoes', (req, res) => {
+  const texto = String(req.body.texto || '').trim(); if (!texto) return res.status(400).json({ erro: 'Vazio.' });
+  const id = uuid();
+  db.prepare("INSERT INTO tmkt_anotacao (id,empresa_id,usuario_id,texto) VALUES (?,?,?,?)").run(id, req.usuario.empresa_id, req.usuario.id, texto);
+  res.json({ ok: true, id });
+});
+router.put('/anotacoes/:id', (req, res) => {
+  db.prepare("UPDATE tmkt_anotacao SET feito=? WHERE id=? AND usuario_id=?").run(req.body.feito ? 1 : 0, req.params.id, req.usuario.id);
+  res.json({ ok: true });
+});
+router.delete('/anotacoes/:id', (req, res) => {
+  db.prepare("DELETE FROM tmkt_anotacao WHERE id=? AND usuario_id=?").run(req.params.id, req.usuario.id);
+  res.json({ ok: true });
 });
 
 // ── CRM / Lead de fornecedores: traz do Alpha 7 quem mais compramos + rastreio do relacionamento ──
@@ -393,6 +457,68 @@ router.post('/leads/:fid', exigePerfil(...GESTAO), (req, res) => {
     ON CONFLICT(empresa_id, fornecedor_id) DO UPDATE SET fornecedor_nome=excluded.fornecedor_nome, status=excluded.status, periodicidade=excluded.periodicidade,
       proximo_contato=excluded.proximo_contato, responsavel=excluded.responsavel, contato=excluded.contato, obs=excluded.obs, atualizado_em=datetime('now')`)
     .run(emp, String(req.params.fid), b.fornecedor_nome || null, b.status || 'novo', b.periodicidade || '', b.proximo_contato || null, b.responsavel || null, b.contato || null, b.obs || null);
+  res.json({ ok: true });
+});
+
+// ── Funil de Prospecção (CRM): cards por etapa + histórico de contato + próximo contato ──
+const PROSP_ETAPAS = ['novo', 'em_contato', 'negociando', 'ganho', 'perdido'];
+function prospeccaoResumo(emp) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const cards = db.prepare(`SELECT p.*,
+      (SELECT COUNT(*) FROM tmkt_prospeccao_contato c WHERE c.prospeccao_id=p.id) contatos,
+      (SELECT MAX(quando) FROM tmkt_prospeccao_contato c WHERE c.prospeccao_id=p.id) ultimo_contato,
+      (SELECT nome FROM colaboradores WHERE id=p.responsavel_id) responsavel_nome
+    FROM tmkt_prospeccao p WHERE p.empresa_id=? ORDER BY (p.proximo_contato IS NULL), p.proximo_contato, p.criado_em DESC`).all(emp);
+  return cards.map(c => ({ ...c,
+    vencido: !!(c.proximo_contato && String(c.proximo_contato).slice(0, 10) < hoje && !['ganho', 'perdido'].includes(c.etapa)),
+    hoje: !!(c.proximo_contato && String(c.proximo_contato).slice(0, 10) === hoje) }));
+}
+router.get('/prospeccoes', (req, res) => {
+  res.json({ etapas: PROSP_ETAPAS, itens: prospeccaoResumo(req.usuario.empresa_id) });
+});
+router.post('/prospeccoes', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body || {}, emp = req.usuario.empresa_id;
+  if (!b.fornecedor_nome && !b.fornecedor_id) return res.status(400).json({ erro: 'Informe o fornecedor.' });
+  const id = uuid();
+  db.prepare(`INSERT INTO tmkt_prospeccao (id,empresa_id,fornecedor_id,fornecedor_nome,etapa,origem,responsavel_id,contato_nome,contato_fone,contato_email,proximo_contato,obs,criado_por)
+    VALUES (?,?,?,?,?, 'manual', ?,?,?,?,?,?,?)`)
+    .run(id, emp, String(b.fornecedor_id || ''), b.fornecedor_nome || null, PROSP_ETAPAS.includes(b.etapa) ? b.etapa : 'novo',
+      b.responsavel_id || null, b.contato_nome || null, b.contato_fone || null, b.contato_email || null, b.proximo_contato || null, b.obs || null, req.usuario.id);
+  res.json({ ok: true, id });
+});
+router.put('/prospeccoes/:id', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body || {}, emp = req.usuario.empresa_id;
+  const p = db.prepare('SELECT * FROM tmkt_prospeccao WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!p) return res.status(404).json({ erro: 'Prospecção não encontrada.' });
+  db.prepare(`UPDATE tmkt_prospeccao SET etapa=?, responsavel_id=?, contato_nome=?, contato_fone=?, contato_email=?, proximo_contato=?, obs=?, atualizado_em=datetime('now') WHERE id=? AND empresa_id=?`)
+    .run(PROSP_ETAPAS.includes(b.etapa) ? b.etapa : p.etapa, b.responsavel_id ?? p.responsavel_id,
+      b.contato_nome ?? p.contato_nome, b.contato_fone ?? p.contato_fone, b.contato_email ?? p.contato_email,
+      b.proximo_contato !== undefined ? (b.proximo_contato || null) : p.proximo_contato, b.obs ?? p.obs, p.id, emp);
+  res.json({ ok: true });
+});
+router.delete('/prospeccoes/:id', exigePerfil(...GESTAO), (req, res) => {
+  db.prepare('DELETE FROM tmkt_prospeccao_contato WHERE prospeccao_id=?').run(req.params.id);
+  db.prepare('DELETE FROM tmkt_prospeccao WHERE id=? AND empresa_id=?').run(req.params.id, req.usuario.empresa_id);
+  res.json({ ok: true });
+});
+router.get('/prospeccoes/:id/contatos', (req, res) => {
+  const p = db.prepare('SELECT * FROM tmkt_prospeccao WHERE id=? AND empresa_id=?').get(req.params.id, req.usuario.empresa_id);
+  if (!p) return res.status(404).json({ erro: 'não encontrada' });
+  const contatos = db.prepare(`SELECT c.*, (SELECT nome FROM colaboradores WHERE id=c.criado_por) autor FROM tmkt_prospeccao_contato c WHERE c.prospeccao_id=? ORDER BY c.quando DESC`).all(p.id);
+  res.json({ prospeccao: p, contatos });
+});
+// Registra uma tentativa de contato. 'proximo' atualiza a data do próximo contato do card (reagendamento).
+router.post('/prospeccoes/:id/contatos', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body || {}, emp = req.usuario.empresa_id;
+  const p = db.prepare('SELECT * FROM tmkt_prospeccao WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!p) return res.status(404).json({ erro: 'não encontrada' });
+  db.prepare(`INSERT INTO tmkt_prospeccao_contato (id,prospeccao_id,tipo,resultado,anotacao,proximo,criado_por) VALUES (?,?,?,?,?,?,?)`)
+    .run(uuid(), p.id, b.tipo || 'outro', b.resultado || null, b.anotacao || null, b.proximo || null, req.usuario.id);
+  // avança etapa 'novo' → 'em_contato' no primeiro contato; grava o próximo contato combinado; fecha tarefa aberta
+  const novaEtapa = (p.etapa === 'novo') ? 'em_contato' : p.etapa;
+  db.prepare(`UPDATE tmkt_prospeccao SET etapa=?, proximo_contato=COALESCE(?, proximo_contato), atualizado_em=datetime('now') WHERE id=?`)
+    .run(novaEtapa, b.proximo || null, p.id);
+  try { db.prepare("UPDATE tarefas SET status='concluido', atualizado_em=datetime('now') WHERE origem='trade-prospeccao' AND referencia_id=? AND status<>'concluido'").run(p.id); } catch {}
   res.json({ ok: true });
 });
 
@@ -500,9 +626,11 @@ router.get('/vendas/:id', (req, res) => {
   v.espacos = db.prepare(`SELECT id, espaco_id, espaco_desc, area_desc, valor, quantidade, loja_id, loja_nome, slot,
       modo_venda, insercoes, agenda, criativo_tipo, criativo_texto, (arte_b64 IS NOT NULL) AS tem_arte, arte_mime,
       COALESCE(producao,0) AS producao, COALESCE(producao_custo,0) AS producao_custo, COALESCE(producao_isenta,0) AS producao_isenta,
-      briefing, COALESCE(briefing_status,'rascunho') AS briefing_status, COALESCE(arte_status,'pendente') AS arte_status, arte_obs
+      briefing, COALESCE(briefing_status,'rascunho') AS briefing_status, COALESCE(arte_status,'pendente') AS arte_status, arte_obs,
+      (SELECT (el.foto IS NOT NULL AND el.foto<>'') FROM tmkt_espaco_loja el WHERE el.id=tmkt_venda_espacos.espaco_id) AS espaco_tem_foto,
+      (SELECT COUNT(*) FROM tmkt_venda_briefing bb WHERE bb.venda_id=tmkt_venda_espacos.venda_id AND bb.tipo='comprovacao' AND bb.espaco_id=tmkt_venda_espacos.id) AS comprovacoes
     FROM tmkt_venda_espacos WHERE venda_id=?`).all(v.id)
-    .map(e => ({ ...e, tem_arte: !!e.tem_arte, producao: !!e.producao, producao_isenta: !!e.producao_isenta }));
+    .map(e => ({ ...e, tem_arte: !!e.tem_arte, producao: !!e.producao, producao_isenta: !!e.producao_isenta, espaco_tem_foto: !!e.espaco_tem_foto, comprovacoes: e.comprovacoes || 0 }));
   v.parcelas = parcelasVenda(v.id);
   v.eans = v.eans_monitorados ? JSON.parse(v.eans_monitorados) : [];
   Object.assign(v, resumoVenda(v));

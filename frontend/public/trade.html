@@ -473,6 +473,20 @@
   .foot{margin-top:40px;padding-top:24px;border-top:1px solid var(--line);color:var(--soft);font-size:12.5px;line-height:1.6;text-align:center}
   .foot b{color:var(--ink2)}
   a{color:var(--accent)}
+  /* Briefing — lateral tipo chat */
+  .briefpanel{position:fixed;top:0;right:0;bottom:0;width:340px;max-width:90vw;background:#fff;border-left:1px solid var(--line);box-shadow:-8px 0 30px rgba(16,40,45,.12);z-index:40;display:flex;flex-direction:column;transition:transform .2s}
+  .briefpanel.hide{transform:translateX(105%)}
+  .briefhead{display:flex;justify-content:space-between;align-items:center;padding:14px 14px 8px;background:linear-gradient(135deg,#0d8a6f,#0b6e59);color:#fff}
+  .briefhead b{font-size:15px}
+  .briefhead button{background:rgba(255,255,255,.2);border:0;color:#fff;width:28px;height:28px;border-radius:8px;cursor:pointer;font-size:15px}
+  .briefsub{font-size:11.5px;color:#64748b;padding:8px 14px}
+  .brieflist{flex:1;overflow:auto;padding:4px 14px;display:flex;flex-direction:column;gap:8px;background:#f6f8f8}
+  .briefinput{display:flex;gap:6px;align-items:center;padding:10px 12px;border-top:1px solid var(--line)}
+  .briefinput input[type=text],.briefinput #brrieftxt,.briefinput #brieftxt{flex:1;min-width:0}
+  .briefclip{cursor:pointer;font-size:18px;padding:0 2px}
+  .briefinput .btn{padding:9px 13px}
+  .briefopen{position:fixed;right:16px;bottom:88px;z-index:39;background:linear-gradient(135deg,#0d8a6f,#0b6e59);color:#fff;border:0;border-radius:999px;padding:12px 18px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 10px 26px rgba(11,110,89,.35);display:none}
+  @media(min-width:1024px){body.briefopen .wrap{padding-right:360px}}
 </style></head><body>
 <div class="wrap" id="app"><p style="text-align:center;color:#64748b;padding:40px">Carregando…</p></div>
 <script>
@@ -1598,26 +1612,36 @@ function verAcompanhamento(){
     var esc=(d.escopo_ref||[]).map(function(x){return h(x.nome);}).join(', ');
     var arteRot={pendente:'⏳ aguardando material',enviada:'📎 material enviado',aprovada:'✅ arte aprovada',reprovada:'✖ arte reprovada — reenviar'};
     var tipoRot={anexo:'arte/spot enviado',texto:'texto p/ leitura ao vivo',producao:'produção pelo Grupo Mutti (+R$150)'};
+    // comprovações da gestão agrupadas por espaço (mostra a foto da execução no próprio card do espaço)
+    var compByEsp={};(d.comprovacoes_gestao||[]).forEach(function(c){var k=String(c.espaco_id||'');if(!k)return;(compByEsp[k]=compByEsp[k]||[]).push(c);});
     var espH=(d.espacos||[]).map(function(e){
       var det=[e.modo_venda==='insercao'?('Inserção'+(e.insercoes?' · '+e.insercoes+'×':'')+(e.agenda?' · '+h(e.agenda):'')):'Período fechado'];
       if(e.criativo_tipo)det.push(tipoRot[e.criativo_tipo]||e.criativo_tipo);
       if(e.producao_isenta)det.push('arte isenta pela Mutti');
-      if(e.briefing)det.push('briefing enviado');
       var foto=e.espaco_tem_foto?('/api/publico/trade/espaco/'+e.espaco_id+'/foto'):null;
+      var comps=compByEsp[String(e.id||'')]||[];
+      var compThumb=comps.filter(function(c){return c.foto;});
+      // imagem do topo do card: prioriza a foto de COMPROVAÇÃO (execução real); senão a foto do espaço
+      var topImg=compThumb.length?compThumb[0].foto:foto;
+      var execBadge=comps.length?'<span style="position:absolute;top:7px;left:7px;background:#16a34a;color:#fff;font-size:9.5px;font-weight:800;padding:2px 7px;border-radius:20px;box-shadow:0 2px 6px rgba(0,0,0,.25)">✅ EXECUTADO</span>':'';
       return '<div style="border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;background:#fff;display:flex;flex-direction:column">'+
-        (foto?'<div style="height:120px;background:#f1f5f9 center/cover no-repeat;background-image:url('+foto+')"></div>'
+        '<div style="position:relative">'+
+        (topImg?'<div style="height:120px;background:#f1f5f9 center/cover no-repeat;background-image:url('+topImg+')"></div>'
              :'<div style="height:120px;background:linear-gradient(135deg,#0d8a6f,#0b6e59);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px;text-align:center;padding:8px">'+h(e.espaco_desc||'')+'</div>')+
+        execBadge+'</div>'+
         '<div style="padding:11px;display:flex;flex-direction:column;gap:3px;flex:1">'+
           '<div style="font-weight:700;font-size:13.5px">'+(e.quantidade>1?e.quantidade+'× ':'')+h(e.espaco_desc)+'</div>'+
           '<div style="font-size:11.5px;color:#64748b">📍 '+h(e.loja_nome||'')+' · '+det.join(' · ')+'</div>'+
-          '<div style="font-size:11px;color:#334"><b>'+(arteRot[e.arte_status]||'')+'</b>'+(e.arte_obs?' — <i>'+h(e.arte_obs)+'</i>':'')+'</div>'+
+          '<div style="font-size:11px;color:#334"><b>📎 Material:</b> '+(arteRot[e.arte_status]||'—')+(e.arte_obs?' — <i>'+h(e.arte_obs)+'</i>':'')+'</div>'+
+          '<div style="font-size:11px;color:'+(comps.length?'#16a34a':'#94a3b8')+'"><b>'+(comps.length?'✅ Comprovação: '+comps.length+' foto(s)':'📸 Comprovação: pendente')+'</b></div>'+
+          (compThumb.length?'<div style="display:flex;gap:4px;margin-top:3px;flex-wrap:wrap">'+compThumb.slice(0,3).map(function(c){return '<a href="'+c.foto+'" target="_blank"><img src="'+c.foto+'" style="width:42px;height:42px;object-fit:cover;border-radius:7px;border:1px solid #e2e8f0"></a>';}).join('')+'</div>':'')+
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:6px"><b style="color:#0d8a6f">'+brl(e.valor)+'</b>'+(e.arte_status==='reprovada'?'<button class="btn sec" style="padding:4px 9px;font-size:11px" data-reenv="'+h(e.id)+'">↩ Reenviar</button>':'')+'</div>'+
         '</div></div>';}).join('');
     var parH=(d.parcelas||[]).map(function(p){return '<tr><td>'+(p.vencimento||'—')+'</td><td>'+h(p.forma||'')+'</td><td style="text-align:right">'+brl(p.valor)+'</td><td>'+(p.recebido?'✅ confirmado':(p.tem_comprovante?'📎 enviado':'—'))+'</td><td>'+(p.tem_comprovante?'':'<button class="btn sec" style="padding:5px 9px;font-size:12px" data-cp="'+p.numero+'">anexar</button>')+'</td></tr>';}).join('');
     app.innerHTML='<div style="background:linear-gradient(135deg,#0d8a6f,#0b6e59 55%,#09513f);color:#fff;border-radius:22px;padding:26px 24px;margin:6px 0 16px;box-shadow:0 14px 34px -14px rgba(11,110,89,.55);position:relative;overflow:hidden">'+
       '<div style="position:absolute;width:260px;height:260px;border-radius:50%;right:-80px;bottom:-110px;background:radial-gradient(circle,rgba(246,144,42,.38),transparent 70%)"></div>'+
       '<div style="position:relative">'+
-        '<img src="/logo-grupomutti.png" alt="Grupo Mutti" style="height:30px;background:#fff;border-radius:9px;padding:5px 9px">'+
+        '<img src="/logo-mutti-white.svg" alt="Grupo Mutti" style="height:34px;display:block">'+
         '<div style="font-size:11.5px;opacity:.85;letter-spacing:1px;margin-top:16px">PEDIDO '+h(d.codigo)+'</div>'+
         '<div style="font-size:clamp(23px,3.4vw,32px);font-weight:800;line-height:1.08;margin-top:2px">'+h(d.fornecedor||'')+'</div>'+
         '<div style="font-size:13.5px;opacity:.93;margin-top:10px;max-width:64ch;line-height:1.5">A sua marca no ponto certo da jornada de cuidado. Acompanhe o <b>sell-out</b>, veja a <b>comprovação</b> da execução e autorize a <b>veiculação</b> — tudo em um só lugar.</div>'+
@@ -1643,11 +1667,13 @@ function verAcompanhamento(){
             (c.texto?'<div style="font-size:11px;color:#475569;margin-top:2px">'+h(c.texto)+'</div>':'')+
             '<div style="font-size:10px;color:#94a3b8">'+h((c.criado_em||'').slice(0,10))+'</div></div>';
         }).join('')+'</div></div>':'')+
-      '<div class="card" style="padding:14px;margin-top:12px"><b>💬 Briefing</b>'+
-        '<div style="font-size:12px;color:#64748b;margin:4px 0 8px">Converse com a nossa equipe, anexe arquivos e acompanhe a comprovação da ação.</div>'+
-        '<div id="brieflist" style="display:grid;gap:8px;max-height:300px;overflow:auto"></div>'+
-        '<div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap"><input id="brieftxt" placeholder="escreva uma observação…" style="flex:1;min-width:150px"><input type="file" id="brieffile" accept="image/*,application/pdf,video/*" style="max-width:150px"><button class="btn" id="briefsend" style="padding:8px 14px">Enviar</button></div>'+
+      '<div id="briefpanel" class="briefpanel">'+
+        '<div class="briefhead"><b>💬 Briefing</b><button id="briefclose" title="recolher">⟩</button></div>'+
+        '<div class="briefsub">Converse com a equipe, anexe arquivos e acompanhe a comprovação da sua ação — tudo aqui.</div>'+
+        '<div id="brieflist" class="brieflist"></div>'+
+        '<div class="briefinput"><input id="brieftxt" placeholder="escreva uma observação…"><label class="briefclip" title="anexar">📎<input type="file" id="brieffile" accept="image/*,application/pdf,video/*" style="display:none"></label><button class="btn" id="briefsend">➤</button></div>'+
       '</div>'+
+      '<button id="briefopen" class="briefopen">💬 Briefing</button>'+
       '<div class="card" style="padding:14px;margin-top:12px"><b>🔄 Recomprar / renovar</b>'+
         '<div style="font-size:13px;color:#64748b;margin:4px 0 8px">Quando a sua ação estiver acabando, renove as mesmas posições para um novo período — liberado só se a vaga estiver livre e <b>não houver fila</b> (quem está na fila tem prioridade).</div>'+
         '<div class="row"><label><b>Novo início</b><input id="rcini" type="date"></label><label><b>Novo fim</b><input id="rcfim" type="date"></label></div>'+
@@ -1661,13 +1687,26 @@ function verAcompanhamento(){
       var lw=el('brieflist'); if(!lw)return; var ms=(r&&r.mensagens)||[];
       lw.innerHTML=ms.map(function(m){ var gest=m.autor==='gestao'; var img=/^image\//.test(m.anexo_mime||'');
         var anexo=m.tem_anexo?(img?'<a href="'+API+'/briefing/'+m.id+'/anexo" target="_blank" rel="noopener"><img src="'+API+'/briefing/'+m.id+'/anexo" style="max-height:120px;border-radius:8px;margin-top:4px;border:1px solid #eee"></a>':'<a href="'+API+'/briefing/'+m.id+'/anexo" target="_blank" rel="noopener" style="font-size:12px;color:#2563eb">📎 '+h(m.anexo_nome||'anexo')+'</a>'):'';
-        return '<div style="justify-self:'+(gest?'start':'end')+';background:'+(m.tipo==='comprovacao'?'#E6F4EC':(gest?'#F3F7F4':'#EFF6FF'))+';border-radius:10px;padding:7px 10px;max-width:88%">'+
+        return '<div style="align-self:'+(gest?'flex-start':'flex-end')+';background:'+(m.tipo==='comprovacao'?'#E6F4EC':(gest?'#F3F7F4':'#EFF6FF'))+';border-radius:10px;padding:7px 10px;max-width:88%">'+
           '<div style="font-size:10.5px;color:#64748b;font-weight:700">'+(gest?'🏢 ':'🏷️ ')+h(m.autor_nome||(gest?'Gestão':'Você'))+(m.tipo==='comprovacao'?' · ✅ comprovação':'')+' · '+h((m.criado_em||'').slice(0,10))+'</div>'+
           (m.texto?'<div style="font-size:13px;margin-top:2px;white-space:pre-wrap">'+h(m.texto)+'</div>':'')+anexo+'</div>';
       }).join('')||'<div style="font-size:12px;color:#aaa">Sem mensagens ainda.</div>';
       lw.scrollTop=lw.scrollHeight;
     }); }
     loadBrief();
+    // Briefing lateral (chat): abre por padrão no desktop, recolhido no mobile.
+    (function(){
+      var panel=el('briefpanel'),openB=el('briefopen'),closeB=el('briefclose');
+      function setOpen(o){ if(!panel)return;
+        if(o){panel.classList.remove('hide');document.body.classList.add('briefopen');if(openB)openB.style.display='none';}
+        else{panel.classList.add('hide');document.body.classList.remove('briefopen');if(openB)openB.style.display='block';}
+        try{localStorage.setItem('briefOpen',o?'1':'0');}catch(e){} }
+      var pref;try{pref=localStorage.getItem('briefOpen');}catch(e){}
+      var startOpen=pref!=null?(pref==='1'):(window.innerWidth>=1024);
+      setOpen(startOpen);
+      if(closeB)closeB.onclick=function(){setOpen(false);};
+      if(openB)openB.onclick=function(){setOpen(true);};
+    })();
     el('briefsend').onclick=function(){ var t=(el('brieftxt').value||'').trim(); var f=el('brieffile').files[0];
       if(!t&&!f)return; el('briefsend').disabled=true;
       function send(body){ post('/acompanhamento/'+token+'/briefing',body).then(function(r){ el('briefsend').disabled=false; if(r.ok){el('brieftxt').value='';el('brieffile').value='';loadBrief();} else alert((r.j&&r.j.erro)||'Erro.'); }); }

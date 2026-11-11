@@ -310,6 +310,58 @@ function rodarComprovacaoTradePeriodica() {
 setTimeout(rodarComprovacaoTradePeriodica, 35000);
 setInterval(rodarComprovacaoTradePeriodica, 12 * 3600 * 1000); // a cada 12h
 
+// Gatilho automático do funil de prospecção (CRM de trade): a cada R$100 mil comprados de um
+// fornecedor (volume do Alpha 7, janela de 365 dias) abre uma prospecção "automática" na coluna Novo
+// pra alguém da gestão assumir e fazer contato. Na 1ª vez que vê o fornecedor, só grava a linha-base
+// (não enxurrada de cards); depois, cada novo marco de 100k vira um card — mas nunca empilha se já há
+// um card aberto (não ganho/perdido) pra aquele fornecedor.
+function rodarGatilhoProspeccao() {
+  try {
+    const db = require('./db/connection');
+    const { erpQuery, habilitado } = require('./db/erp');
+    if (!habilitado()) return;
+    const { v4: uuid } = require('uuid');
+    const UNIS = '(70417,70418,70419,70420,70421,70422,70423,70424)';
+    const PASSO = 100000; // R$100 mil
+    const empresas = [...new Set(db.prepare('SELECT empresa_id FROM lojas').all().map(r => r.empresa_id))];
+    erpQuery(`SELECT f.id fornecedor_id, pe.nome fornecedor, COALESCE(SUM(inf.quantidade*inf.valorunitario),0) compra
+        FROM notafiscal nf JOIN fornecedor f ON f.id=nf.fornecedorid JOIN pessoa pe ON pe.id=f.pessoaid
+        JOIN itemnotafiscal inf ON inf.notafiscalid=nf.id
+        WHERE nf.unidadenegocioid IN ${UNIS} AND nf.tipooperacao='1' AND nf.status NOT IN ('X','E') AND nf.fornecedorid IS NOT NULL
+          AND nf.datahoraentrada >= now() - interval '365 days'
+        GROUP BY f.id, pe.nome HAVING COALESCE(SUM(inf.quantidade*inf.valorunitario),0) >= ${PASSO}
+        ORDER BY compra DESC LIMIT 300`)
+      .then(rows => {
+        empresas.forEach(eid => {
+          rows.forEach(r => {
+            try {
+              const fid = String(r.fornecedor_id), compra = Number(r.compra) || 0;
+              const marcos = Math.floor(compra / PASSO);
+              if (marcos < 1) return;
+              const atual = db.prepare('SELECT marcos_processados FROM tmkt_prospeccao_marco WHERE empresa_id=? AND fornecedor_id=?').get(eid, fid);
+              if (!atual) { // linha-base: registra sem gerar card
+                db.prepare("INSERT INTO tmkt_prospeccao_marco (empresa_id,fornecedor_id,marcos_processados,atualizado_em) VALUES (?,?,?,datetime('now'))").run(eid, fid, marcos);
+                return;
+              }
+              if (marcos <= atual.marcos_processados) return; // nada novo
+              const aberto = db.prepare("SELECT 1 FROM tmkt_prospeccao WHERE empresa_id=? AND fornecedor_id=? AND etapa NOT IN ('ganho','perdido') LIMIT 1").get(eid, fid);
+              if (!aberto) {
+                db.prepare(`INSERT INTO tmkt_prospeccao (id,empresa_id,fornecedor_id,fornecedor_nome,etapa,origem,gatilho_valor,obs)
+                  VALUES (?,?,?,?, 'novo','automatica',?,?)`)
+                  .run(uuid(), eid, fid, r.fornecedor || null, marcos * PASSO,
+                    `Aberta automaticamente: já compramos R$ ${(marcos * PASSO).toLocaleString('pt-BR')} desse fornecedor nos últimos 12 meses. Vale procurar para trade.`);
+                console.log(`[prospeccao-auto] ${eid}: card p/ ${r.fornecedor} (marco ${marcos})`);
+              }
+              db.prepare("UPDATE tmkt_prospeccao_marco SET marcos_processados=?, atualizado_em=datetime('now') WHERE empresa_id=? AND fornecedor_id=?").run(marcos, eid, fid);
+            } catch { /* por fornecedor */ }
+          });
+        });
+      }).catch(() => { /* ERP fora do ar */ });
+  } catch { /* best-effort */ }
+}
+setTimeout(rodarGatilhoProspeccao, 50000);
+setInterval(rodarGatilhoProspeccao, 6 * 3600 * 1000); // a cada 6h
+
 // Foto MENSAL dos indicadores de compra (ruptura/cobertura/excesso/vencendo) por comprador.
 // Sobrescreve o mês corrente a cada rodada; quando o mês vira, a última foto fica congelada.
 function rodarSnapshotCompras() {

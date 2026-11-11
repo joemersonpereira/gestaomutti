@@ -5,6 +5,11 @@ import { useOrdenavel, ThOrd } from '../components/Ordenavel';
 
 const brl = n => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dBR = d => d ? String(d).slice(0, 10).split('-').reverse().join('/') : '';
+function useWide(min = 1120) {
+  const [w, setW] = useState(typeof window !== 'undefined' ? window.innerWidth >= min : true);
+  useEffect(() => { const f = () => setW(window.innerWidth >= min); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, [min]);
+  return w;
+}
 const COLS = [
   { id: 'rascunho', nome: 'Rascunho', cor: '#7A8794' },
   { id: 'negociacao', nome: 'Negociação', cor: '#D6409F' },
@@ -62,23 +67,27 @@ export default function TradeMarketing() {
   const gestao = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing'].includes(usuario.funcao);
   const [aba, setAba] = useState('vendas');
   const [modelo, setModelo] = useState(false);
+  const [lateral, setLateral] = useState(true);
+  const wide = useWide(1120);
+  const shift = lateral && wide ? 320 : 0;
   return (
-    <div style={s.wrap}>
+    <div style={{ ...s.wrap, paddingRight: shift, transition: 'padding-right .18s' }}>
       <Banner emoji="📣" titulo="Trade Marketing" cor="roxo" sub="Aluguel de espaços da loja (pontos extras, ilhas, gôndolas) para fornecedores — contrato, financeiro e sell-out no ERP.">
         {gestao && <button onClick={() => setModelo(true)} style={bannerBtn}>📄 Modelo de contrato</button>}
       </Banner>
       <div style={{ display: 'flex', gap: 6, margin: '12px 0 16px', flexWrap: 'wrap', padding: 6, background: '#fff', border: '1px solid #ecefee', borderRadius: 14, boxShadow: '0 1px 3px rgba(16,40,45,.05)' }}>
-        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['premvend', '💰 Premiação vendedor'], ['leads', '🎯 Leads (fornecedores)'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
+        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['funil', '🧲 Funil de prospecção'], ['metas', '🎯 Metas'], ['leads', '📇 Leads (fornecedores)'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, border: 'none', ...(aba === v ? s.chipOn : { background: 'transparent', color: '#51607a' }) }}>{l}</button>)}
       </div>
-      <PainelMeta API={API} />
+      <PainelMeta API={API} aba={aba} onNav={setAba} aberto={lateral} setAberto={setLateral} />
       {modelo && <ModeloContrato API={API} onClose={() => setModelo(false)} />}
       {aba === 'portal' && <Portal API={API} gestao={gestao} />}
       {aba === 'cobranca' && <Cobranca API={API} gestao={gestao} />}
       {aba === 'dashboard' && <Dashboard API={API} onAba={setAba} />}
       {aba === 'vendas' && <Vendas API={API} gestao={gestao} />}
-      {aba === 'premvend' && <PremiacaoVendedor API={API} gestao={gestao} />}
-      {aba === 'leads' && <LeadsFornecedor API={API} gestao={gestao} />}
+      {aba === 'funil' && <FunilProspeccao API={API} gestao={gestao} usuario={usuario} />}
+      {aba === 'metas' && <PremiacaoVendedor API={API} gestao={gestao} />}
+      {aba === 'leads' && <LeadsFornecedor API={API} gestao={gestao} onFunil={() => setAba('funil')} />}
       {aba === 'porloja' && <EspacoLoja API={API} gestao={gestao} />}
       {aba === 'capacidade' && <Capacidade API={API} />}
       {aba === 'espacos' && <Espacos API={API} gestao={gestao} />}
@@ -2199,6 +2208,167 @@ function Associacoes({ API, gestao }) {
 
 
 // ── Premiação do vendedor de trade (regra por espaço, apuração mensal) ──
+// ══════ FUNIL DE PROSPECÇÃO (CRM) ══════
+const PR_ETAPA = { novo: { l: '🆕 Novo', c: '#64748b' }, em_contato: { l: '📞 Em contato', c: '#2563eb' }, negociando: { l: '🤝 Negociando', c: '#B45309' }, ganho: { l: '✅ Ganho', c: '#1E874B' }, perdido: { l: '✖ Perdido', c: '#b91c1c' } };
+const PR_ORDEM = ['novo', 'em_contato', 'negociando', 'ganho', 'perdido'];
+const CONTATO_TIPO = [['ligacao', '📞 Ligação'], ['whatsapp', '💬 WhatsApp'], ['email', '✉️ E-mail'], ['visita', '🚗 Visita'], ['reuniao', '👥 Reunião'], ['outro', '• Outro']];
+const CONTATO_RESULT = [['sem_resposta', 'Sem resposta'], ['retornar', 'Pediu p/ retornar'], ['agendou', 'Agendou'], ['avancou', 'Avançou'], ['sem_interesse', 'Sem interesse'], ['fechou', 'Fechou 🎉']];
+const dBRc = v => v ? String(v).slice(0, 10).split('-').reverse().join('/') : '';
+function FunilProspeccao({ API, gestao, usuario }) {
+  const [d, setD] = useState(null); const [sel, setSel] = useState(null); const [nova, setNova] = useState(false); const [colabs, setColabs] = useState([]);
+  const carregar = useCallback(() => API.get('/trademkt/prospeccoes').then(r => setD(r.data)).catch(() => setD({ itens: [], etapas: PR_ORDEM })), [API]);
+  useEffect(() => { carregar(); API.get('/colaboradores').then(r => setColabs(r.data.colaboradores || r.data || [])).catch(() => {}); }, [carregar, API]);
+  const itens = d?.itens || [];
+  const porEtapa = e => itens.filter(i => i.etapa === e);
+  const totVencidas = itens.filter(i => i.vencido).length;
+  const mover = (id, etapa) => API.put(`/trademkt/prospeccoes/${id}`, { etapa }).then(carregar).catch(() => {});
+  return (
+    <div>
+      <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <b style={{ fontSize: 13 }}>🧲 Funil de prospecção</b>
+        <span style={{ fontSize: 11.5, color: '#7a8a8c' }}>a cada R$100 mil comprados de um fornecedor abre uma prospecção automática · registre contatos e o próximo retorno</span>
+        {totVencidas > 0 && <span style={{ ...s.chip, background: '#FBE7E2', color: '#A3372A', fontWeight: 700 }}>⚠️ {totVencidas} contato(s) vencido(s)</span>}
+        {gestao && <button style={{ ...s.btn, marginLeft: 'auto' }} onClick={() => setNova(true)}>+ Nova prospecção</button>}
+      </div>
+      {!d && <div style={{ ...s.card, color: '#999', fontSize: 13 }}>Carregando…</div>}
+      {d && itens.length === 0 && <div style={s.vazio}>Nenhuma prospecção ainda. O sistema abre uma automaticamente a cada R$100 mil comprados de um fornecedor — ou crie manualmente.</div>}
+      {d && itens.length > 0 && <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8 }}>
+        {PR_ORDEM.map(et => <div key={et} style={{ minWidth: 248, flex: '1 0 248px', background: '#f7f9fa', border: '1px solid #eef1f4', borderRadius: 14, padding: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <b style={{ fontSize: 12.5, color: PR_ETAPA[et].c }}>{PR_ETAPA[et].l}</b>
+            <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>{porEtapa(et).length}</span>
+          </div>
+          {porEtapa(et).map(c => <div key={c.id} onClick={() => setSel(c)} style={{ background: '#fff', border: '1px solid ' + (c.vencido ? '#f1b4ab' : '#e8edf0'), borderLeft: '4px solid ' + PR_ETAPA[et].c, borderRadius: 10, padding: '9px 10px', marginBottom: 8, cursor: 'pointer', boxShadow: '0 1px 2px rgba(16,40,45,.05)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+              <b style={{ fontSize: 12.5, lineHeight: 1.25 }}>{c.fornecedor_nome || 'Fornecedor'}</b>
+              {c.origem === 'automatica' && <span title="aberta automaticamente por volume de compra" style={{ fontSize: 9.5, background: '#eef2ff', color: '#4f46e5', borderRadius: 6, padding: '2px 5px', fontWeight: 700, whiteSpace: 'nowrap', height: 'fit-content' }}>auto</span>}
+            </div>
+            {c.gatilho_valor > 0 && <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 2 }}>compra acum. {brl(c.gatilho_valor)}</div>}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, flexWrap: 'wrap', fontSize: 11 }}>
+              {c.responsavel_nome ? <span style={{ color: '#475569' }}>👤 {c.responsavel_nome}</span> : <span style={{ color: '#f59e0b' }}>⚠ sem responsável</span>}
+              {c.proximo_contato && <span style={{ fontWeight: 700, color: c.vencido ? '#b91c1c' : (c.hoje ? '#B45309' : '#475569') }}>📅 {dBRc(c.proximo_contato)}{c.vencido ? ' (venceu)' : c.hoje ? ' (hoje)' : ''}</span>}
+              {c.contatos > 0 && <span style={{ color: '#94a3b8' }}>💬 {c.contatos}</span>}
+            </div>
+          </div>)}
+          {porEtapa(et).length === 0 && <div style={{ fontSize: 11, color: '#b8c0c8', textAlign: 'center', padding: '8px 0' }}>—</div>}
+        </div>)}
+      </div>}
+      {sel && <ProspeccaoModal API={API} id={sel.id} gestao={gestao} colabs={colabs} onClose={() => setSel(null)} onChange={carregar} mover={mover} />}
+      {nova && <NovaProspeccao API={API} colabs={colabs} onClose={() => setNova(false)} onSaved={() => { setNova(false); carregar(); }} />}
+    </div>
+  );
+}
+function NovaProspeccao({ API, colabs, onClose, onSaved }) {
+  const [f, setF] = useState({ fornecedor_nome: '', responsavel_id: '', contato_nome: '', contato_fone: '', proximo_contato: '', obs: '' });
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const salvar = () => { if (!f.fornecedor_nome) return alert('Informe o fornecedor.'); API.post('/trademkt/prospeccoes', f).then(onSaved).catch(e => alert(e.response?.data?.erro || 'Erro')); };
+  return <div style={modalBg} onClick={onClose}><div style={modalCard} onClick={e => e.stopPropagation()}>
+    <b style={{ fontSize: 15 }}>Nova prospecção</b>
+    <L lab="Fornecedor"><input style={s.inp} value={f.fornecedor_nome} onChange={e => set('fornecedor_nome', e.target.value)} placeholder="Nome do fornecedor" /></L>
+    <L lab="Responsável pelo contato"><select style={s.inp} value={f.responsavel_id} onChange={e => set('responsavel_id', e.target.value)}><option value="">—</option>{colabs.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></L>
+    <div style={{ display: 'flex', gap: 8 }}>
+      <L lab="Contato (nome)" flex><input style={s.inp} value={f.contato_nome} onChange={e => set('contato_nome', e.target.value)} /></L>
+      <L lab="Telefone/WhatsApp" flex><input style={s.inp} value={f.contato_fone} onChange={e => set('contato_fone', e.target.value)} /></L>
+    </div>
+    <L lab="Próximo contato"><input type="date" style={s.inp} value={f.proximo_contato} onChange={e => set('proximo_contato', e.target.value)} /></L>
+    <L lab="Observação"><textarea style={{ ...s.inp, minHeight: 54 }} value={f.obs} onChange={e => set('obs', e.target.value)} /></L>
+    <div style={{ display: 'flex', gap: 8, marginTop: 6 }}><button style={s.btn} onClick={salvar}>Criar</button><button style={s.btnMini} onClick={onClose}>cancelar</button></div>
+  </div></div>;
+}
+function ProspeccaoModal({ API, id, gestao, colabs, onClose, onChange }) {
+  const [d, setD] = useState(null); const [c, setC] = useState({ tipo: 'ligacao', resultado: 'sem_resposta', anotacao: '', proximo: '' });
+  const carregar = useCallback(() => API.get(`/trademkt/prospeccoes/${id}/contatos`).then(r => setD(r.data)).catch(() => {}), [API, id]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const p = d?.prospeccao;
+  const upd = (patch) => API.put(`/trademkt/prospeccoes/${id}`, patch).then(() => { carregar(); onChange && onChange(); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const registrar = () => { if (!c.anotacao && !c.resultado) return alert('Descreva o contato.'); API.post(`/trademkt/prospeccoes/${id}/contatos`, c).then(() => { setC({ tipo: 'ligacao', resultado: 'sem_resposta', anotacao: '', proximo: '' }); carregar(); onChange && onChange(); }).catch(e => alert(e.response?.data?.erro || 'Erro')); };
+  const excluir = () => { if (window.confirm('Excluir esta prospecção e seu histórico?')) API.delete(`/trademkt/prospeccoes/${id}`).then(() => { onClose(); onChange && onChange(); }); };
+  const waLink = p && p.contato_fone ? `https://wa.me/55${String(p.contato_fone).replace(/\D/g, '')}` : null;
+  return <div style={modalBg} onClick={onClose}><div style={{ ...modalCard, maxWidth: 560 }} onClick={e => e.stopPropagation()}>
+    {!p && <div style={{ color: '#999', fontSize: 13 }}>Carregando…</div>}
+    {p && <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+        <div><b style={{ fontSize: 16 }}>{p.fornecedor_nome || 'Fornecedor'}</b>
+          {p.gatilho_valor > 0 && <div style={{ fontSize: 11, color: '#94a3b8' }}>compra acumulada {brl(p.gatilho_valor)} · {p.origem === 'automatica' ? 'aberta automaticamente' : 'manual'}</div>}</div>
+        <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 16, color: '#94a3b8' }}>✕</button>
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '10px 0' }}>
+        {PR_ORDEM.map(et => <button key={et} onClick={() => upd({ etapa: et })} style={{ ...s.chip, cursor: 'pointer', ...(p.etapa === et ? { background: PR_ETAPA[et].c, color: '#fff', fontWeight: 700 } : { background: '#f1f5f7', color: '#51607a' }) }}>{PR_ETAPA[et].l}</button>)}
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <L lab="Responsável" flex><select style={s.inp} value={p.responsavel_id || ''} onChange={e => upd({ responsavel_id: e.target.value })}><option value="">—</option>{colabs.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></L>
+        <L lab="Próximo contato" flex><input type="date" style={s.inp} value={p.proximo_contato ? String(p.proximo_contato).slice(0, 10) : ''} onChange={e => upd({ proximo_contato: e.target.value })} /></L>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <L lab="Contato (nome)" flex><input style={s.inp} defaultValue={p.contato_nome || ''} onBlur={e => e.target.value !== (p.contato_nome || '') && upd({ contato_nome: e.target.value })} /></L>
+        <L lab="Telefone/WhatsApp" flex><input style={s.inp} defaultValue={p.contato_fone || ''} onBlur={e => e.target.value !== (p.contato_fone || '') && upd({ contato_fone: e.target.value })} /></L>
+      </div>
+      {waLink && <a href={waLink} target="_blank" rel="noreferrer" style={{ display: 'inline-block', margin: '2px 0 6px', fontSize: 12, color: '#1E874B', fontWeight: 700 }}>💬 Abrir WhatsApp do contato</a>}
+      <div style={{ borderTop: '1px solid #eef1f4', margin: '8px 0', paddingTop: 10 }}>
+        <b style={{ fontSize: 13 }}>Registrar contato</b>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+          <select style={{ ...s.inp, flex: 1 }} value={c.tipo} onChange={e => setC(v => ({ ...v, tipo: e.target.value }))}>{CONTATO_TIPO.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+          <select style={{ ...s.inp, flex: 1 }} value={c.resultado} onChange={e => setC(v => ({ ...v, resultado: e.target.value }))}>{CONTATO_RESULT.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+        </div>
+        <textarea style={{ ...s.inp, minHeight: 46, marginTop: 8 }} placeholder="O que foi conversado…" value={c.anotacao} onChange={e => setC(v => ({ ...v, anotacao: e.target.value }))} />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: '#51607a' }}>Próximo contato:</span>
+          <input type="date" style={{ ...s.inp, width: 150 }} value={c.proximo} onChange={e => setC(v => ({ ...v, proximo: e.target.value }))} />
+          <button style={s.btn} onClick={registrar}>Registrar</button>
+        </div>
+      </div>
+      <div style={{ marginTop: 6 }}>
+        <b style={{ fontSize: 12.5, color: '#334' }}>Histórico ({(d.contatos || []).length})</b>
+        {(d.contatos || []).length === 0 && <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>Nenhum contato registrado ainda.</div>}
+        {(d.contatos || []).map(ct => <div key={ct.id} style={{ fontSize: 12, padding: '7px 0', borderTop: '1px solid #f3f3f3' }}>
+          <div><b>{(CONTATO_TIPO.find(t => t[0] === ct.tipo) || [, ct.tipo])[1]}</b> · {(CONTATO_RESULT.find(r => r[0] === ct.resultado) || [, ct.resultado || '—'])[1]} <span style={{ color: '#94a3b8' }}>· {dBRc(ct.quando)} {ct.autor ? '· ' + ct.autor : ''}</span></div>
+          {ct.anotacao && <div style={{ color: '#475569', marginTop: 2 }}>{ct.anotacao}</div>}
+          {ct.proximo && <div style={{ color: '#B45309', marginTop: 2 }}>→ próximo: {dBRc(ct.proximo)}</div>}
+        </div>)}
+      </div>
+      {gestao && <button onClick={excluir} style={{ ...s.mv, color: '#C0392B', marginTop: 10 }}>🗑 excluir prospecção</button>}
+    </>}
+  </div></div>;
+}
+const modalBg = { position: 'fixed', inset: 0, background: 'rgba(16,40,45,.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: 16, overflowY: 'auto', zIndex: 60 };
+const modalCard = { background: '#fff', borderRadius: 16, maxWidth: 440, width: '100%', padding: 18, marginTop: 30, boxShadow: '0 20px 60px rgba(16,40,45,.3)' };
+function L({ lab, children, flex }) { return <label style={{ display: 'block', fontSize: 11.5, color: '#51607a', fontWeight: 600, margin: '8px 0 0', ...(flex ? { flex: 1 } : {}) }}>{lab}<div style={{ marginTop: 3 }}>{children}</div></label>; }
+
+// Cadastro das metas de ATIVIDADE (prospecções/mês, contatos/dia, fechamentos/mês) — geral + por colaborador de trade.
+function MetasAtividade({ API, gestao }) {
+  const [linhas, setLinhas] = useState([]); const [colabs, setColabs] = useState([]);
+  const [novo, setNovo] = useState({ escopo: 'geral', prospeccoes_mes: '', contatos_dia: '', fechamentos_mes: '' });
+  const carregar = useCallback(() => API.get('/trademkt/trade-metas').then(r => setLinhas(r.data.linhas || [])).catch(() => {}), [API]);
+  useEffect(() => { carregar(); if (gestao) API.get('/colaboradores').then(r => setColabs((r.data.colaboradores || r.data || []).filter(c => c.trade))).catch(() => {}); }, [carregar, API, gestao]);
+  const salvar = (payload) => API.post('/trademkt/trade-metas', payload).then(() => { setNovo({ escopo: 'geral', prospeccoes_mes: '', contatos_dia: '', fechamentos_mes: '' }); carregar(); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const remover = (escopo) => API.delete(`/trademkt/trade-metas/${escopo}`).then(carregar).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  return <div style={s.card}>
+    <b style={{ fontSize: 13 }}>Metas de atividade</b>
+    <span style={{ fontSize: 11.5, color: '#7a8a8c', marginLeft: 8 }}>quanto cada um precisa fazer — aparece no painel lateral de cada pessoa</span>
+    <div style={{ overflowX: 'auto', marginTop: 8 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+        <thead><tr style={{ textAlign: 'left', color: '#7a8a8c', borderBottom: '2px solid #eef1f4' }}>{['Para', 'Prospecções/mês', 'Contatos/dia', 'Fechamentos/mês', ''].map(h => <th key={h} style={{ padding: '6px 8px' }}>{h}</th>)}</tr></thead>
+        <tbody>
+          {linhas.map(l => <tr key={l.escopo} style={{ borderBottom: '1px solid #f3f5f7' }}>
+            <td style={{ padding: '6px 8px', fontWeight: 600 }}>{l.escopo_nome}</td>
+            <td style={{ padding: '6px 8px' }}>{l.prospeccoes_mes}</td>
+            <td style={{ padding: '6px 8px' }}>{l.contatos_dia}</td>
+            <td style={{ padding: '6px 8px' }}>{l.fechamentos_mes}</td>
+            <td style={{ padding: '6px 8px' }}>{gestao && l.escopo !== 'geral' && <button onClick={() => remover(l.escopo)} style={{ ...s.mv, color: '#C0392B' }}>✕</button>}</td>
+          </tr>)}
+          {linhas.length === 0 && <tr><td colSpan={5} style={{ padding: '8px', color: '#999', fontSize: 12 }}>Nenhuma meta definida — defina ao menos a geral.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+    {gestao && <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 10, borderTop: '1px solid #eef1f4', paddingTop: 10 }}>
+      <L lab="Para" flex><select style={s.inp} value={novo.escopo} onChange={e => setNovo(n => ({ ...n, escopo: e.target.value }))}><option value="geral">Todos (geral)</option>{colabs.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></L>
+      <L lab="Prospecções/mês"><input type="number" style={{ ...s.inp, width: 110 }} value={novo.prospeccoes_mes} onChange={e => setNovo(n => ({ ...n, prospeccoes_mes: e.target.value }))} /></L>
+      <L lab="Contatos/dia"><input type="number" style={{ ...s.inp, width: 95 }} value={novo.contatos_dia} onChange={e => setNovo(n => ({ ...n, contatos_dia: e.target.value }))} /></L>
+      <L lab="Fechamentos/mês"><input type="number" style={{ ...s.inp, width: 110 }} value={novo.fechamentos_mes} onChange={e => setNovo(n => ({ ...n, fechamentos_mes: e.target.value }))} /></L>
+      <button style={s.btn} onClick={() => salvar(novo)}>Salvar meta</button>
+    </div>}
+  </div>;
+}
 function PremiacaoVendedor({ API, gestao }) {
   const hoje = new Date();
   const [mes, setMes] = useState(hoje.getMonth() + 1); const [ano, setAno] = useState(hoje.getFullYear());
@@ -2211,13 +2381,14 @@ function PremiacaoVendedor({ API, gestao }) {
   return (
     <div>
       <div style={{ ...s.card, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <b style={{ fontSize: 13 }}>💰 Premiação do vendedor</b>
-        <span style={{ fontSize: 11.5, color: '#7a8a8c' }}>vendedor = quem cadastrou · % pela qtd de espaços vendidos no mês</span>
+        <b style={{ fontSize: 13 }}>🎯 Metas do trade</b>
+        <span style={{ fontSize: 11.5, color: '#7a8a8c' }}>% de premiação por espaços vendidos + metas de atividade (prospecção, contatos, fechamentos)</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
           <select value={mes} onChange={e => setMes(Number(e.target.value))} style={{ ...s.inp, width: 70 }}>{Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}</select>
           <input type="number" value={ano} onChange={e => setAno(Number(e.target.value))} style={{ ...s.inp, width: 90 }} />
         </div>
       </div>
+      <MetasAtividade API={API} gestao={gestao} />
       <div style={s.card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <b style={{ fontSize: 13 }}>Regra (% por faixa de espaços)</b>
@@ -2263,39 +2434,103 @@ function PremiacaoVendedor({ API, gestao }) {
   );
 }
 
-// Painel lateral fixo: minha meta de trade do mês + minhas atividades (atrasadas/em dia)
-function PainelMeta({ API }) {
-  const [d, setD] = useState(null); const [aberto, setAberto] = useState(true);
+// Lateral da área de trabalho do colaborador: navegação entre as páginas de trade + as pendências
+// dele sempre à vista (premiação/meta do mês, metas de atividade, cobranças de prospecção, atividades
+// e agenda dos próximos contatos). Fica fixa em altura cheia; o conteúdo se ajusta ao lado.
+const LAT_NAV = [['funil', '🧲', 'Funil'], ['vendas', '🗂️', 'Negociações'], ['dashboard', '📊', 'Dashboard'], ['metas', '🎯', 'Metas'], ['leads', '📇', 'Leads'], ['porloja', '🏬', 'Espaços']];
+function Barra({ lab, feito, meta, cor }) {
+  const pct = meta > 0 ? Math.min(100, Math.round((feito / meta) * 100)) : 0;
+  const ok = meta > 0 && feito >= meta;
+  return <div style={{ marginTop: 7 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#51607a' }}><span>{lab}</span><span style={{ fontWeight: 700, color: ok ? '#1E874B' : '#334' }}>{feito}{meta > 0 ? `/${meta}` : ''}{ok ? ' ✓' : ''}</span></div>
+    <div style={{ height: 6, background: '#eef1f4', borderRadius: 4, marginTop: 3, overflow: 'hidden' }}><div style={{ width: (meta > 0 ? pct : (feito > 0 ? 100 : 0)) + '%', height: '100%', background: ok ? '#1E874B' : cor }} /></div>
+  </div>;
+}
+function PainelMeta({ API, aba, onNav, aberto, setAberto }) {
+  const [d, setD] = useState(null);
   const carregar = useCallback(() => API.get('/trademkt/minha-meta').then(r => setD(r.data)).catch(() => {}), [API]);
   useEffect(() => { carregar(); const t = setInterval(carregar, 5 * 60 * 1000); return () => clearInterval(t); }, [carregar]);
-  const dBR = s2 => s2 ? String(s2).slice(0, 10).split('-').reverse().join('/') : '';
-  if (!aberto) return <button onClick={() => setAberto(true)} style={{ position: 'fixed', right: 14, bottom: 18, zIndex: 40, ...s.btn, borderRadius: 999, boxShadow: '0 6px 18px rgba(0,0,0,.25)' }}>📣 Minha meta{d && d.atrasadas > 0 ? ` · ${d.atrasadas}⚠️` : ''}</button>;
+  const dBRl = s2 => s2 ? String(s2).slice(0, 10).split('-').reverse().join('/') : '';
+  const nAlerta = d ? (d.atrasadas || 0) + (d.cobrancas_n || 0) : 0;
+  if (!aberto) return <button onClick={() => setAberto(true)} style={{ position: 'fixed', right: 14, bottom: 18, zIndex: 41, ...s.btn, borderRadius: 999, boxShadow: '0 6px 18px rgba(0,0,0,.25)' }}>📣 Minha área{nAlerta > 0 ? ` · ${nAlerta}⚠️` : ''}</button>;
+  const at = d?.atividade;
   return (
-    <div style={{ position: 'fixed', right: 12, top: 86, width: 300, maxWidth: 'calc(100vw - 24px)', maxHeight: 'calc(100vh - 110px)', overflowY: 'auto', zIndex: 40, background: '#fff', border: '1px solid #e3e8ea', borderRadius: 16, boxShadow: '0 12px 44px rgba(16,40,45,.16)', padding: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><b style={{ fontSize: 13 }}>📣 Minha meta de trade</b><button onClick={() => setAberto(false)} title="recolher" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 15 }}>✕</button></div>
-      {!d && <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>Carregando…</div>}
+    <div style={{ position: 'fixed', right: 0, top: 0, bottom: 0, width: 312, maxWidth: '92vw', overflowY: 'auto', zIndex: 41, background: '#fff', borderLeft: '1px solid #e3e8ea', boxShadow: '-6px 0 26px rgba(16,40,45,.10)', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><b style={{ fontSize: 13 }}>📣 Minha área de trade</b><button onClick={() => setAberto(false)} title="recolher" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16 }}>⟩</button></div>
+      {/* Navegação para as páginas da ferramenta */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+        {LAT_NAV.map(([k, ic, l]) => <button key={k} onClick={() => onNav && onNav(k)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 9px', borderRadius: 10, border: '1px solid ' + (aba === k ? 'transparent' : '#e8edf0'), background: aba === k ? BRAND_GRAD : '#f7f9fa', color: aba === k ? '#fff' : '#334', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}><span>{ic}</span>{l}</button>)}
+      </div>
+      {!d && <div style={{ fontSize: 12, color: '#999' }}>Carregando…</div>}
       {d && <>
-        <div style={{ marginTop: 10, background: BRAND_GRAD, color: '#fff', borderRadius: 12, padding: 12 }}>
+        <div style={{ background: BRAND_GRAD, color: '#fff', borderRadius: 12, padding: 12 }}>
           <div style={{ fontSize: 11, opacity: .85 }}>Premiação do mês</div>
           <div style={{ fontSize: 24, fontWeight: 800 }}>{brl(d.premiacao)}</div>
           <div style={{ fontSize: 11.5, marginTop: 2 }}>{d.espacos} espaço(s) · {d.pct}% · {brl(d.valor)} vendido</div>
           {d.proxima && <div style={{ fontSize: 11, marginTop: 6, background: 'rgba(255,255,255,.18)', borderRadius: 8, padding: '5px 8px' }}>🎯 Faltam <b>{d.proxima.faltam}</b> espaço(s) pra <b>{d.proxima.pct}%</b></div>}
         </div>
-        <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: '#334' }}>Minhas atividades{d.atrasadas > 0 ? <span style={{ color: '#C0392B' }}> · {d.atrasadas} atrasada(s)</span> : ''}</div>
-        {(d.tarefas || []).length === 0 && <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>Nada pendente. 🎉</div>}
-        {(d.tarefas || []).map(t => <div key={t.id} style={{ fontSize: 12, padding: '6px 0', borderTop: '1px solid #f3f3f3' }}>
-          <span>{t.atrasada ? '🔴' : '🟢'}</span> {t.titulo}
-          {t.prazo && <div style={{ fontSize: 10.5, color: t.atrasada ? '#C0392B' : '#94a3b8', marginLeft: 16 }}>prazo {dBR(t.prazo)}</div>}
-        </div>)}
+        {at && (at.prospeccoes.meta > 0 || at.contatos.meta > 0 || at.fechamentos.meta > 0) && <div style={{ border: '1px solid #eef1f4', borderRadius: 12, padding: '10px 12px' }}>
+          <b style={{ fontSize: 12, color: '#334' }}>Metas de atividade</b>
+          {at.contatos.meta > 0 && <Barra lab="Contatos hoje" feito={at.contatos.feito} meta={at.contatos.meta} cor="#2563eb" />}
+          {at.prospeccoes.meta > 0 && <Barra lab="Prospecções no mês" feito={at.prospeccoes.feito} meta={at.prospeccoes.meta} cor="#6D4AA8" />}
+          {at.fechamentos.meta > 0 && <Barra lab="Fechamentos no mês" feito={at.fechamentos.feito} meta={at.fechamentos.meta} cor="#1E874B" />}
+        </div>}
+        {/* Cobranças: próximos contatos vencidos/hoje */}
+        {(d.cobrancas || []).length > 0 && <div style={{ border: '1px solid #f1b4ab', background: '#fff7f5', borderRadius: 12, padding: '10px 12px' }}>
+          <b style={{ fontSize: 12, color: '#A3372A' }}>⚠️ Contatos a fazer ({d.cobrancas.length})</b>
+          {d.cobrancas.map(c => <div key={c.id} onClick={() => onNav && onNav('funil')} style={{ fontSize: 12, padding: '6px 0', borderTop: '1px solid #f6ddd6', cursor: 'pointer' }}>
+            <b>{c.fornecedor || 'Fornecedor'}</b> <span style={{ color: c.quando === 'vencido' ? '#b91c1c' : '#B45309', fontWeight: 700 }}>{c.quando === 'vencido' ? 'venceu ' : 'hoje '}{dBRl(c.data)}</span>
+          </div>)}
+        </div>}
+        {/* Agenda dos próximos contatos (futuros) */}
+        {(d.prospeccoes || []).filter(p => p.quando === 'futuro').length > 0 && <div style={{ border: '1px solid #eef1f4', borderRadius: 12, padding: '10px 12px' }}>
+          <b style={{ fontSize: 12, color: '#334' }}>📅 Agenda de contatos</b>
+          {d.prospeccoes.filter(p => p.quando === 'futuro').slice(0, 6).map(p => <div key={p.id} onClick={() => onNav && onNav('funil')} style={{ fontSize: 12, padding: '5px 0', borderTop: '1px solid #f3f3f3', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+            <span>{p.fornecedor}</span><span style={{ color: '#51607a', whiteSpace: 'nowrap' }}>{dBRl(p.data)}</span>
+          </div>)}
+        </div>}
+        {/* Atividades (tarefas de trade) */}
+        <div style={{ border: '1px solid #eef1f4', borderRadius: 12, padding: '10px 12px' }}>
+          <b style={{ fontSize: 12, color: '#334' }}>Atividades{d.atrasadas > 0 ? <span style={{ color: '#C0392B' }}> · {d.atrasadas} atrasada(s)</span> : ''}</b>
+          {(d.tarefas || []).length === 0 && <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>Nada pendente. 🎉</div>}
+          {(d.tarefas || []).map(t => <div key={t.id} style={{ fontSize: 12, padding: '6px 0', borderTop: '1px solid #f3f3f3' }}>
+            <span>{t.atrasada ? '🔴' : '🟢'}</span> {t.titulo}
+            {t.prazo && <div style={{ fontSize: 10.5, color: t.atrasada ? '#C0392B' : '#94a3b8', marginLeft: 16 }}>prazo {dBRl(t.prazo)}</div>}
+          </div>)}
+        </div>
+        <Anotacoes API={API} />
       </>}
     </div>
   );
 }
+// Bloco de notas pessoal da lateral de trade.
+function Anotacoes({ API }) {
+  const [itens, setItens] = useState([]); const [txt, setTxt] = useState('');
+  const carregar = useCallback(() => API.get('/trademkt/anotacoes').then(r => setItens(r.data.itens || [])).catch(() => {}), [API]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const add = () => { const t = txt.trim(); if (!t) return; API.post('/trademkt/anotacoes', { texto: t }).then(() => { setTxt(''); carregar(); }); };
+  const toggle = (i) => API.put(`/trademkt/anotacoes/${i.id}`, { feito: !i.feito }).then(carregar);
+  const del = (i) => API.delete(`/trademkt/anotacoes/${i.id}`).then(carregar);
+  return <div style={{ border: '1px solid #eef1f4', borderRadius: 12, padding: '10px 12px' }}>
+    <b style={{ fontSize: 12, color: '#334' }}>📝 Anotações</b>
+    <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+      <input value={txt} onChange={e => setTxt(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} placeholder="nova nota…" style={{ ...s.inp, padding: '6px 8px', fontSize: 12 }} />
+      <button onClick={add} style={{ ...s.btnMini }}>+</button>
+    </div>
+    {itens.length === 0 && <div style={{ fontSize: 11.5, color: '#999', marginTop: 6 }}>Sem anotações.</div>}
+    {itens.map(i => <div key={i.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12, padding: '5px 0', borderTop: '1px solid #f3f3f3' }}>
+      <input type="checkbox" checked={i.feito} onChange={() => toggle(i)} style={{ marginTop: 2 }} />
+      <span style={{ flex: 1, textDecoration: i.feito ? 'line-through' : 'none', color: i.feito ? '#94a3b8' : '#334' }}>{i.texto}</span>
+      <button onClick={() => del(i)} title="excluir" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#c0c7cf', fontSize: 13 }}>✕</button>
+    </div>)}
+  </div>;
+}
 
 // ── CRM / Leads: fornecedores que mais compramos (Alpha 7) + rastreio de contato/visita ──
 const LEAD_STATUS = [['novo', '🆕 Novo'], ['a_contatar', '📞 A contatar'], ['contatado', '✅ Contatado'], ['visita_agendada', '📅 Visita agendada'], ['parceiro', '🤝 Parceiro'], ['sem_interesse', '✖ Sem interesse']];
-function LeadsFornecedor({ API, gestao }) {
+function LeadsFornecedor({ API, gestao, onFunil }) {
   const [dias, setDias] = useState(90); const [d, setD] = useState(null); const [edit, setEdit] = useState({});
+  const abrirProspeccao = (it) => API.post('/trademkt/prospeccoes', { fornecedor_id: it.fornecedor_id, fornecedor_nome: it.fornecedor }).then(() => { if (window.confirm('Prospecção criada no funil. Ir para o funil agora?')) onFunil && onFunil(); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
   const carregar = useCallback(() => { setD(null); API.get('/trademkt/leads', { params: { dias } }).then(r => setD(r.data)).catch(() => setD({ itens: [], erro: true })); }, [API, dias]);
   useEffect(() => { carregar(); }, [carregar]);
   const setF = (fid, k, v) => setEdit(e => ({ ...e, [fid]: { ...e[fid], [k]: v } }));
@@ -2326,7 +2561,7 @@ function LeadsFornecedor({ API, gestao }) {
               <td style={{ padding: '6px 8px' }}><input value={val(it, 'responsavel') || ''} onChange={e => setF(it.fornecedor_id, 'responsavel', e.target.value)} placeholder="—" style={{ ...s.inp, padding: '4px 6px', width: 100 }} disabled={!gestao} /></td>
               <td style={{ padding: '6px 8px' }}><input value={val(it, 'contato') || ''} onChange={e => setF(it.fornecedor_id, 'contato', e.target.value)} placeholder="tel/e-mail" style={{ ...s.inp, padding: '4px 6px', width: 120 }} disabled={!gestao} /></td>
               <td style={{ padding: '6px 8px' }}><input value={val(it, 'obs') || ''} onChange={e => setF(it.fornecedor_id, 'obs', e.target.value)} placeholder="—" style={{ ...s.inp, padding: '4px 6px', width: 140 }} disabled={!gestao} /></td>
-              <td style={{ padding: '6px 8px' }}>{gestao && edit[it.fornecedor_id] && <button onClick={() => salvar(it)} style={s.btnMini}>salvar</button>}</td>
+              <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>{gestao && edit[it.fornecedor_id] && <button onClick={() => salvar(it)} style={s.btnMini}>salvar</button>}{gestao && <button onClick={() => abrirProspeccao(it)} title="abrir prospecção no funil" style={{ ...s.btnMini, marginLeft: 4 }}>🧲 funil</button>}</td>
             </tr>)}</tbody>
           </table>
         </div>}
