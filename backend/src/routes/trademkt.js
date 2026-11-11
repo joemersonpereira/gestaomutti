@@ -2050,20 +2050,21 @@ router.get('/portal/calendario/:id/sellout', async (req, res) => {
   res.json({ ok: true, periodo: { ini, fim }, anterior: { ini: antIni, fim: antFim }, atual, antes, variacao, escopo_tipo: ev.escopo_tipo });
 });
 
-// Sincroniza o funil de prospecção com o volume de compra do Alpha 7.
-// SEED: todo fornecedor com compra ≥ R$100 mil (365d) que ainda NÃO tem nenhum card entra na coluna
-// Prospecção (1 card). Depois disso, a cada NOVO marco de 100k abre outro card (se não houver aberto).
-// Idempotente: não duplica (só cria se o fornecedor não tiver card aberto). ERP só leitura.
+// Sincroniza o funil de prospecção com o volume de compra ACUMULADO (lifetime) do Alpha 7.
+// SEED: todo fornecedor com compra acumulada ≥ R$100 mil que ainda NÃO tem nenhum card entra na
+// coluna Prospecção (1 card). Depois, a CADA novo marco de R$100 mil acumulado, volta pra prospecção
+// (empilha outro card mesmo se já houver um aberto — escolha do Joe 2026-11-11). A virada p/ lifetime
+// fixa um baseline (migr 347) p/ não despejar os marcos históricos de uma vez. ERP só leitura.
 const PROSP_PASSO = 100000;
 async function sincronizarProspeccoes() {
   if (!habilitado()) return { ok: false, motivo: 'ERP indisponível' };
   let rows = [];
   try {
+    // Compra LIFETIME (acumulado de toda a vida do fornecedor) — sem janela de 365 dias.
     rows = await erpQuery(`SELECT f.id fornecedor_id, pe.nome fornecedor, COALESCE(SUM(inf.quantidade*inf.valorunitario),0) compra
         FROM notafiscal nf JOIN fornecedor f ON f.id=nf.fornecedorid JOIN pessoa pe ON pe.id=f.pessoaid
         JOIN itemnotafiscal inf ON inf.notafiscalid=nf.id
         WHERE nf.unidadenegocioid IN ${UNIS_GRUPO} AND nf.tipooperacao='1' AND nf.status NOT IN ('X','E') AND nf.fornecedorid IS NOT NULL
-          AND nf.datahoraentrada >= now() - interval '365 days'
         GROUP BY f.id, pe.nome HAVING COALESCE(SUM(inf.quantidade*inf.valorunitario),0) >= ${PROSP_PASSO}
         ORDER BY compra DESC LIMIT 300`, []);
   } catch (e) { return { ok: false, motivo: 'ERP indisponível' }; }
@@ -2073,22 +2074,27 @@ async function sincronizarProspeccoes() {
     rows.forEach(r => {
       try {
         const fid = String(r.fornecedor_id), compra = Number(r.compra) || 0;
-        const marcos = Math.floor(compra / PROSP_PASSO);
+        const marcos = Math.floor(compra / PROSP_PASSO); // nº de 100k acumulados na vida
         if (marcos < 1) return;
         const temCard = db.prepare('SELECT COUNT(*) n FROM tmkt_prospeccao WHERE empresa_id=? AND fornecedor_id=?').get(eid, fid).n;
-        const aberto = temCard ? db.prepare("SELECT 1 FROM tmkt_prospeccao WHERE empresa_id=? AND fornecedor_id=? AND etapa NOT IN ('ganho','perdido') LIMIT 1").get(eid, fid) : null;
-        const marcoRow = db.prepare('SELECT marcos_processados FROM tmkt_prospeccao_marco WHERE empresa_id=? AND fornecedor_id=?').get(eid, fid);
-        const criar = () => {
+        const marcoRow = db.prepare('SELECT marcos_processados, lifetime_base FROM tmkt_prospeccao_marco WHERE empresa_id=? AND fornecedor_id=?').get(eid, fid);
+        const criar = (nivel) => {
           db.prepare(`INSERT INTO tmkt_prospeccao (id,empresa_id,fornecedor_id,fornecedor_nome,etapa,origem,gatilho_valor,obs)
             VALUES (?,?,?,?, 'novo','automatica',?,?)`)
-            .run(uuid(), eid, fid, r.fornecedor || null, marcos * PROSP_PASSO,
-              `Fornecedor com R$ ${(marcos * PROSP_PASSO).toLocaleString('pt-BR')}+ comprados nos últimos 12 meses — vale procurar para trade.`);
+            .run(uuid(), eid, fid, r.fornecedor || null, nivel * PROSP_PASSO,
+              `Fornecedor com R$ ${(nivel * PROSP_PASSO).toLocaleString('pt-BR')}+ comprados (acumulado) — cruzou mais um marco de R$100 mil, vale procurar para trade.`);
           criadas++;
         };
-        if (!temCard) { criar(); } // SEED: traz pra prospecção de cara
-        else if (marcoRow && marcos > marcoRow.marcos_processados && !aberto) { criar(); } // novo marco e sem card aberto
-        db.prepare(`INSERT INTO tmkt_prospeccao_marco (empresa_id,fornecedor_id,marcos_processados,atualizado_em) VALUES (?,?,?,datetime('now'))
-          ON CONFLICT(empresa_id,fornecedor_id) DO UPDATE SET marcos_processados=excluded.marcos_processados, atualizado_em=datetime('now')`).run(eid, fid, marcos);
+        if (!marcoRow || !marcoRow.lifetime_base) {
+          // VIRADA p/ lifetime: fixa o baseline SEM despejar os marcos históricos. Seed só se nunca teve card.
+          if (!temCard) criar(marcos);
+        } else if (marcos > marcoRow.marcos_processados) {
+          // Cada novo 100k acumulado volta pra prospecção (empilha mesmo com card aberto). Cap de segurança: 5/sync.
+          const novos = Math.min(marcos - marcoRow.marcos_processados, 5);
+          for (let k = 1; k <= novos; k++) criar(marcoRow.marcos_processados + k);
+        }
+        db.prepare(`INSERT INTO tmkt_prospeccao_marco (empresa_id,fornecedor_id,marcos_processados,lifetime_base,atualizado_em) VALUES (?,?,?,1,datetime('now'))
+          ON CONFLICT(empresa_id,fornecedor_id) DO UPDATE SET marcos_processados=excluded.marcos_processados, lifetime_base=1, atualizado_em=datetime('now')`).run(eid, fid, marcos);
       } catch { /* por fornecedor */ }
     });
   });
