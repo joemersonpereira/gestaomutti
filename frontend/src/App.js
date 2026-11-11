@@ -46,6 +46,7 @@ import Entrega from './pages/Entrega';
 import Etiquetas from './pages/Etiquetas';
 import MarketingCalendario from './pages/MarketingCalendario';
 import AgendaGeral from './pages/AgendaGeral';
+import CobrancaTrade from './pages/CobrancaTrade';
 import Formulas from './pages/Formulas';
 import Patrimonio from './pages/Patrimonio';
 import Rhia from './pages/Rhia';
@@ -116,6 +117,7 @@ const MODULOS = [
   { id: 'painel-compras', label: '🧮 Painel de Compras', C: PainelCompras, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Gerente', 'Subgerente'] },
   { id: 'acordos', label: '🤝 Acordos e Negociações', C: Acordos, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Marketing'] },
   { id: 'trademkt', label: '📐 Trade Marketing', C: TradeMarketing, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Marketing'] },
+  { id: 'cobranca-trade', label: '💰 Cobrança (Trade)', C: CobrancaTrade, perfis: ['Financeiro', 'Controladoria', 'Diretor Geral', 'Gestor Geral', 'Supervisor', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing', 'Tesouraria'] },
   { id: 'financeiro', label: '💼 Financeiro', C: Financeiro, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
   { id: 'contas-receber', label: '📥 Contas a Receber', C: ContasReceber, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro'] },
   { id: 'validacao-financeira', label: '💰 Validação Financeira', C: ValidacaoFinanceira, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Tesouraria', 'Contabilidade', 'Comercial', 'Marketing', 'Supervisor'] },

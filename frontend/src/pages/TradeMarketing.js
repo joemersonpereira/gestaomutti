@@ -1330,6 +1330,11 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
             {v.contato_nome
               ? <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, padding: '6px 10px', background: '#F3F7F4', border: '1px solid #DDEBE1', borderRadius: 8 }}>👤 <b>{v.contato_nome}</b>{v.contato_cpf ? <span style={{ color: '#64748b', fontSize: 12 }}>· {v.contato_cpf}</span> : ''}<button type="button" onClick={() => { set('contato_nome', ''); set('contato_cpf', ''); }} style={{ ...s.mv, marginLeft: 'auto' }}>trocar</button></div>
               : <BuscaERP API={API} rota="/trademkt/erp/pessoas" campo="pessoas" placeholder="buscar pessoa no ERP (nome ou CPF)…" onPick={p => { set('contato_nome', p.nome); set('contato_cpf', p.cpf || ''); }} />}
+            <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+              <input value={v.contato_email || ''} onChange={e => set('contato_email', e.target.value)} placeholder="e-mail p/ cobrança" style={{ ...s.inp, flex: 1, minWidth: 150 }} />
+              <input value={v.contato_fone || ''} onChange={e => set('contato_fone', e.target.value)} placeholder="telefone/WhatsApp" style={{ ...s.inp, flex: 1, minWidth: 130 }} />
+            </div>
+            <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 2 }}>E-mail/telefone informados aqui têm prioridade sobre o ERP (que às vezes está errado) — usados na cobrança.</div>
           </div>
           <label style={{ ...s.lbl, minWidth: 240 }}>Lojas envolvidas <span style={{ fontWeight: 400, color: '#94a3b8' }}>(pode marcar mais de uma)</span>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
@@ -1614,6 +1619,9 @@ function GerarParcelas({ onGerar }) {
 }
 
 function Cobranca({ API, gestao }) {
+  const { usuario } = useAuth();
+  const financeiro = ['Financeiro', 'Controladoria', 'Diretor Geral', 'Gestor Geral'].includes(usuario.funcao); // quem pode dar baixa
+  const trade = gestao; // quem anexa o comprovante (perfis de trade)
   const [d, setD] = useState(null);
   const [cfg, setCfg] = useState(null);
   const carregar = useCallback(() => API.get('/trademkt/cobranca').then(r => setD(r.data)).catch(() => setD({ parcelas: [], resumo: {} })), [API]);
@@ -1621,7 +1629,9 @@ function Cobranca({ API, gestao }) {
   useEffect(() => { if (gestao) API.get('/trademkt/cobranca/config').then(r => setCfg(r.data)).catch(() => {}); }, [API, gestao]);
   const salvarCfg = patch => { const novo = { ...cfg, ...patch }; setCfg(novo); API.post('/trademkt/cobranca/config', { auto: novo.auto, dias: novo.dias }).catch(() => {}); };
   if (!d) return <div style={s.card}>Carregando…</div>;
-  const baixar = pid => API.post('/trademkt/parcelas/' + pid + '/baixa', {}).then(carregar);
+  const baixar = pid => API.post('/trademkt/parcelas/' + pid + '/baixa', {}).then(carregar).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const anexar = (pid, file) => { if (!file) return; const r = new FileReader(); r.onload = () => API.post(`/trademkt/parcelas/${pid}/comprovante`, { foto: r.result, mime: file.type }).then(carregar).catch(e => alert(e.response?.data?.erro || 'Erro')); r.readAsDataURL(file); };
+  const verComprov = pid => API.get(`/trademkt/parcelas/${pid}/comprovante`, { responseType: 'blob' }).then(r => window.open(URL.createObjectURL(r.data), '_blank')).catch(() => alert('Não foi possível abrir.'));
   const cobrar = vid => API.post('/trademkt/cobranca/email', { venda_id: vid }).then(r => alert('E-mail de cobrança enviado para ' + r.data.enviado_para)).catch(e => alert(e.response?.data?.erro || 'Erro ao enviar.'));
   const abertas = (d.parcelas || []).filter(p => !p.recebido);
   const porVenda = {}; abertas.forEach(p => { (porVenda[p.venda_id] = porVenda[p.venda_id] || { codigo: p.codigo, fornecedor: p.fornecedor_nome, email: p.contato_email, parcelas: [] }).parcelas.push(p); });
@@ -1652,9 +1662,14 @@ function Cobranca({ API, gestao }) {
         <table style={{ width: '100%', fontSize: 12.5, marginTop: 8, borderCollapse: 'collapse' }}><tbody>
           {v.parcelas.map(p => <tr key={p.id} style={{ borderTop: '1px solid #f3f3f3' }}>
             <td style={{ padding: '4px 0' }}>Parcela {p.numero} · {dBR(p.vencimento)} · {p.forma || '—'}</td>
-            <td>{p.situacao === 'vencido' ? <span style={{ ...s.tag, background: '#FBEAEA', color: '#C0392B' }}>vencida {p.dias_atraso}d</span> : <span style={s.tag}>a vencer</span>}{p.tem_comprovante ? <span style={{ ...s.tag, background: '#E7F0FB', color: '#2E5C9E', marginLeft: 4 }}>📎 comprovante</span> : null}</td>
+            <td>{p.situacao === 'vencido' ? <span style={{ ...s.tag, background: '#FBEAEA', color: '#C0392B' }}>vencida {p.dias_atraso}d</span> : <span style={s.tag}>a vencer</span>}
+              {p.tem_comprovante ? <span onClick={() => verComprov(p.id)} title="ver comprovante" style={{ ...s.tag, background: '#E7F0FB', color: '#2E5C9E', marginLeft: 4, cursor: 'pointer' }}>📎 comprovante</span>
+                : <span style={{ ...s.tag, background: '#FBEAEA', color: '#C0392B', marginLeft: 4 }}>⚠ sem comprovante</span>}</td>
             <td style={{ textAlign: 'right' }}>{brl(p.valor)}</td>
-            <td style={{ textAlign: 'right' }}>{gestao && <button onClick={() => baixar(p.id)} style={s.mv}>dar baixa</button>}</td>
+            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+              {trade && <label style={{ ...s.mv, cursor: 'pointer', color: '#2E5C9E' }}>📎 {p.tem_comprovante ? 'trocar' : 'anexar'}<input type="file" accept="image/*,application/pdf" style={{ display: 'none' }} onChange={e => anexar(p.id, e.target.files[0])} /></label>}
+              {financeiro && <button onClick={() => baixar(p.id)} disabled={!p.tem_comprovante} title={p.tem_comprovante ? 'Dar baixa' : 'Precisa do comprovante (anexado pelo Trade)'} style={{ ...s.mv, marginLeft: 8, ...(p.tem_comprovante ? { color: '#1E874B' } : { opacity: .45, cursor: 'not-allowed' }) }}>dar baixa</button>}
+            </td>
           </tr>)}
         </tbody></table>
       </div>;
@@ -2908,3 +2923,5 @@ const s = {
 
 // Calendário/agenda da empresa reaproveitado como página geral (menu "📅 Agenda").
 export { Calendario as CalendarioEmpresa };
+// Cobrança do trade reaproveitada como menu próprio (Financeiro dá baixa; Trade anexa comprovante).
+export { Cobranca as CobrancaTradeView };

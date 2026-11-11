@@ -1113,7 +1113,7 @@ router.post('/associacoes/acao', exigePerfil(...GESTAO), (req, res) => {
 });
 router.put('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
   const emp = req.usuario.empresa_id, b = req.body;
-  const campos = ['fornecedor_id', 'fornecedor_nome', 'loja_id', 'forma_pagamento', 'tema_id', 'tema_desc', 'plano_id', 'plano_nome', 'contrato_url', 'vigencia_ini', 'vigencia_fim', 'valor', 'status', 'observacao', 'origem', 'associacao_id', 'associacao_nome', 'motivo_perda'];
+  const campos = ['fornecedor_id', 'fornecedor_nome', 'loja_id', 'forma_pagamento', 'tema_id', 'tema_desc', 'plano_id', 'plano_nome', 'contrato_url', 'vigencia_ini', 'vigencia_fim', 'valor', 'status', 'observacao', 'origem', 'associacao_id', 'associacao_nome', 'motivo_perda', 'contato_email', 'contato_fone', 'contato_nome'];
   const set = [], vals = [];
   campos.forEach(c => { if (c in b) { set.push(`${c}=?`); vals.push(b[c] === '' ? null : b[c]); } });
   if ('eans' in b) { set.push('eans_monitorados=?'); vals.push(b.eans ? JSON.stringify(b.eans) : null); }
@@ -1202,10 +1202,13 @@ router.post('/vendas/:id/parcelas', exigePerfil(...GESTAO), (req, res) => {
   tx();
   res.json({ ok: true, geradas: n });
 });
-router.post('/parcelas/:pid/baixa', exigePerfil(...GESTAO), (req, res) => {
+// Baixa da parcela: SÓ o Financeiro (+ diretoria) pode dar baixa, e SEMPRE exige comprovante anexado
+// (o anexo é posto por quem é do Trade). Estorno (reverter) não exige comprovante. (Joe 2026-11-11)
+router.post('/parcelas/:pid/baixa', exigePerfil('Financeiro', 'Controladoria', 'Diretor Geral', 'Gestor Geral'), (req, res) => {
   const p = db.prepare('SELECT * FROM tmkt_parcelas WHERE id=? AND empresa_id=?').get(req.params.pid, req.usuario.empresa_id);
   if (!p) return res.status(404).json({ erro: 'Parcela não encontrada.' });
   const receber = !p.recebido;
+  if (receber && !(p.comprovante_em || p.comprovante_foto)) return res.status(400).json({ erro: 'Anexe o comprovante antes de dar baixa (o anexo é feito pelo Trade).' });
   db.prepare('UPDATE tmkt_parcelas SET recebido=?, recebido_em=?, recebido_valor=? WHERE id=?')
     .run(receber ? 1 : 0, receber ? new Date().toISOString().slice(0, 10) : null, receber ? (Number(req.body.valor) || p.valor) : 0, p.id);
   res.json({ ok: true });
