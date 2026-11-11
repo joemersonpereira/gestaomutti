@@ -224,7 +224,7 @@ function BriefingThread({ API, listUrl, postUrl, anexoUrl, podeComprovar }) {
     <div style={{ display: 'grid', gap: 8, maxHeight: 320, overflowY: 'auto', padding: '4px 0' }}>
       {msgs.map(m => { const gest = m.autor === 'gestao';
         return <div key={m.id} style={{ justifySelf: gest ? 'start' : 'end', background: m.tipo === 'comprovacao' ? '#E6F4EC' : (gest ? '#F3F7F4' : '#EFF6FF'), borderRadius: 10, padding: '7px 10px', maxWidth: '88%' }}>
-          <div style={{ fontSize: 10.5, color: '#64748b', fontWeight: 700 }}>{gest ? '🏢 ' : '🏷️ '}{m.autor_nome || (gest ? 'Gestão' : 'Fornecedor')}{m.tipo === 'comprovacao' ? ' · ✅ comprovação' : ''} <span style={{ fontWeight: 400 }}>· {dBR(m.criado_em)}</span></div>
+          <div style={{ fontSize: 10.5, color: '#64748b', fontWeight: 700 }}>{gest ? '🏢 ' : '🏷️ '}{m.autor_nome || (gest ? 'Gestão' : 'Fornecedor')}{m.tipo === 'comprovacao' ? ' · ✅ comprovação' : ''}{m.espaco_desc ? ` · 📍 ${m.espaco_desc}${m.espaco_loja ? ' (' + m.espaco_loja + ')' : ''}` : ''} <span style={{ fontWeight: 400 }}>· {dBR(m.criado_em)}</span></div>
           {m.texto && <div style={{ fontSize: 13, marginTop: 2, whiteSpace: 'pre-wrap' }}>{m.texto}</div>}
           {m.tem_anexo && <Anexo API={API} direct={false} url={anexoUrl(m.id)} mime={m.anexo_mime} nome={m.anexo_nome} />}
         </div>; })}
@@ -243,6 +243,7 @@ function MaterialEspacos({ API, venda, onChange }) {
   const itemAcao = (iid, rota, body) => API.post(`/trademkt/portal/item/${iid}/${rota}`, body || {}).then(onChange).catch(e => alert(e.response?.data?.erro || 'Erro.'));
   const reprovar = iid => { const m = window.prompt('Motivo da reprovação (o fornecedor vê e reenvia):', ''); if (m !== null) itemAcao(iid, 'arte-reprovar', { motivo: m }); };
   const subirArte = (iid, file) => { if (!file) return; const r = new FileReader(); r.onload = () => itemAcao(iid, 'arte', { arte: r.result, mime: file.type }); r.readAsDataURL(file); };
+  const comprovarEspaco = (espId, file) => { if (!file) return; const r = new FileReader(); r.onload = () => API.post(`/trademkt/portal/venda/${venda.id}/briefing`, { tipo: 'comprovacao', espaco_id: espId, anexo: r.result, mime: file.type, texto: 'Comprovação da execução desta posição' }).then(onChange).catch(e => alert(e.response?.data?.erro || 'Erro ao comprovar.')); r.readAsDataURL(file); };
   const esp = venda.espacos || [];
   if (!esp.length) return <div style={s.vazio}>Esta negociação ainda não tem posições.</div>;
   return <div style={{ display: 'grid', gap: 8 }}>
@@ -272,6 +273,7 @@ function MaterialEspacos({ API, venda, onChange }) {
           {temMaterial && e.arte_status !== 'reprovada' && <button onClick={() => reprovar(e.id)} style={{ ...s.mv, color: '#B91C1C' }}>✖ Reprovar</button>}
           {!e.tem_arte && <label style={{ ...s.mv, cursor: 'pointer', color: '#2E5C9E' }}>⬆ {e.producao ? 'Subir arte produzida' : 'Inserir material'}<input type="file" accept="image/*,video/*,audio/*,application/pdf" style={{ display: 'none' }} onChange={ev => subirArte(e.id, ev.target.files[0])} /></label>}
           {e.producao && <button onClick={() => itemAcao(e.id, 'isentar', { isenta: !e.producao_isenta })} style={{ ...s.mv, color: '#B45309' }}>{e.producao_isenta ? 'voltar a cobrar arte' : '🎁 isentar arte (−R$150)'}</button>}
+          <label style={{ ...s.mv, cursor: 'pointer', color: '#1E874B' }} title="Foto da execução desta posição (o fornecedor vê como comprovação)">📸 Comprovar execução<input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={ev => comprovarEspaco(e.id, ev.target.files[0])} /></label>
         </div>
       </div>; })}
   </div>;

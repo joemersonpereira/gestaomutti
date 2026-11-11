@@ -1438,8 +1438,10 @@ router.delete('/portal/calendario/:id/espacos/:linkId', exigePerfil(...GESTAO), 
 
 // ── BRIEFING da negociação (chat + anexos + comprovação) ──────────────────
 function briefingLista(emp, vendaId) {
-  return db.prepare(`SELECT id, autor, autor_nome, COALESCE(tipo,'msg') tipo, texto, (anexo_b64 IS NOT NULL) AS tem_anexo, anexo_mime, anexo_nome, criado_em
-    FROM tmkt_venda_briefing WHERE empresa_id=? AND venda_id=? ORDER BY criado_em`).all(emp, vendaId)
+  return db.prepare(`SELECT b.id, b.autor, b.autor_nome, COALESCE(b.tipo,'msg') tipo, b.texto, (b.anexo_b64 IS NOT NULL) AS tem_anexo, b.anexo_mime, b.anexo_nome, b.espaco_id, b.criado_em,
+      ve.espaco_desc, ve.loja_nome AS espaco_loja
+    FROM tmkt_venda_briefing b LEFT JOIN tmkt_venda_espacos ve ON ve.id=b.espaco_id
+    WHERE b.empresa_id=? AND b.venda_id=? ORDER BY b.criado_em`).all(emp, vendaId)
     .map(m => ({ ...m, tem_anexo: !!m.tem_anexo }));
 }
 router.get('/portal/venda/:id/briefing', (req, res) => {
@@ -1449,10 +1451,10 @@ router.post('/portal/venda/:id/briefing', exigePerfil(...GESTAO), (req, res) => 
   const emp = req.usuario.empresa_id, b = req.body || {};
   if (!b.texto && !b.anexo) return res.status(400).json({ erro: 'Escreva algo ou anexe um arquivo.' });
   if (!db.prepare('SELECT 1 FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp)) return res.status(404).json({ erro: 'Negociação não encontrada.' });
-  db.prepare(`INSERT INTO tmkt_venda_briefing (id, empresa_id, venda_id, autor, autor_nome, tipo, texto, anexo_b64, anexo_mime, anexo_nome, criado_em)
-     VALUES (?,?,?,?,?,?,?,?,?,?, datetime('now'))`)
+  db.prepare(`INSERT INTO tmkt_venda_briefing (id, empresa_id, venda_id, autor, autor_nome, tipo, texto, anexo_b64, anexo_mime, anexo_nome, espaco_id, criado_em)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?, datetime('now'))`)
     .run(uuid(), emp, req.params.id, 'gestao', req.usuario.nome || null, b.tipo === 'comprovacao' ? 'comprovacao' : 'msg',
-      b.texto ? String(b.texto).slice(0, 4000) : null, b.anexo ? String(b.anexo).slice(0, 8_000_000) : null, b.mime || null, b.nome || null);
+      b.texto ? String(b.texto).slice(0, 4000) : null, b.anexo ? String(b.anexo).slice(0, 8_000_000) : null, b.mime || null, b.nome || null, b.espaco_id || null);
   res.json({ ok: true });
 });
 router.get('/portal/briefing/:bid/anexo', (req, res) => {

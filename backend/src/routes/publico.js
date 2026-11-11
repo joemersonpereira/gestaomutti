@@ -467,8 +467,10 @@ router.get('/trade/acompanhamento/:token', async (req, res) => {
       comprado, pct: v.meta_compra_valor ? Math.round(comprado / v.meta_compra_valor * 100) : null, periodo: per };
   }
   // comprovação da EXECUÇÃO que a gestão anexou (fotos no briefing, tipo='comprovacao') — o fornecedor vê a prova da ação
-  const compsGestao = db.prepare(`SELECT id, texto, criado_em, autor_nome, (anexo_b64 IS NOT NULL) AS tem_foto FROM tmkt_venda_briefing WHERE venda_id=? AND tipo='comprovacao' ORDER BY criado_em DESC`).all(v.id)
-    .map(c => ({ id: c.id, texto: c.texto, criado_em: c.criado_em, autor: c.autor_nome, foto: c.tem_foto ? `/api/publico/trade/acompanhamento/${req.params.token}/comprovacao/${c.id}/foto` : null }));
+  const compsGestao = db.prepare(`SELECT b.id, b.texto, b.criado_em, b.autor_nome, (b.anexo_b64 IS NOT NULL) AS tem_foto, ve.espaco_desc, ve.loja_nome AS espaco_loja
+    FROM tmkt_venda_briefing b LEFT JOIN tmkt_venda_espacos ve ON ve.id=b.espaco_id
+    WHERE b.venda_id=? AND b.tipo='comprovacao' ORDER BY b.criado_em DESC`).all(v.id)
+    .map(c => ({ id: c.id, texto: c.texto, criado_em: c.criado_em, autor: c.autor_nome, posicao: c.espaco_desc ? (c.espaco_desc + (c.espaco_loja ? ' (' + c.espaco_loja + ')' : '')) : null, foto: c.tem_foto ? `/api/publico/trade/acompanhamento/${req.params.token}/comprovacao/${c.id}/foto` : null }));
   res.json({ ok: true, codigo: v.codigo, fornecedor: v.fornecedor_nome, status: v.status, status_rotulo: ROT[v.status] || v.status,
     valor: v.valor, forma_pagamento: v.forma_pagamento, vigencia_ini: v.vigencia_ini, vigencia_fim: v.vigencia_fim,
     comprovacao_prazo_dias: v.comprovacao_prazo_dias, comprovacao_ate: v.comprovacao_ate, comprovacao_enviada: !!v.comprovacao_em,
