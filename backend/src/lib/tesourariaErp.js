@@ -368,4 +368,18 @@ function marcarPagoCobranca(empresaId, cobrancaId, { pago = true, usuarioId } = 
   return { ok: true };
 }
 
-module.exports = { getConfig, setConfig, quebras, marcarCobranca, indicadoresSetor, sessoesDia, cancelamentos, mapaUsuarioColaborador, cuponsPorOperador, premiarTopOperador, aplicarPontosQuebra, debitosOperador, marcarPagoCobranca, conferenciaCaixa };
+// Lista de estornos do período (p/ o drill-down do painel da loja).
+async function estornosLista(empresaId, { ini, fim, lojaId } = {}) {
+  const unis = unisEmpresa(empresaId, lojaId);
+  if (!unis.length || !habilitado()) return { ok: true, itens: [] };
+  const rows = await erpQuery(`
+    SELECT ev.datahora::date::text data, ev.motivo, v.valortotal::float8 valor, p.nome operador, u.login
+    FROM estornovenda ev
+    LEFT JOIN venda v ON v.id=ev.vendaid
+    LEFT JOIN usuario u ON u.id=ev.usuarioid LEFT JOIN pessoa p ON p.id=u.pessoaid
+    WHERE ev.unidadenegocioid = ANY($1::bigint[]) AND ev.datahora >= $2::date AND ev.datahora < ($3::date + 1)
+    ORDER BY ev.datahora DESC LIMIT 200`, [unis, ini, fim]);
+  return { ok: true, itens: rows.map(r => ({ data: r.data, operador: (r.operador || r.login || '—').trim(), valor: round(r.valor), motivo: r.motivo || '' })) };
+}
+
+module.exports = { getConfig, setConfig, quebras, marcarCobranca, indicadoresSetor, sessoesDia, cancelamentos, mapaUsuarioColaborador, cuponsPorOperador, premiarTopOperador, aplicarPontosQuebra, debitosOperador, marcarPagoCobranca, conferenciaCaixa, estornosLista };

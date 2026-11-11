@@ -37,6 +37,7 @@ export default function TesourariaCaixa({ embed } = {}) {
   const [dia, setDia] = useState(null);
   const [geral, setGeral] = useState(null); // visão de todas as lojas do dia (caixas + diferenças + anexos)
   const [painel, setPainel] = useState(null); // indicadores do dia da loja selecionada (cancel/estorno/cartão/atendimento)
+  const [detalhe, setDetalhe] = useState(null); // drill-down de um indicador (modal)
   const [anexos, setAnexos] = useState([]);
   const [msg, setMsg] = useState('');
   const [cfg, setCfg] = useState(false);
@@ -104,6 +105,7 @@ export default function TesourariaCaixa({ embed } = {}) {
   const abrirPasta = (tipo) => { setPastaTipo(tipo); API.get('/tesouraria/pasta/listar').then(r => setPasta(r.data)).catch(e => { setPasta({ arquivos: [], erro: e.response?.data?.erro || 'Erro' }); }); };
   const importar = (arq) => { const ff = form.despesa || {}; API.post('/tesouraria/pasta/importar', { caminho: arq.caminho, loja_id: loja, data, tipo: pastaTipo, descricao: ff.desc || arq.arquivo, plano_contas: ff.plano || null, valor: ff.valor !== '' ? Number(ff.valor) : null }).then(() => { setMsg('✅ Importado da pasta.'); setPasta(null); carregar(); setTimeout(() => setMsg(''), 2500); }).catch(e => { setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro ao importar.')); setTimeout(() => setMsg(''), 6000); }); };
 
+  const abrirDetalhe = (tipo) => { setDetalhe({ tipo, loading: true }); API.get(`/tesouraria/loja-painel-detalhe?loja=${loja}&data=${data}&tipo=${tipo}`).then(r => setDetalhe({ ...r.data, tipo, loading: false })).catch(() => setDetalhe({ tipo, loading: false, erro: true })); };
   // diferença por operador (login→valor) da loja selecionada, p/ mostrar no grid de Caixas do dia
   const difPorOp = {};
   ((geral || []).find(g => g.loja_id === loja)?.diferencas || []).forEach(dd => { const k = (dd.login || dd.operador || '').trim(); if (k) difPorOp[k] = (difPorOp[k] || 0) + (Number(dd.valor) || 0); });
@@ -255,10 +257,10 @@ export default function TesourariaCaixa({ embed } = {}) {
         <div style={{ ...s.card, flex: '1 1 320px', marginBottom: 0 }}>
           <div style={{ fontWeight: 700, marginBottom: 10 }}>📊 Indicadores do dia <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>— {lojas.find(l => l.id === loja)?.nome || ''}</span></div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 10 }}>
-            <div style={ind.box}><div style={ind.lab}>🚫 Cancelamentos</div><div style={ind.val}>{painel.cancelamentos.qtd}{painel.cancelamentos.taxa != null ? <span style={ind.sub}> · {painel.cancelamentos.taxa}%</span> : ''}</div>{painel.cancelamentos.fora > 0 && <div style={{ fontSize: 11.5, color: '#b91c1c', fontWeight: 700 }}>⏰ {painel.cancelamentos.fora} fora do horário{painel.cancelamentos.valorFora ? ` · ${brl(painel.cancelamentos.valorFora)}` : ''}</div>}</div>
-            <div style={ind.box}><div style={ind.lab}>↩️ Estornos</div><div style={ind.val}>{painel.estornos.qtd}{painel.estornos.taxa != null ? <span style={ind.sub}> · {painel.estornos.taxa}%</span> : ''}</div></div>
-            <div style={ind.box}><div style={ind.lab}>💳 Erros de cartão</div><div style={ind.val}>{painel.cartaoErros.qtd}</div>{painel.cartaoErros.trocaDeForma > 0 && <div style={{ fontSize: 11.5, color: '#b45309' }}>{painel.cartaoErros.trocaDeForma} troca de forma</div>}</div>
-            <div style={ind.box}><div style={ind.lab}>🏅 Atendimento (top)</div>{painel.atendimento ? <><div style={{ fontWeight: 700, fontSize: 13 }}>{painel.atendimento.operador}</div><div style={{ fontSize: 11.5, color: '#475569' }}>{painel.atendimento.cupons} cupons · {brl(painel.atendimento.valor)}</div></> : <div style={{ color: '#94a3b8', fontSize: 12 }}>—</div>}</div>
+            <div onClick={() => abrirDetalhe('cancelamentos')} style={{ ...ind.box, cursor: 'pointer' }} title="ver detalhe"><div style={ind.lab}>🚫 Cancelamentos</div><div style={ind.val}>{painel.cancelamentos.qtd}{painel.cancelamentos.taxa != null ? <span style={ind.sub}> · {painel.cancelamentos.taxa}%</span> : ''}</div>{painel.cancelamentos.fora > 0 && <div style={{ fontSize: 11.5, color: '#b91c1c', fontWeight: 700 }}>⏰ {painel.cancelamentos.fora} fora do horário{painel.cancelamentos.valorFora ? ` · ${brl(painel.cancelamentos.valorFora)}` : ''}</div>}</div>
+            <div onClick={() => abrirDetalhe('estornos')} style={{ ...ind.box, cursor: 'pointer' }} title="ver detalhe"><div style={ind.lab}>↩️ Estornos</div><div style={ind.val}>{painel.estornos.qtd}{painel.estornos.taxa != null ? <span style={ind.sub}> · {painel.estornos.taxa}%</span> : ''}</div></div>
+            <div onClick={() => abrirDetalhe('cartao')} style={{ ...ind.box, cursor: 'pointer' }} title="ver detalhe"><div style={ind.lab}>💳 Erros de cartão</div><div style={ind.val}>{painel.cartaoErros.qtd}</div>{painel.cartaoErros.trocaDeForma > 0 && <div style={{ fontSize: 11.5, color: '#b45309' }}>{painel.cartaoErros.trocaDeForma} troca de forma</div>}</div>
+            <div onClick={() => abrirDetalhe('atendimento')} style={{ ...ind.box, cursor: 'pointer' }} title="ver detalhe"><div style={ind.lab}>🏅 Atendimento (top)</div>{painel.atendimento ? <><div style={{ fontWeight: 700, fontSize: 13 }}>{painel.atendimento.operador}</div><div style={{ fontSize: 11.5, color: '#475569' }}>{painel.atendimento.cupons} cupons · {brl(painel.atendimento.valor)}</div></> : <div style={{ color: '#94a3b8', fontSize: 12 }}>—</div>}</div>
           </div>
           <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>Cancelamentos/estornos e erros de cartão são só para acompanhamento da gestão. O detalhe fica nas abas Cancelamentos, Diferenças e Atendimento do caixa.</div>
         </div>
@@ -286,6 +288,41 @@ export default function TesourariaCaixa({ embed } = {}) {
           </div>
         </div>
       )}
+
+      {detalhe && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }} onClick={() => setDetalhe(null)}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 18, width: 'min(680px,94vw)', maxHeight: '82vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}><b style={{ fontSize: 15 }}>{DET_TIT[detalhe.tipo] || 'Detalhe'} — {data.split('-').reverse().join('/')}</b><button style={{ ...s.btn, marginLeft: 'auto', padding: '3px 8px' }} onClick={() => setDetalhe(null)}>✕</button></div>
+            {detalhe.loading ? <div style={{ color: '#94a3b8', padding: 10 }}>carregando…</div> : detalhe.erro ? <div style={{ color: '#b91c1c' }}>Não foi possível carregar.</div> : (
+              <>
+                {detalhe.tipo === 'cancelamentos' && <ListaDet cols={['Caixa', 'Autorizado por (gerente)', 'Valor', 'Ponto']} linhas={(detalhe.itens || []).map(c => [c.caixa || '—', c.gerente || '—', brl(c.valor), c.situacao === 'fora' ? '⏰ fora do horário' : c.situacao === 'dentro' ? 'no horário' : 'sem vínculo'])} vazio="Nenhum cancelamento no dia." />}
+                {detalhe.tipo === 'estornos' && <ListaDet cols={['Operador', 'Valor', 'Motivo']} linhas={(detalhe.itens || []).map(e => [e.operador, brl(e.valor), e.motivo || '—'])} vazio="Nenhum estorno no dia." />}
+                {detalhe.tipo === 'atendimento' && <ListaDet cols={['#', 'Operador', 'Cupons', 'Valor', 'Ticket']} linhas={(detalhe.itens || []).map((o, i) => [i + 1, o.operador, o.cupons, brl(o.valor), brl(o.ticket)])} vazio="Sem atendimento no dia." />}
+                {detalhe.tipo === 'cartao' && <>
+                  <div style={{ fontSize: 13, marginBottom: 8 }}><b>{detalhe.total}</b> correções · <b>{detalhe.trocaDeForma}</b> com troca de forma (modalidade errada)</div>
+                  <div style={{ fontWeight: 700, fontSize: 12.5, margin: '6px 0 2px' }}>Por troca de modalidade</div>
+                  <ListaDet cols={['Troca', 'Qtd', 'Valor']} linhas={(detalhe.porTroca || []).map(x => [x.nome, x.n, brl(x.valor)])} vazio="—" />
+                  <div style={{ fontWeight: 700, fontSize: 12.5, margin: '10px 0 2px' }}>Por operador (modalidade errada)</div>
+                  <ListaDet cols={['Operador', 'Qtd', 'Valor']} linhas={(detalhe.porOperador || []).map(x => [x.nome, x.n, brl(x.valor)])} vazio="—" />
+                </>}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const DET_TIT = { cancelamentos: '🚫 Cancelamentos do dia', estornos: '↩️ Estornos do dia', cartao: '💳 Erros de cartão do dia', atendimento: '🏅 Atendimento do dia' };
+function ListaDet({ cols, linhas, vazio }) {
+  if (!linhas || !linhas.length) return <div style={{ fontSize: 13, color: '#94a3b8', padding: 6 }}>{vazio}</div>;
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+        <thead><tr style={{ textAlign: 'left', color: '#64748b', borderBottom: '2px solid #eef1f4' }}>{cols.map(c => <th key={c} style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>{c}</th>)}</tr></thead>
+        <tbody>{linhas.map((ln, i) => <tr key={i} style={{ borderTop: '1px solid #f3f4f6' }}>{ln.map((cel, j) => <td key={j} style={{ padding: '6px 8px', fontWeight: j === 0 ? 600 : 400 }}>{cel}</td>)}</tr>)}</tbody>
+      </table>
     </div>
   );
 }

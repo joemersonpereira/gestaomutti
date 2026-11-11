@@ -213,6 +213,31 @@ router.get('/loja-painel', async (req, res) => {
   } catch (e) { res.status(503).json({ erro: 'Indicadores indisponíveis.', detalhe: String(e.message || e) }); }
 });
 
+// Detalhe de um indicador do painel da loja (drill-down ao clicar no tile). Acessível ao gerente da loja.
+router.get('/loja-painel-detalhe', async (req, res) => {
+  try {
+    const emp = req.usuario.empresa_id, data = req.query.data || hoje(), loja = req.query.loja, tipo = req.query.tipo;
+    if (!loja || !podeLoja(req, loja)) return res.status(403).json({ erro: 'Sem acesso a esta loja.' });
+    if (tipo === 'cancelamentos') {
+      const r = await t.cancelamentos(emp, { ini: data, fim: data, lojaId: loja });
+      return res.json({ tipo, itens: (r.cancelamentos || []).map(c => ({ caixa: c.caixa, gerente: c.gerente, valor: c.valor, situacao: c.situacao })) });
+    }
+    if (tipo === 'estornos') {
+      const r = await t.estornosLista(emp, { ini: data, fim: data, lojaId: loja });
+      return res.json({ tipo, itens: r.itens || [] });
+    }
+    if (tipo === 'cartao') {
+      const r = await cc.correcoes(emp, { ini: data, fim: data, lojaId: loja });
+      return res.json({ tipo, total: r.total || 0, trocaDeForma: r.trocaDeForma || 0, porTroca: r.porTroca || [], porOperador: r.porOperador || [] });
+    }
+    if (tipo === 'atendimento') {
+      const r = await t.cuponsPorOperador(emp, { ini: data, fim: data, lojaId: loja });
+      return res.json({ tipo, itens: (r.operadores || []).slice(0, 30) });
+    }
+    return res.status(400).json({ erro: 'Tipo inválido.' });
+  } catch (e) { res.status(503).json({ erro: 'Detalhe indisponível.', detalhe: String(e.message || e) }); }
+});
+
 // OCR do comprovante (foto/PDF) → lê o valor (e fornecedor) pra preencher na hora.
 router.post('/ler-valor', async (req, res) => {
   const b = req.body || {};
