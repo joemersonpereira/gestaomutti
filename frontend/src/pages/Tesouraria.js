@@ -14,35 +14,39 @@ const pctf = n => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigi
 // soControle: modo "controle da gestão" — mostra só o que é leitura/monitoramento; esconde o que
 // abre tarefa/cobrança pro operador (débitos, lançar diferença, justificativas) e a cobrança na tela
 // de Quebras. Pedido do Joe 2026-11-11: "é só um controle pra gestão, sem abrir tarefa pro operador".
-export default function Tesouraria({ embed, soControle } = {}) {
+// embed: sem Banner. soControle: modo controle da gestão. tabFixa: renderiza SÓ aquela aba sem a
+// barra de abas (o hub da Tesouraria dirige as abas num conjunto único — Joe 2026-11-11: fechamento
+// do dia junto com as apurações).
+export default function Tesouraria({ embed, soControle, tabFixa } = {}) {
   const { API, usuario } = useAuth();
   const ehTesouraria = ['Tesouraria', 'Financeiro', 'Controladoria', 'Supervisor', 'Gestor Geral', 'Diretor Geral'].includes(usuario.funcao);
-  const [aba, setAba] = useState('ranking');
+  const [abaState, setAba] = useState('ranking');
+  const aba = tabFixa || abaState;
   return (
     <div style={s.wrap}>
       {!embed && <Banner emoji="🏦" titulo="Tesouraria" cor="roxo" sub="Diferenças de caixa — sobra (+) e falta (−). No ranking, tudo soma em módulo." />}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+      {!tabFixa && <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
         <Tab a="ranking" aba={aba} set={setAba}>🏆 Caixa Destaque</Tab>
         {ehTesouraria && <Tab a="quebras" aba={aba} set={setAba}>💸 Diferenças (ERP)</Tab>}
         {ehTesouraria && <Tab a="indicadores" aba={aba} set={setAba}>📈 Setor</Tab>}
         {ehTesouraria && <Tab a="cancelamentos" aba={aba} set={setAba}>🚫 Cancelamentos</Tab>}
         {ehTesouraria && <Tab a="atendimento" aba={aba} set={setAba}>🧾 Atendimento do caixa</Tab>}
         {ehTesouraria && <Tab a="conferencia" aba={aba} set={setAba}>✅ Conferência</Tab>}
-        {!soControle && ehTesouraria && <Tab a="debitos" aba={aba} set={setAba}>💵 Débitos do operador</Tab>}
+        {ehTesouraria && <Tab a="debitos" aba={aba} set={setAba}>💵 Débitos por caixa</Tab>}
         {!soControle && ehTesouraria && <Tab a="lancar" aba={aba} set={setAba}>Lançar</Tab>}
         {!soControle && <Tab a="justif" aba={aba} set={setAba}>{ehTesouraria ? 'Justificativas' : 'Minhas justificativas'}</Tab>}
-        <Tab a="criterios" aba={aba} set={setAba}>Critérios</Tab>
-      </div>
+        {!soControle && <Tab a="criterios" aba={aba} set={setAba}>Critérios</Tab>}
+      </div>}
       {aba === 'ranking' && <Ranking API={API} usuario={usuario} ehTesouraria={ehTesouraria} />}
       {aba === 'quebras' && ehTesouraria && <QuebrasErp API={API} soControle={soControle} />}
       {aba === 'indicadores' && ehTesouraria && <IndicadoresSetor API={API} />}
       {aba === 'cancelamentos' && ehTesouraria && <CancelamentosPonto API={API} />}
       {aba === 'atendimento' && ehTesouraria && <AtendimentoCaixa API={API} />}
-      {aba === 'debitos' && !soControle && ehTesouraria && <DebitosOperador API={API} />}
+      {aba === 'debitos' && ehTesouraria && <DebitosOperador API={API} />}
       {aba === 'conferencia' && ehTesouraria && <Conferencia API={API} />}
       {aba === 'lancar' && !soControle && ehTesouraria && <Lancar API={API} usuario={usuario} ehTesouraria={ehTesouraria} />}
       {aba === 'justif' && !soControle && <Justificativas API={API} />}
-      {aba === 'criterios' && <CriteriosCaixa API={API} />}
+      {aba === 'criterios' && !soControle && <CriteriosCaixa API={API} />}
     </div>
   );
 }
@@ -369,7 +373,7 @@ function QuebrasErp({ API, soControle }) {
     { k: 'operador', label: 'Operador', tipo: 'txt', get: q => q.operador || '' },
     { k: 'loja', label: 'Loja', tipo: 'txt', get: q => q.loja || '' },
     { k: 'diferenca', label: 'Diferença', tipo: 'num', get: q => Number(q.valor) || 0 },
-    { k: 'cobranca', label: 'Cobrança', tipo: 'txt', get: q => q.cobranca?.status || 'pendente' },
+    ...(soControle ? [] : [{ k: 'cobranca', label: 'Cobrança', tipo: 'txt', get: q => q.cobranca?.status || 'pendente' }]),
     { k: 'obs', label: 'Obs.', tipo: 'txt', get: q => q.observacao || '' },
   ];
   const { linhas: linhasOrd, ordem, clicar, seta } = useOrdenavel(linhas, COLS, { col: 'data', dir: 'desc' });
@@ -403,15 +407,15 @@ function QuebrasErp({ API, soControle }) {
       {R && <div style={{ ...s.card, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <StatTes n={R.faltas} l="Faltas" cor="#C0392B" bg="#FBEAEA" sub={brl(R.valorFalta)} />
         <StatTes n={R.sobras} l="Sobras" cor="#1E874B" bg="#EAF7EF" sub={brl(R.valorSobra)} />
-        <StatTes n={R.acobrar} l={`Faltas a cobrar (>R$${d.limiar})`} cor="#8A2E2E" bg="#FBEAEA" sub={brl(R.valorAcobrar)} />
-        <StatTes n={R.pendentes} l="Cobranças pendentes" cor="#B7791F" bg="#FCF7EA" />
+        {!soControle && <StatTes n={R.acobrar} l={`Faltas a cobrar (>R$${d.limiar})`} cor="#8A2E2E" bg="#FBEAEA" sub={brl(R.valorAcobrar)} />}
+        {!soControle && <StatTes n={R.pendentes} l="Cobranças pendentes" cor="#B7791F" bg="#FCF7EA" />}
         <StatTes n={R.sobrasRelevantes} l={`Sobras relevantes (>R$${d.limiar})`} cor="#2E5C9E" bg="#EEF3FB" />
       </div>}
       <div style={s.card}>
         {carreg ? <div style={s.vazio}>carregando…</div> : !linhas.length ? <div style={s.vazio}>Nenhuma quebra no período.</div> :
         <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-          <thead><tr>{COLS.map((c, i) => (<React.Fragment key={c.k}><ThOrd c={c} ordem={ordem} clicar={clicar} seta={seta} base={s.th} />{i === 4 && <th style={s.th}>Ação</th>}</React.Fragment>))}</tr></thead>
+          <thead><tr>{COLS.map((c) => (<React.Fragment key={c.k}><ThOrd c={c} ordem={ordem} clicar={clicar} seta={seta} base={s.th} />{!soControle && c.k === 'cobranca' && <th style={s.th}>Ação</th>}</React.Fragment>))}</tr></thead>
           <tbody>{linhasOrd.map(q => { const [cor, lab] = ST_COBR[q.cobranca?.status] || ST_COBR.pendente;
             return (
             <tr key={q.id} style={{ borderTop: '1px solid #f2f2f2', background: q.acobrar && q.cobranca?.status === 'pendente' ? '#FFFCF5' : '#fff' }}>
@@ -421,17 +425,16 @@ function QuebrasErp({ API, soControle }) {
               <td style={{ ...s.td, fontWeight: 700, color: q.tipo === 'falta' ? '#C0392B' : '#1E874B' }}>
                 {q.tipo === 'falta' ? '▼ falta ' : '▲ sobra '}{brl(Math.abs(q.valor))}{q.relevante ? <span style={{ fontSize: 10, marginLeft: 4, color: '#B7791F' }}>●</span> : ''}
               </td>
-              <td style={s.td}><span style={{ color: cor, fontWeight: 700, fontSize: 11.5 }}>{lab}</span>{q.cobranca?.valorCobrado > 0 ? <span style={{ color: '#888' }}> · {brl(q.cobranca.valorCobrado)}</span> : ''}</td>
-              <td style={s.td}>
-                {soControle ? <span style={{ color: '#bbb' }}>—</span>
-                  : q.cobranca?.status === 'pendente'
+              {!soControle && <td style={s.td}><span style={{ color: cor, fontWeight: 700, fontSize: 11.5 }}>{lab}</span>{q.cobranca?.valorCobrado > 0 ? <span style={{ color: '#888' }}> · {brl(q.cobranca.valorCobrado)}</span> : ''}</td>}
+              {!soControle && <td style={s.td}>
+                {q.cobranca?.status === 'pendente'
                   ? <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                       {q.tipo === 'falta' && <button onClick={() => marcar(q, 'cobrado')} style={s.actGreen}>cobrar {brl(Math.abs(q.valor))}</button>}
                       <button onClick={() => marcar(q, 'pontuado')} style={s.actGray}>só pontuar</button>
                       <button onClick={() => marcar(q, 'perdoado')} style={s.actGray}>perdoar</button>
                     </span>
                   : <button onClick={() => marcar(q, 'pendente')} style={s.actGray}>reabrir</button>}
-              </td>
+              </td>}
               <td style={{ ...s.td, color: '#999', fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={q.observacao}>{q.observacao}</td>
             </tr>); })}</tbody>
         </table></div>}

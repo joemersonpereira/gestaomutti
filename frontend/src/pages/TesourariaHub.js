@@ -6,14 +6,20 @@ import { CartaoDespesas } from './Contabilidade';
 import { useAuth } from '../context/AuthContext';
 
 // Hub da Tesouraria (Joe 2026-11-11) — um menu só, controle da GESTÃO (Financeiro).
-// Junta num lugar: o Fechamento do dia por loja (caixas do dia + anexos de depósitos/despesas/recargas),
-// o Controle da gestão (Caixa Destaque, diferenças de caixa só leitura, cancelamentos, atendimento,
-// conferência) e o Orçamento da loja (verba × gasto × saldo, por plano de contas).
-// NÃO abre tarefa/cobrança pro operador — é só visão de controle.
+// Conjunto ÚNICO de abas: o Fechamento do dia fica JUNTO com as apurações (Joe: "o fechamento do dia
+// tinha que estar junto com essas apurações de fechamento"). Sem tarefa/cobrança pro operador.
+// As apurações reusam a página antiga Tesouraria.js com tabFixa (sem barra de abas própria).
 
+const NATIVAS = ['fechamento', 'orcamento'];
 const ABAS = [
   ['fechamento', '📎 Fechamento do dia'],
-  ['controle', '🏦 Controle da gestão'],
+  ['ranking', '🏆 Caixa Destaque'],
+  ['quebras', '💸 Diferenças'],
+  ['conferencia', '✅ Conferência'],
+  ['cancelamentos', '🚫 Cancelamentos'],
+  ['atendimento', '🧾 Atendimento do caixa'],
+  ['indicadores', '📈 Setor'],
+  ['debitos', '💵 Débitos por caixa'],
   ['orcamento', '💰 Orçamento loja'],
 ];
 
@@ -22,7 +28,7 @@ export default function TesourariaHub() {
   const [aba, setAba] = useState('fechamento');
   return (
     <div style={s.wrap}>
-      <Banner emoji="🏦" titulo="Tesouraria" cor="roxo" sub="Controle de caixa da gestão — fechamento do dia por loja, diferenças e orçamento. Sem tarefa pro operador." />
+      <Banner emoji="🏦" titulo="Tesouraria" cor="roxo" sub="Controle de caixa da gestão — fechamento do dia por loja junto com as apurações e o orçamento. Sem tarefa pro operador." />
       <div style={s.tabs}>
         {ABAS.map(([k, l]) => (
           <button key={k} onClick={() => setAba(k)} style={{ ...s.tab, ...(aba === k ? s.tabOn : {}) }}>{l}</button>
@@ -30,12 +36,12 @@ export default function TesourariaHub() {
       </div>
       <div style={{ marginTop: 14 }}>
         {aba === 'fechamento' && <TesourariaCaixa embed />}
-        {aba === 'controle' && <Tesouraria embed soControle />}
         {aba === 'orcamento' && (
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
             <CartaoDespesas API={API} />
           </div>
         )}
+        {!NATIVAS.includes(aba) && <Tesouraria embed soControle tabFixa={aba} />}
       </div>
     </div>
   );
