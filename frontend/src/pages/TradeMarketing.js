@@ -2372,37 +2372,75 @@ const modalCard = { background: '#fff', borderRadius: 16, maxWidth: 440, width: 
 function L({ lab, children, flex }) { return <label style={{ display: 'block', fontSize: 11.5, color: '#51607a', fontWeight: 600, margin: '8px 0 0', ...(flex ? { flex: 1 } : {}) }}>{lab}<div style={{ marginTop: 3 }}>{children}</div></label>; }
 
 // Cadastro das metas de ATIVIDADE (prospecções/mês, contatos/dia, fechamentos/mês) — geral + por colaborador de trade.
+// Célula de acompanhamento: feito / meta efetiva (com banco de excedente) + ✓ quando bateu.
+function CelMeta({ m, sufixo }) {
+  if (!m || m.base <= 0) return <span style={{ color: '#cbd5e1' }}>—</span>;
+  return <span>
+    <b style={{ color: m.bateu ? '#1E874B' : '#334' }}>{m.feito}</b>
+    <span style={{ color: '#94a3b8' }}> / {m.efetiva}{sufixo || ''}{m.bateu ? ' ✓' : ''}</span>
+    {m.banco > 0 && <div style={{ fontSize: 9.5, color: '#6D4AA8' }}>−{m.banco} do banco (base {m.base})</div>}
+  </span>;
+}
 function MetasAtividade({ API, gestao }) {
-  const [linhas, setLinhas] = useState([]); const [colabs, setColabs] = useState([]);
-  const [novo, setNovo] = useState({ escopo: 'geral', prospeccoes_mes: '', contatos_dia: '', fechamentos_mes: '' });
-  const carregar = useCallback(() => API.get('/trademkt/trade-metas').then(r => setLinhas(r.data.linhas || [])).catch(() => {}), [API]);
-  useEffect(() => { carregar(); if (gestao) API.get('/colaboradores').then(r => setColabs((r.data.colaboradores || r.data || []).filter(c => c.trade))).catch(() => {}); }, [carregar, API, gestao]);
-  const salvar = (payload) => API.post('/trademkt/trade-metas', payload).then(() => { setNovo({ escopo: 'geral', prospeccoes_mes: '', contatos_dia: '', fechamentos_mes: '' }); carregar(); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
-  const remover = (escopo) => API.delete(`/trademkt/trade-metas/${escopo}`).then(carregar).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const hoje = new Date();
+  const [ano, setAno] = useState(hoje.getFullYear()); const [mes, setMes] = useState(hoje.getMonth() + 1);
+  const [mon, setMon] = useState(null); const [colabs, setColabs] = useState([]);
+  const [f, setF] = useState({ escopo: 'geral', prospeccoes_mes: '', contatos_dia: '', fechamentos_mes: '', mes_ini: hoje.getMonth() + 1, ano_ini: hoje.getFullYear(), mes_fim: 12, ano_fim: hoje.getFullYear() });
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const carregar = useCallback(() => API.get('/trademkt/trade-metas/monitor', { params: { ano, mes } }).then(r => setMon(r.data)).catch(() => setMon({ linhas: [], cadastro: [] })), [API, ano, mes]);
+  useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => { if (gestao) API.get('/colaboradores').then(r => setColabs((r.data.colaboradores || r.data || []).filter(c => c.trade))).catch(() => {}); }, [API, gestao]);
+  const navMes = dir => { let m = mes + dir, a = ano; if (m < 1) { m = 12; a--; } if (m > 12) { m = 1; a++; } setMes(m); setAno(a); };
+  const aplicar = () => API.post('/trademkt/trade-metas/periodo', f).then(r => { carregar(); alert(`Meta aplicada em ${r.data.meses} mês(es).`); }).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const removerMes = (escopo) => API.delete(`/trademkt/trade-metas/mes/${escopo}/${ano}/${mes}`).then(carregar).catch(e => alert(e.response?.data?.erro || 'Erro'));
+  const selMes = (val, on) => <select value={val} onChange={e => on(Number(e.target.value))} style={{ ...s.inp, width: 64 }}>{Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2, '0')}</option>)}</select>;
+  const selAno = (val, on) => <input type="number" value={val} onChange={e => on(Number(e.target.value))} style={{ ...s.inp, width: 82 }} />;
+  const linhas = mon?.linhas || [];
   return <div style={s.card}>
-    <b style={{ fontSize: 13 }}>Metas de atividade</b>
-    <span style={{ fontSize: 11.5, color: '#7a8a8c', marginLeft: 8 }}>quanto cada um precisa fazer — aparece no painel lateral de cada pessoa</span>
-    <div style={{ overflowX: 'auto', marginTop: 8 }}>
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+      <b style={{ fontSize: 13 }}>📊 Monitor de metas</b>
+      <span style={{ fontSize: 11.5, color: '#7a8a8c' }}>realizado × meta do mês · excedente de um mês abate o seguinte</span>
+      <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+        <button onClick={() => navMes(-1)} style={s.btnMini}>◀</button>
+        <b style={{ fontSize: 12.5, minWidth: 92, textAlign: 'center' }}>{MESES[mes - 1]} {ano}</b>
+        <button onClick={() => navMes(1)} style={s.btnMini}>▶</button>
+      </div>
+    </div>
+    <div style={{ overflowX: 'auto', marginTop: 10 }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-        <thead><tr style={{ textAlign: 'left', color: '#7a8a8c', borderBottom: '2px solid #eef1f4' }}>{['Para', 'Prospecções/mês', 'Contatos/dia', 'Fechamentos/mês', ''].map(h => <th key={h} style={{ padding: '6px 8px' }}>{h}</th>)}</tr></thead>
+        <thead><tr style={{ textAlign: 'left', color: '#7a8a8c', borderBottom: '2px solid #eef1f4' }}>{['Colaborador', 'Prospecções', 'Fechamentos', 'Contatos (mês)'].map(h => <th key={h} style={{ padding: '6px 8px' }}>{h}</th>)}</tr></thead>
         <tbody>
-          {linhas.map(l => <tr key={l.escopo} style={{ borderBottom: '1px solid #f3f5f7' }}>
-            <td style={{ padding: '6px 8px', fontWeight: 600 }}>{l.escopo_nome}</td>
-            <td style={{ padding: '6px 8px' }}>{l.prospeccoes_mes}</td>
-            <td style={{ padding: '6px 8px' }}>{l.contatos_dia}</td>
-            <td style={{ padding: '6px 8px' }}>{l.fechamentos_mes}</td>
-            <td style={{ padding: '6px 8px' }}>{gestao && l.escopo !== 'geral' && <button onClick={() => remover(l.escopo)} style={{ ...s.mv, color: '#C0392B' }}>✕</button>}</td>
+          {linhas.map(l => <tr key={l.id} style={{ borderBottom: '1px solid #f3f5f7' }}>
+            <td style={{ padding: '6px 8px', fontWeight: 600 }}>{l.nome}</td>
+            <td style={{ padding: '6px 8px' }}><CelMeta m={l.prospeccoes} /></td>
+            <td style={{ padding: '6px 8px' }}><CelMeta m={l.fechamentos} /></td>
+            <td style={{ padding: '6px 8px' }}>{l.contatos.meta > 0 ? <span><b>{l.contatos.feito}</b> <span style={{ color: '#94a3b8' }}>/ {l.contatos.meta}/dia</span></span> : <span><b>{l.contatos.feito}</b></span>}</td>
           </tr>)}
-          {linhas.length === 0 && <tr><td colSpan={5} style={{ padding: '8px', color: '#999', fontSize: 12 }}>Nenhuma meta definida — defina ao menos a geral.</td></tr>}
+          {linhas.length === 0 && <tr><td colSpan={4} style={{ padding: '8px', color: '#999', fontSize: 12 }}>Nenhum colaborador de trade com meta neste mês.</td></tr>}
         </tbody>
       </table>
     </div>
-    {gestao && <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 10, borderTop: '1px solid #eef1f4', paddingTop: 10 }}>
-      <L lab="Para" flex><select style={s.inp} value={novo.escopo} onChange={e => setNovo(n => ({ ...n, escopo: e.target.value }))}><option value="geral">Todos (geral)</option>{colabs.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></L>
-      <L lab="Prospecções/mês"><input type="number" style={{ ...s.inp, width: 110 }} value={novo.prospeccoes_mes} onChange={e => setNovo(n => ({ ...n, prospeccoes_mes: e.target.value }))} /></L>
-      <L lab="Contatos/dia"><input type="number" style={{ ...s.inp, width: 95 }} value={novo.contatos_dia} onChange={e => setNovo(n => ({ ...n, contatos_dia: e.target.value }))} /></L>
-      <L lab="Fechamentos/mês"><input type="number" style={{ ...s.inp, width: 110 }} value={novo.fechamentos_mes} onChange={e => setNovo(n => ({ ...n, fechamentos_mes: e.target.value }))} /></L>
-      <button style={s.btn} onClick={() => salvar(novo)}>Salvar meta</button>
+    {gestao && <div style={{ marginTop: 12, borderTop: '1px solid #eef1f4', paddingTop: 10 }}>
+      <b style={{ fontSize: 12.5 }}>Cadastrar meta por período</b>
+      <div style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 6px' }}>Aplica o mesmo valor em cada mês do período. Para ajustar só um mês, ponha o mesmo mês em "De" e "Até".</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <L lab="Para"><select style={{ ...s.inp, minWidth: 150 }} value={f.escopo} onChange={e => set('escopo', e.target.value)}><option value="geral">Todos (geral)</option>{colabs.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></L>
+        <L lab="De (mês/ano)"><div style={{ display: 'flex', gap: 4 }}>{selMes(f.mes_ini, v => set('mes_ini', v))}{selAno(f.ano_ini, v => set('ano_ini', v))}</div></L>
+        <L lab="Até (mês/ano)"><div style={{ display: 'flex', gap: 4 }}>{selMes(f.mes_fim, v => set('mes_fim', v))}{selAno(f.ano_fim, v => set('ano_fim', v))}</div></L>
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 6 }}>
+        <L lab="Prospecções/mês"><input type="number" style={{ ...s.inp, width: 110 }} value={f.prospeccoes_mes} onChange={e => set('prospeccoes_mes', e.target.value)} /></L>
+        <L lab="Contatos/dia"><input type="number" style={{ ...s.inp, width: 95 }} value={f.contatos_dia} onChange={e => set('contatos_dia', e.target.value)} /></L>
+        <L lab="Fechamentos/mês"><input type="number" style={{ ...s.inp, width: 110 }} value={f.fechamentos_mes} onChange={e => set('fechamentos_mes', e.target.value)} /></L>
+        <button style={s.btn} onClick={aplicar}>Aplicar no período</button>
+      </div>
+      {(mon?.cadastro || []).length > 0 && <div style={{ marginTop: 10 }}>
+        <b style={{ fontSize: 11.5, color: '#51607a' }}>Metas cadastradas em {MESES[mes - 1]} {ano}</b>
+        {mon.cadastro.map(c => <div key={c.escopo} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, padding: '5px 0', borderTop: '1px solid #f3f3f3', flexWrap: 'wrap' }}>
+          <span><b>{c.escopo_nome}</b> — {c.prospeccoes_mes} prosp · {c.contatos_dia} cont/dia · {c.fechamentos_mes} fech</span>
+          <button onClick={() => removerMes(c.escopo)} style={{ ...s.mv, color: '#C0392B' }}>remover este mês</button>
+        </div>)}
+      </div>}
     </div>}
   </div>;
 }

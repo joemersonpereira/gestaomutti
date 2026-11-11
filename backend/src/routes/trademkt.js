@@ -354,6 +354,42 @@ function tradeMetaDe(emp, uid) {
   const m = ind || geral || {};
   return { prospeccoes_mes: m.prospeccoes_mes || 0, contatos_dia: m.contatos_dia || 0, fechamentos_mes: m.fechamentos_mes || 0, origem: ind ? 'individual' : (geral ? 'geral' : 'vazia') };
 }
+// ── Metas por MÊS + carry-over ("excedente abate o próximo mês") ──
+const ymOf = (a, m) => `${a}-${String(m).padStart(2, '0')}`;
+function realizadoProsp(emp, uid, ym) { return db.prepare("SELECT COUNT(*) n FROM tmkt_prospeccao WHERE empresa_id=? AND responsavel_id=? AND strftime('%Y-%m',criado_em)=?").get(emp, uid, ym).n; }
+function realizadoFech(emp, uid, ym) { return db.prepare("SELECT COUNT(*) n FROM tmkt_prospeccao WHERE empresa_id=? AND responsavel_id=? AND etapa='ganho' AND strftime('%Y-%m',atualizado_em)=?").get(emp, uid, ym).n; }
+function realizadoContatos(emp, uid, ym) { return db.prepare("SELECT COUNT(*) n FROM tmkt_prospeccao_contato WHERE criado_por=? AND strftime('%Y-%m',quando)=?").get(uid, ym).n; }
+// base (cadastrada) do mês para um colaborador: linha do mês dele → linha do mês 'geral' → fixo legado
+function baseMesColab(emp, uid, ano, mes) {
+  const r = db.prepare("SELECT prospeccoes_mes,contatos_dia,fechamentos_mes FROM tmkt_trade_meta_mes WHERE empresa_id=? AND escopo=? AND ano=? AND mes=?").get(emp, String(uid), ano, mes)
+    || db.prepare("SELECT prospeccoes_mes,contatos_dia,fechamentos_mes FROM tmkt_trade_meta_mes WHERE empresa_id=? AND escopo='geral' AND ano=? AND mes=?").get(emp, ano, mes);
+  if (r) return { prospeccoes_mes: r.prospeccoes_mes || 0, contatos_dia: r.contatos_dia || 0, fechamentos_mes: r.fechamentos_mes || 0 };
+  const leg = tradeMetaDe(emp, uid);
+  return { prospeccoes_mes: leg.prospeccoes_mes, contatos_dia: leg.contatos_dia, fechamentos_mes: leg.fechamentos_mes };
+}
+// banco de excedente disponível no INÍCIO de mesAlvo (acumula o que passou da base nos meses anteriores do ano)
+function bancoDe(emp, uid, ano, mesAlvo, campo, realizadoFn) {
+  let banco = 0;
+  for (let m = 1; m < mesAlvo; m++) {
+    const base = baseMesColab(emp, uid, ano, m)[campo];
+    if (base <= 0) continue; // mês sem meta não consome nem gera banco
+    const feito = realizadoFn(emp, uid, ymOf(ano, m));
+    const usado = Math.min(banco, Math.max(0, base - feito)); // banco cobre o que faltou pra base
+    const excedente = Math.max(0, feito - base);              // o que passou da base entra no banco
+    banco = banco - usado + excedente;
+  }
+  return banco;
+}
+function metaEfetivaColab(emp, uid, ano, mes) {
+  const base = baseMesColab(emp, uid, ano, mes);
+  const bP = bancoDe(emp, uid, ano, mes, 'prospeccoes_mes', realizadoProsp);
+  const bF = bancoDe(emp, uid, ano, mes, 'fechamentos_mes', realizadoFech);
+  return {
+    prospeccoes: { base: base.prospeccoes_mes, banco: bP, efetiva: Math.max(0, base.prospeccoes_mes - bP) },
+    contatos: { meta: base.contatos_dia },
+    fechamentos: { base: base.fechamentos_mes, banco: bF, efetiva: Math.max(0, base.fechamentos_mes - bF) },
+  };
+}
 router.get('/trade-metas', (req, res) => {
   const emp = req.usuario.empresa_id;
   const linhas = db.prepare("SELECT * FROM tmkt_trade_meta WHERE empresa_id=? ORDER BY (escopo<>'geral'), escopo").all(emp)
@@ -371,6 +407,54 @@ router.delete('/trade-metas/:escopo', exigePerfil(...GESTAO), (req, res) => {
   if (req.params.escopo === 'geral') return res.status(400).json({ erro: 'A meta geral não pode ser removida (zere os valores).' });
   db.prepare('DELETE FROM tmkt_trade_meta WHERE empresa_id=? AND escopo=?').run(req.usuario.empresa_id, req.params.escopo);
   res.json({ ok: true });
+});
+// Cadastra a meta de um PERÍODO (início→fim) aplicando o mesmo valor em cada mês.
+router.post('/trade-metas/periodo', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body || {}, emp = req.usuario.empresa_id, escopo = String(b.escopo || 'geral');
+  const ai = Number(b.ano_ini), mi = Number(b.mes_ini), af = Number(b.ano_fim), mf = Number(b.mes_fim);
+  if (!ai || !mi || !af || !mf) return res.status(400).json({ erro: 'Informe mês/ano de início e fim.' });
+  const ini = ai * 12 + (mi - 1), fim = af * 12 + (mf - 1);
+  if (fim < ini) return res.status(400).json({ erro: 'O fim está antes do início.' });
+  if (fim - ini > 35) return res.status(400).json({ erro: 'Período muito longo (máx. 36 meses).' });
+  const up = db.prepare(`INSERT INTO tmkt_trade_meta_mes (empresa_id,escopo,ano,mes,prospeccoes_mes,contatos_dia,fechamentos_mes,atualizado_em) VALUES (?,?,?,?,?,?,?,datetime('now'))
+    ON CONFLICT(empresa_id,escopo,ano,mes) DO UPDATE SET prospeccoes_mes=excluded.prospeccoes_mes, contatos_dia=excluded.contatos_dia, fechamentos_mes=excluded.fechamentos_mes, atualizado_em=datetime('now')`);
+  const p = Number(b.prospeccoes_mes) || 0, c = Number(b.contatos_dia) || 0, f = Number(b.fechamentos_mes) || 0;
+  db.transaction(() => { for (let k = ini; k <= fim; k++) up.run(emp, escopo, Math.floor(k / 12), (k % 12) + 1, p, c, f); })();
+  res.json({ ok: true, meses: fim - ini + 1 });
+});
+// Ajuste pontual de UM mês.
+router.post('/trade-metas/mes', exigePerfil(...GESTAO), (req, res) => {
+  const b = req.body || {}, emp = req.usuario.empresa_id, escopo = String(b.escopo || 'geral');
+  const ano = Number(b.ano), mes = Number(b.mes);
+  if (!ano || !mes) return res.status(400).json({ erro: 'Informe mês e ano.' });
+  db.prepare(`INSERT INTO tmkt_trade_meta_mes (empresa_id,escopo,ano,mes,prospeccoes_mes,contatos_dia,fechamentos_mes,atualizado_em) VALUES (?,?,?,?,?,?,?,datetime('now'))
+    ON CONFLICT(empresa_id,escopo,ano,mes) DO UPDATE SET prospeccoes_mes=excluded.prospeccoes_mes, contatos_dia=excluded.contatos_dia, fechamentos_mes=excluded.fechamentos_mes, atualizado_em=datetime('now')`)
+    .run(emp, escopo, ano, mes, Number(b.prospeccoes_mes) || 0, Number(b.contatos_dia) || 0, Number(b.fechamentos_mes) || 0);
+  res.json({ ok: true });
+});
+router.delete('/trade-metas/mes/:escopo/:ano/:mes', exigePerfil(...GESTAO), (req, res) => {
+  db.prepare('DELETE FROM tmkt_trade_meta_mes WHERE empresa_id=? AND escopo=? AND ano=? AND mes=?')
+    .run(req.usuario.empresa_id, req.params.escopo, Number(req.params.ano), Number(req.params.mes));
+  res.json({ ok: true });
+});
+// Monitor de acompanhamento: por colaborador de trade, meta efetiva (com carry-over) x realizado no mês.
+router.get('/trade-metas/monitor', (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const now = new Date();
+  const ano = Number(req.query.ano) || now.getFullYear(), mes = Number(req.query.mes) || (now.getMonth() + 1);
+  const ym = ymOf(ano, mes);
+  const colabs = db.prepare("SELECT id, nome FROM colaboradores WHERE trade=1 AND COALESCE(ativo,1)=1 ORDER BY nome").all();
+  const linhas = colabs.map(c => {
+    const ef = metaEfetivaColab(emp, c.id, ano, mes);
+    const fP = realizadoProsp(emp, c.id, ym), fF = realizadoFech(emp, c.id, ym), fC = realizadoContatos(emp, c.id, ym);
+    return { id: c.id, nome: c.nome,
+      prospeccoes: { ...ef.prospeccoes, feito: fP, bateu: ef.prospeccoes.base > 0 && fP >= ef.prospeccoes.efetiva },
+      fechamentos: { ...ef.fechamentos, feito: fF, bateu: ef.fechamentos.base > 0 && fF >= ef.fechamentos.efetiva },
+      contatos: { meta: ef.contatos.meta, feito: fC } };
+  });
+  const cadastro = db.prepare("SELECT * FROM tmkt_trade_meta_mes WHERE empresa_id=? AND ano=? AND mes=? ORDER BY (escopo<>'geral'), escopo").all(emp, ano, mes)
+    .map(l => ({ ...l, escopo_nome: l.escopo === 'geral' ? 'Todos (geral)' : (db.prepare('SELECT nome FROM colaboradores WHERE id=?').get(l.escopo)?.nome || l.escopo) }));
+  res.json({ ano, mes, linhas, cadastro });
 });
 
 // "Minha meta" (do usuário logado): premiação de trade do mês + tarefas de trade dele (atrasadas/em dia).
@@ -399,15 +483,16 @@ router.get('/minha-meta', (req, res) => {
       quando: String(p.proximo_contato).slice(0, 10) < hojeD ? 'vencido' : (String(p.proximo_contato).slice(0, 10) === hojeD ? 'hoje' : 'futuro') }));
   const cobrancas = prosp.filter(p => p.quando !== 'futuro');
   // Progresso das metas de atividade (prospecções no mês / contatos hoje / fechamentos no mês) do usuário.
-  const metas = tradeMetaDe(emp, uid);
+  const [anoA, mesA] = ym.split('-').map(Number);
+  const ef = metaEfetivaColab(emp, uid, anoA, mesA); // meta efetiva do mês (com carry-over: excedente abate o mês)
   const feitoProsp = db.prepare(`SELECT COUNT(*) n FROM tmkt_prospeccao WHERE empresa_id=? AND responsavel_id=? AND strftime('%Y-%m',criado_em)=?`).get(emp, uid, ym).n;
   const feitoContatos = db.prepare(`SELECT COUNT(*) n FROM tmkt_prospeccao_contato WHERE criado_por=? AND date(quando)=date('now')`).get(uid).n;
   const feitoFech = db.prepare(`SELECT COUNT(*) n FROM tmkt_prospeccao WHERE empresa_id=? AND responsavel_id=? AND etapa='ganho' AND strftime('%Y-%m',atualizado_em)=?`).get(emp, uid, ym).n;
   const atividade = {
-    prospeccoes: { meta: metas.prospeccoes_mes, feito: feitoProsp },
-    contatos: { meta: metas.contatos_dia, feito: feitoContatos },
-    fechamentos: { meta: metas.fechamentos_mes, feito: feitoFech },
-    origem: metas.origem };
+    prospeccoes: { meta: ef.prospeccoes.efetiva, base: ef.prospeccoes.base, banco: ef.prospeccoes.banco, feito: feitoProsp },
+    contatos: { meta: ef.contatos.meta, feito: feitoContatos },
+    fechamentos: { meta: ef.fechamentos.efetiva, base: ef.fechamentos.base, banco: ef.fechamentos.banco, feito: feitoFech },
+    origem: 'mensal' };
   res.json({ espacos: r.espacos, valor: r.valor, pct, premiacao, proxima, tarefas, atrasadas: tarefas.filter(t => t.atrasada).length,
     prospeccoes: prosp, cobrancas, cobrancas_n: cobrancas.length, atividade });
 });
