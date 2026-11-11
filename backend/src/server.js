@@ -112,7 +112,7 @@ app.get('/t/:codigo', (req, res, next) => {
   try {
     const db = require('./db/connection');
     const v = db.prepare('SELECT token FROM tmkt_vendas WHERE token_curto=? LIMIT 1').get(req.params.codigo);
-    if (v && v.token) return res.redirect(302, '/trade.html?t=' + v.token);
+    if (v && v.token) return res.redirect(302, '/trade.html?t=' + v.token + '&v=' + Date.now()); // &v= fura cache do navegador (trade.html não some mais em branco)
   } catch (e) { /* cai no SPA */ }
   next();
 });
