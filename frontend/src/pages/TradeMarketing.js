@@ -72,7 +72,7 @@ export default function TradeMarketing() {
   const shift = lateral && wide ? 320 : 0;
   return (
     <div style={{ ...s.wrap, paddingRight: shift, transition: 'padding-right .18s' }}>
-      <Banner emoji="📣" titulo="Trade Marketing" cor="roxo" sub="Aluguel de espaços da loja (pontos extras, ilhas, gôndolas) para fornecedores — contrato, financeiro e sell-out no ERP.">
+      <Banner emoji="📣" titulo="Retail & Ads" cor="roxo" sub="Aluguel de espaços da loja (pontos extras, ilhas, gôndolas) para fornecedores — contrato, financeiro e sell-out no ERP.">
         {gestao && <button onClick={() => setModelo(true)} style={bannerBtn}>📄 Modelo de contrato</button>}
       </Banner>
       <div style={{ display: 'flex', gap: 6, margin: '12px 0 16px', flexWrap: 'wrap', padding: 6, background: '#fff', border: '1px solid #ecefee', borderRadius: 14, boxShadow: '0 1px 3px rgba(16,40,45,.05)' }}>

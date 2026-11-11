@@ -116,7 +116,7 @@ const MODULOS = [
   { id: 'faltas', label: '📝 Lista de faltas', C: Faltas, perfis: ['Vendedor', 'Gerente', 'Subgerente', 'Supervisor', 'Comprador Beleza', 'Comprador Bem-estar', 'Suporte', 'Gestor Geral', 'Diretor Geral', 'Operador de Loja'] },
   { id: 'painel-compras', label: '🧮 Painel de Compras', C: PainelCompras, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Gerente', 'Subgerente'] },
   { id: 'acordos', label: '🤝 Acordos e Negociações', C: Acordos, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Marketing'] },
-  { id: 'trademkt', label: '📐 Trade Marketing', C: TradeMarketing, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Marketing'] },
+  { id: 'trademkt', label: '📐 Retail & Ads', C: TradeMarketing, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Marketing'] },
   { id: 'cobranca-trade', label: '💰 Cobrança (Trade)', C: CobrancaTrade, perfis: ['Financeiro', 'Controladoria', 'Diretor Geral', 'Gestor Geral', 'Supervisor', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing', 'Tesouraria'] },
   { id: 'financeiro', label: '💼 Financeiro', C: Financeiro, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
   { id: 'contas-receber', label: '📥 Contas a Receber', C: ContasReceber, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro'] },
