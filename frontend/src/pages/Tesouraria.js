@@ -364,8 +364,10 @@ function QuebrasErp({ API, soControle }) {
   const salvarLimiar = () => API.post('/tesouraria/config', { limiar }).then(carregar);
   const salvarPontos = () => API.post('/tesouraria/config', { pontosDescontoQuebra: pontosQuebra }).then(() => setMsg('Pontos salvos.')).then(() => setTimeout(() => setMsg(''), 2500));
   const salvarCz = () => API.post('/tesouraria/config', { pontosCaixaZerado: czCfg }).then(() => setMsg('Pontos do caixa zerado salvos.')).then(() => setTimeout(() => setMsg(''), 2500));
-  const marcar = (q, status) => API.post('/tesouraria/quebras/cobranca', { quebra: q, status, valorCobrado: status === 'cobrado' ? Math.abs(q.valor) : 0 })
+  const marcar = (q, status, observacao) => API.post('/tesouraria/quebras/cobranca', { quebra: q, status, valorCobrado: status === 'cobrado' ? Math.abs(q.valor) : 0, observacao: observacao || undefined })
     .then(r => { const p = r.data?.pontos; if (p?.descontado) setMsg(`−${p.descontado} pts de ${p.colaborador}.`); else if (p?.removido) setMsg('Desconto de pontos revertido.'); else if (p?.semColaborador && status === 'pontuado') setMsg('⚠️ Operador sem colaborador vinculado por CPF — pontos não descontados.'); if (p?.descontado || p?.removido || p?.semColaborador) setTimeout(() => setMsg(''), 3500); return carregar(); });
+  // Perdoar exige justificativa (Joe 2026-11-11) — fica guardada na apuração.
+  const perdoar = (q) => { const j = (window.prompt('Justificativa para perdoar esta diferença:') || '').trim(); if (!j) return; marcar(q, 'perdoado', j); };
   const R = d?.resumo;
   const linhas = (d?.quebras || []).filter(q => !soRel || q.relevante);
   const COLS = [
@@ -373,7 +375,7 @@ function QuebrasErp({ API, soControle }) {
     { k: 'operador', label: 'Operador', tipo: 'txt', get: q => q.operador || '' },
     { k: 'loja', label: 'Loja', tipo: 'txt', get: q => q.loja || '' },
     { k: 'diferenca', label: 'Diferença', tipo: 'num', get: q => Number(q.valor) || 0 },
-    ...(soControle ? [] : [{ k: 'cobranca', label: 'Cobrança', tipo: 'txt', get: q => q.cobranca?.status || 'pendente' }]),
+    { k: 'cobranca', label: soControle ? 'Apuração' : 'Cobrança', tipo: 'txt', get: q => soControle ? (q.cobranca?.status === 'perdoado' ? 'perdoado' : '—') : (q.cobranca?.status || 'pendente') },
     { k: 'obs', label: 'Obs.', tipo: 'txt', get: q => q.observacao || '' },
   ];
   const { linhas: linhasOrd, ordem, clicar, seta } = useOrdenavel(linhas, COLS, { col: 'data', dir: 'desc' });
@@ -415,7 +417,7 @@ function QuebrasErp({ API, soControle }) {
         {carreg ? <div style={s.vazio}>carregando…</div> : !linhas.length ? <div style={s.vazio}>Nenhuma quebra no período.</div> :
         <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-          <thead><tr>{COLS.map((c) => (<React.Fragment key={c.k}><ThOrd c={c} ordem={ordem} clicar={clicar} seta={seta} base={s.th} />{!soControle && c.k === 'cobranca' && <th style={s.th}>Ação</th>}</React.Fragment>))}</tr></thead>
+          <thead><tr>{COLS.map((c) => (<React.Fragment key={c.k}><ThOrd c={c} ordem={ordem} clicar={clicar} seta={seta} base={s.th} />{c.k === 'cobranca' && <th style={s.th}>Ação</th>}</React.Fragment>))}</tr></thead>
           <tbody>{linhasOrd.map(q => { const [cor, lab] = ST_COBR[q.cobranca?.status] || ST_COBR.pendente;
             return (
             <tr key={q.id} style={{ borderTop: '1px solid #f2f2f2', background: q.acobrar && q.cobranca?.status === 'pendente' ? '#FFFCF5' : '#fff' }}>
@@ -425,16 +427,25 @@ function QuebrasErp({ API, soControle }) {
               <td style={{ ...s.td, fontWeight: 700, color: q.tipo === 'falta' ? '#C0392B' : '#1E874B' }}>
                 {q.tipo === 'falta' ? '▼ falta ' : '▲ sobra '}{brl(Math.abs(q.valor))}{q.relevante ? <span style={{ fontSize: 10, marginLeft: 4, color: '#B7791F' }}>●</span> : ''}
               </td>
-              {!soControle && <td style={s.td}><span style={{ color: cor, fontWeight: 700, fontSize: 11.5 }}>{lab}</span>{q.cobranca?.valorCobrado > 0 ? <span style={{ color: '#888' }}> · {brl(q.cobranca.valorCobrado)}</span> : ''}</td>}
-              {!soControle && <td style={s.td}>
-                {q.cobranca?.status === 'pendente'
+              <td style={s.td}>{soControle
+                ? (q.cobranca?.status === 'perdoado'
+                    ? <span style={{ color: '#15803d', fontWeight: 700 }} title={q.cobranca?.observacao || ''}>perdoado{q.cobranca?.observacao ? ' ⓘ' : ''}</span>
+                    : <span style={{ color: '#bbb' }}>—</span>)
+                : <><span style={{ color: cor, fontWeight: 700, fontSize: 11.5 }}>{lab}</span>{q.cobranca?.valorCobrado > 0 ? <span style={{ color: '#888' }}> · {brl(q.cobranca.valorCobrado)}</span> : ''}</>}</td>
+              <td style={s.td}>{soControle
+                ? (q.relevante
+                    ? (q.cobranca?.status === 'perdoado'
+                        ? <button onClick={() => marcar(q, 'pendente')} style={s.actGray}>reabrir</button>
+                        : <button onClick={() => perdoar(q)} style={s.actGray}>perdoar</button>)
+                    : <span style={{ color: '#bbb' }}>—</span>)
+                : (q.cobranca?.status === 'pendente'
                   ? <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                       {q.tipo === 'falta' && <button onClick={() => marcar(q, 'cobrado')} style={s.actGreen}>cobrar {brl(Math.abs(q.valor))}</button>}
                       <button onClick={() => marcar(q, 'pontuado')} style={s.actGray}>só pontuar</button>
-                      <button onClick={() => marcar(q, 'perdoado')} style={s.actGray}>perdoar</button>
+                      <button onClick={() => perdoar(q)} style={s.actGray}>perdoar</button>
                     </span>
-                  : <button onClick={() => marcar(q, 'pendente')} style={s.actGray}>reabrir</button>}
-              </td>}
+                  : <button onClick={() => marcar(q, 'pendente')} style={s.actGray}>reabrir</button>)}
+              </td>
               <td style={{ ...s.td, color: '#999', fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={q.observacao}>{q.observacao}</td>
             </tr>); })}</tbody>
         </table></div>}
