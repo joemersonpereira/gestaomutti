@@ -22,6 +22,12 @@ const s = {
 };
 
 const lerArq = file => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); });
+const ind = {
+  box: { border: '1px solid #eef2f0', borderRadius: 10, padding: '9px 11px', background: '#f8fafc' },
+  lab: { fontSize: 11, color: '#64748b', fontWeight: 600, marginBottom: 2 },
+  val: { fontSize: 18, fontWeight: 800, color: '#0f172a' },
+  sub: { fontSize: 12, fontWeight: 600, color: '#64748b' },
+};
 
 export default function TesourariaCaixa({ embed } = {}) {
   const { API } = useAuth();
@@ -30,6 +36,7 @@ export default function TesourariaCaixa({ embed } = {}) {
   const [data, setData] = useState(hojeStr);
   const [dia, setDia] = useState(null);
   const [geral, setGeral] = useState(null); // visão de todas as lojas do dia (caixas + diferenças + anexos)
+  const [painel, setPainel] = useState(null); // indicadores do dia da loja selecionada (cancel/estorno/cartão/atendimento)
   const [anexos, setAnexos] = useState([]);
   const [msg, setMsg] = useState('');
   const [cfg, setCfg] = useState(false);
@@ -51,9 +58,10 @@ export default function TesourariaCaixa({ embed } = {}) {
 
   const carregar = useCallback(() => {
     API.get(`/tesouraria/dia-geral?data=${data}`).then(r => setGeral(r.data.lojas || [])).catch(() => setGeral(null));
-    if (!loja) return;
+    if (!loja) { setPainel(null); return; }
     API.get(`/tesouraria/dia?loja=${loja}&data=${data}`).then(r => setDia(r.data)).catch(() => setDia(null));
     API.get(`/tesouraria/anexos?loja=${loja}&data=${data}`).then(r => setAnexos(r.data.anexos || [])).catch(() => setAnexos([]));
+    API.get(`/tesouraria/loja-painel?loja=${loja}&data=${data}`).then(r => setPainel(r.data)).catch(() => setPainel(null));
   }, [API, loja, data]);
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -221,8 +229,9 @@ export default function TesourariaCaixa({ embed } = {}) {
         </div>
       )}
 
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
       {dia && (dia.sessoes || []).length > 0 && (
-        <div style={s.card}>
+        <div style={{ ...s.card, flex: '1 1 360px', marginBottom: 0 }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>🧰 Caixas do dia</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
@@ -244,6 +253,20 @@ export default function TesourariaCaixa({ embed } = {}) {
           </div>
         </div>
       )}
+
+      {loja && painel && (
+        <div style={{ ...s.card, flex: '1 1 320px', marginBottom: 0 }}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>📊 Indicadores do dia <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>— {lojas.find(l => l.id === loja)?.nome || ''}</span></div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 10 }}>
+            <div style={ind.box}><div style={ind.lab}>🚫 Cancelamentos</div><div style={ind.val}>{painel.cancelamentos.qtd}{painel.cancelamentos.taxa != null ? <span style={ind.sub}> · {painel.cancelamentos.taxa}%</span> : ''}</div>{painel.cancelamentos.fora > 0 && <div style={{ fontSize: 11.5, color: '#b91c1c', fontWeight: 700 }}>⏰ {painel.cancelamentos.fora} fora do horário{painel.cancelamentos.valorFora ? ` · ${brl(painel.cancelamentos.valorFora)}` : ''}</div>}</div>
+            <div style={ind.box}><div style={ind.lab}>↩️ Estornos</div><div style={ind.val}>{painel.estornos.qtd}{painel.estornos.taxa != null ? <span style={ind.sub}> · {painel.estornos.taxa}%</span> : ''}</div></div>
+            <div style={ind.box}><div style={ind.lab}>💳 Erros de cartão</div><div style={ind.val}>{painel.cartaoErros.qtd}</div>{painel.cartaoErros.trocaDeForma > 0 && <div style={{ fontSize: 11.5, color: '#b45309' }}>{painel.cartaoErros.trocaDeForma} troca de forma</div>}</div>
+            <div style={ind.box}><div style={ind.lab}>🏅 Atendimento (top)</div>{painel.atendimento ? <><div style={{ fontWeight: 700, fontSize: 13 }}>{painel.atendimento.operador}</div><div style={{ fontSize: 11.5, color: '#475569' }}>{painel.atendimento.cupons} cupons · {brl(painel.atendimento.valor)}</div></> : <div style={{ color: '#94a3b8', fontSize: 12 }}>—</div>}</div>
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>Cancelamentos/estornos e erros de cartão são só para acompanhamento da gestão. O detalhe fica nas abas Cancelamentos, Diferenças e Atendimento do caixa.</div>
+        </div>
+      )}
+      </div>
 
       <Secao titulo="💰 Depósitos" tipo="deposito" lista={depositos} deposito />
       <Secao titulo="📱 Recargas" tipo="recarga" lista={recargas} />

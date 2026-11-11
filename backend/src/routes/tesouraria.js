@@ -9,6 +9,7 @@ const { v4: uuidv4 } = require('uuid');
 const fsNode = require('fs');
 const pathNode = require('path');
 const { erpQuery } = require('../db/erp');
+const cc = require('../lib/conciliacaoCartao'); // erros de cartão (correções) p/ o painel da loja
 
 // Chefe de tesouraria + gestão (veem tudo, todas as lojas). O GERENTE também acessa, mas SÓ a parte
 // de anexar depósitos/despesas e SÓ as lojas configuradas pra ele (colaborador_lojas). Os indicadores
@@ -170,6 +171,33 @@ router.get('/dia-geral', async (req, res) => {
     }
     res.json({ data, lojas: out });
   } catch (e) { res.status(503).json({ erro: 'ERP indisponível para a visão do dia.', detalhe: String(e.message || e) }); }
+});
+
+// Painel de indicadores do DIA de UMA loja (carrega só da loja selecionada = rápido). Acessível ao
+// gerente da própria loja (vê os indicadores dela) e à gestão. Joe 2026-11-11.
+router.get('/loja-painel', async (req, res) => {
+  try {
+    const emp = req.usuario.empresa_id;
+    const data = req.query.data || hoje();
+    const loja = req.query.loja;
+    if (!loja || !podeLoja(req, loja)) return res.status(403).json({ erro: 'Sem acesso a esta loja.' });
+    const nada = () => null;
+    const [ind, canc, corr, cup] = await Promise.all([
+      Promise.resolve().then(() => t.indicadoresSetor(emp, { ini: data, fim: data, lojaId: loja })).catch(nada),
+      Promise.resolve().then(() => t.cancelamentos(emp, { ini: data, fim: data, lojaId: loja })).catch(nada),
+      Promise.resolve().then(() => cc.correcoes(emp, { ini: data, fim: data, lojaId: loja })).catch(nada),
+      Promise.resolve().then(() => t.cuponsPorOperador(emp, { ini: data, fim: data, lojaId: loja })).catch(nada),
+    ]);
+    const top = (cup && cup.operadores && cup.operadores[0]) || null;
+    res.json({
+      data, loja,
+      cancelamentos: { qtd: (ind && ind.cancelamentos && ind.cancelamentos.qtd) || (canc && canc.resumo && canc.resumo.total) || 0, taxa: (ind && ind.cancelamentos && ind.cancelamentos.taxa) ?? null, fora: (canc && canc.resumo && canc.resumo.fora) || 0, valorFora: (canc && canc.resumo && canc.resumo.valorFora) || 0 },
+      estornos: { qtd: (ind && ind.estornos && ind.estornos.qtd) || 0, taxa: (ind && ind.estornos && ind.estornos.taxa) ?? null },
+      cartaoErros: { qtd: (corr && corr.total) || 0, trocaDeForma: (corr && corr.trocaDeForma) || 0 },
+      atendimento: top ? { operador: top.operador, cupons: top.cupons, valor: top.valor, ticket: top.ticket } : null,
+      atendimentoTotal: (cup && cup.total) || 0,
+    });
+  } catch (e) { res.status(503).json({ erro: 'Indicadores indisponíveis.', detalhe: String(e.message || e) }); }
 });
 
 // OCR do comprovante (foto/PDF) → lê o valor (e fornecedor) pra preencher na hora.
