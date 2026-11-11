@@ -470,9 +470,16 @@ router.post('/vendas/:id/gerar-link', exigePerfil(...GESTAO), (req, res) => {
   res.json({ ok: true, token: t, link: `/trade.html?t=${t}` });
 });
 router.post('/vendas/:id/mover', exigePerfil(...GESTAO), (req, res) => {
-  const novo = req.body.status;
+  const emp = req.usuario.empresa_id, novo = req.body.status;
   if (!STATUS.includes(novo)) return res.status(400).json({ erro: 'Status inválido.' });
-  db.prepare("UPDATE tmkt_vendas SET status=?, status_desde=datetime('now'), atualizado_em=datetime('now') WHERE id=? AND empresa_id=?").run(novo, req.params.id, req.usuario.empresa_id);
+  // Trava por data: só ENCERRA depois da data de fim da veiculação — antes disso permanece "em veiculação".
+  if (novo === 'encerrado') {
+    const v = db.prepare('SELECT vigencia_fim FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+    const hoje = new Date().toISOString().slice(0, 10);
+    const fim = v && v.vigencia_fim ? String(v.vigencia_fim).slice(0, 10) : null;
+    if (fim && fim > hoje) return res.status(400).json({ erro: `Só dá pra encerrar após a data de fim da veiculação (${fim.split('-').reverse().join('/')}). Até lá, a ação fica em veiculação.` });
+  }
+  db.prepare("UPDATE tmkt_vendas SET status=?, status_desde=datetime('now'), atualizado_em=datetime('now') WHERE id=? AND empresa_id=?").run(novo, req.params.id, emp);
   res.json({ ok: true });
 });
 router.delete('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {

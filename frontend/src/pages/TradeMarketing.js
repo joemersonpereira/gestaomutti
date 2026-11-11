@@ -1088,7 +1088,7 @@ function Vendas({ API, gestao }) {
   const carregar = useCallback((b = '') => API.get('/trademkt/vendas', { params: { busca: b || undefined } }).then(r => setD(r.data)).catch(() => setD({ vendas: [] })), [API]);
   useEffect(() => { carregar(); }, [carregar]);
   if (!d) return <div style={s.card}>Carregando…</div>;
-  const mover = (v, dir) => { const ids = COLS.map(c => c.id); const novo = ids[ids.indexOf(colDe(v.status)) + dir]; if (novo) API.post(`/trademkt/vendas/${v.id}/mover`, { status: novo }).then(() => carregar(busca)); };
+  const mover = (v, dir) => { const ids = COLS.map(c => c.id); const novo = ids[ids.indexOf(colDe(v.status)) + dir]; if (novo) API.post(`/trademkt/vendas/${v.id}/mover`, { status: novo }).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Não foi possível mover.')); };
   const marcarPerdido = (v) => { const motivo = window.prompt(`Finalizar como PERDIDO: ${v.fornecedor_nome} (${v.codigo}).\nMotivo (ex.: produto sem demanda):`, v.motivo_perda || ''); if (motivo == null) return; API.put(`/trademkt/vendas/${v.id}`, { status: 'perdido', motivo_perda: motivo }).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Erro ao marcar como perdido')); };
   const excluir = (v) => { if (!window.confirm(`Excluir a negociação ${v.codigo} (${v.fornecedor_nome})?\nIsso remove os espaços e as parcelas. Não dá pra desfazer.`)) return; API.delete(`/trademkt/vendas/${v.id}`).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Erro ao excluir.')); };
   const total = d.vendas.reduce((x, v) => x + (v.valor || 0), 0);
