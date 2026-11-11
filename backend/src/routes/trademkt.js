@@ -653,6 +653,21 @@ router.get('/erp/fornecedores', tradeCache, async (req, res) => {
     res.json({ fornecedores: r.map(x => ({ id: String(x.id), nome: x.nome })) });
   } catch (e) { res.status(502).json({ erro: e.message }); }
 });
+// busca pessoa no ERP (nome ou CPF) p/ vincular o contato da negociação
+router.get('/erp/pessoas', tradeCache, async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!habilitado() || q.length < 3) return res.json({ pessoas: [] });
+  try {
+    const dig = q.replace(/\D/g, '');
+    const porCpf = dig.length >= 5;
+    const r = await erpQuery(
+      `SELECT id, nome, lpad(regexp_replace(COALESCE(cpf,''),'\\D','','g'),11,'0') cpf FROM pessoa
+       WHERE tipo='F' AND (nome ILIKE $1${porCpf ? " OR regexp_replace(COALESCE(cpf,''),'\\D','','g') LIKE $2" : ''})
+       ORDER BY nome LIMIT 20`,
+      porCpf ? [`%${q}%`, `%${dig}%`] : [`%${q}%`]);
+    res.json({ pessoas: r.map(x => ({ id: String(x.id), nome: x.nome, cpf: x.cpf, ean: x.cpf })) });
+  } catch (e) { res.status(502).json({ erro: e.message }); }
+});
 router.get('/erp/produtos', tradeCache, async (req, res) => {
   if (!habilitado() || (req.query.q || '').length < 2) return res.json({ produtos: [] });
   try {

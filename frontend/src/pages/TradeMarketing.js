@@ -18,6 +18,8 @@ const COLS = [
 // status legados/entrada do portal → coluna do Kanban (pedido do portal cai em Negociação)
 const COL_DE = { pedido: 'negociacao', vendido: 'confirmado', concluido: 'aguardando' };
 const colDe = st => COL_DE[st] || (COLS.some(c => c.id === st) ? st : 'rascunho');
+// motivos padrão de perda (p/ selecionar e depois filtrar); "Outro" abre texto livre
+const MOTIVOS_PERDA = ['Produto sem demanda', 'Sem verba do fornecedor', 'Fornecedor desistiu', 'Fora de época / sazonalidade', 'Preço não fechou', 'Espaço indisponível', 'Sem retorno do fornecedor', 'Outro'];
 // "próximo a vencer": em veiculação e faltando ≤ 15 dias p/ o fim
 function proxVencer(v) {
   if (colDe(v.status) !== 'vigente' || !v.vigencia_fim) return false;
@@ -1087,11 +1089,13 @@ function CalEditor({ API, id: idInicial, evento, onClose, onSaved }) {
 
 function Vendas({ API, gestao }) {
   const [d, setD] = useState(null); const [busca, setBusca] = useState(''); const [edit, setEdit] = useState(null);
+  const [perdendo, setPerdendo] = useState(null); const [motivoSel, setMotivoSel] = useState(''); const [motivoOutro, setMotivoOutro] = useState(''); const [filtroPerda, setFiltroPerda] = useState('');
   const carregar = useCallback((b = '') => API.get('/trademkt/vendas', { params: { busca: b || undefined } }).then(r => setD(r.data)).catch(() => setD({ vendas: [] })), [API]);
   useEffect(() => { carregar(); }, [carregar]);
   if (!d) return <div style={s.card}>Carregando…</div>;
   const mover = (v, dir) => { const ids = COLS.map(c => c.id); const novo = ids[ids.indexOf(colDe(v.status)) + dir]; if (novo) API.post(`/trademkt/vendas/${v.id}/mover`, { status: novo }).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Não foi possível mover.')); };
-  const marcarPerdido = (v) => { const motivo = window.prompt(`Finalizar como PERDIDO: ${v.fornecedor_nome} (${v.codigo}).\nMotivo (ex.: produto sem demanda):`, v.motivo_perda || ''); if (motivo == null) return; API.put(`/trademkt/vendas/${v.id}`, { status: 'perdido', motivo_perda: motivo }).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Erro ao marcar como perdido')); };
+  const marcarPerdido = (v) => { setPerdendo(v); setMotivoSel(''); setMotivoOutro(''); };
+  const confirmarPerda = () => { if (!perdendo) return; const motivo = motivoSel === 'Outro' ? (motivoOutro.trim() || 'Outro') : motivoSel; if (!motivo) return alert('Escolha o motivo.'); API.put(`/trademkt/vendas/${perdendo.id}`, { status: 'perdido', motivo_perda: motivo }).then(() => { setPerdendo(null); carregar(busca); }).catch(e => alert(e.response?.data?.erro || 'Erro ao marcar como perdido')); };
   const excluir = (v) => { if (!window.confirm(`Excluir a negociação ${v.codigo} (${v.fornecedor_nome})?\nIsso remove os espaços e as parcelas. Não dá pra desfazer.`)) return; API.delete(`/trademkt/vendas/${v.id}`).then(() => carregar(busca)).catch(e => alert(e.response?.data?.erro || 'Erro ao excluir.')); };
   const total = d.vendas.reduce((x, v) => x + (v.valor || 0), 0);
   const aReceber = d.vendas.reduce((x, v) => x + (v.aReceber || 0), 0);
@@ -1135,17 +1139,39 @@ function Vendas({ API, gestao }) {
           );
         })}
       </div>
-      {(() => { const perdidos = d.vendas.filter(v => v.status === 'perdido'); if (!perdidos.length) return null; return (
-        <details style={{ marginTop: 14 }}>
-          <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#B45309' }}>✖ Perdidos ({perdidos.length})</summary>
-          <div style={{ marginTop: 8 }}>{perdidos.map(v => (
-            <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12.5, padding: '7px 0', borderTop: '1px solid #f3f3f3', flexWrap: 'wrap', alignItems: 'center' }}>
-              <span><b>{v.fornecedor_nome}</b> <span style={{ color: '#999' }}>{v.codigo}</span>{v.valor ? ` · ${brl(v.valor)}` : ''} — <span style={{ color: '#B45309' }}>{v.motivo_perda || 'sem motivo'}</span></span>
-              {gestao && <span style={{ display: 'flex', gap: 6 }}><button onClick={() => API.post(`/trademkt/vendas/${v.id}/mover`, { status: 'negociacao' }).then(() => carregar(busca))} style={s.mv}>reabrir</button><button onClick={() => excluir(v)} style={{ ...s.mv, color: '#C0392B' }}>🗑</button></span>}
+      {(() => {
+        const perdidos = d.vendas.filter(v => v.status === 'perdido'); if (!perdidos.length) return null;
+        const motivos = [...new Set(perdidos.map(v => v.motivo_perda || 'sem motivo'))].sort();
+        const lista = filtroPerda ? perdidos.filter(v => (v.motivo_perda || 'sem motivo') === filtroPerda) : perdidos;
+        return (
+          <details style={{ marginTop: 14 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#B45309' }}>✖ Perdidos ({perdidos.length})</summary>
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: '#7a8a8c' }}>Filtrar por motivo:</span>
+              <select value={filtroPerda} onChange={e => setFiltroPerda(e.target.value)} style={{ ...s.inp, width: 'auto' }}><option value="">Todos ({perdidos.length})</option>{motivos.map(m => <option key={m} value={m}>{m} ({perdidos.filter(v => (v.motivo_perda || 'sem motivo') === m).length})</option>)}</select>
             </div>
-          ))}</div>
-        </details>
-      ); })()}
+            <div style={{ marginTop: 8 }}>{lista.map(v => (
+              <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12.5, padding: '7px 0', borderTop: '1px solid #f3f3f3', flexWrap: 'wrap', alignItems: 'center' }}>
+                <span><b>{v.fornecedor_nome}</b> <span style={{ color: '#999' }}>{v.codigo}</span>{v.valor ? ` · ${brl(v.valor)}` : ''} — <span style={{ color: '#B45309' }}>{v.motivo_perda || 'sem motivo'}</span></span>
+                {gestao && <span style={{ display: 'flex', gap: 6 }}><button onClick={() => API.post(`/trademkt/vendas/${v.id}/mover`, { status: 'negociacao' }).then(() => carregar(busca))} style={s.mv}>reabrir</button><button onClick={() => excluir(v)} style={{ ...s.mv, color: '#C0392B' }}>🗑</button></span>}
+              </div>
+            ))}</div>
+          </details>
+        );
+      })()}
+      {perdendo && <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={() => setPerdendo(null)}>
+        <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 20, width: 'min(420px,92vw)', boxShadow: '0 10px 40px rgba(0,0,0,.2)' }}>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Finalizar como perdido</div>
+          <div style={{ fontSize: 12.5, color: '#64748b', marginBottom: 12 }}>{perdendo.fornecedor_nome} · {perdendo.codigo}</div>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Motivo</div>
+          <select value={motivoSel} onChange={e => setMotivoSel(e.target.value)} style={{ ...s.inp, width: '100%' }}><option value="">— escolher —</option>{MOTIVOS_PERDA.map(m => <option key={m} value={m}>{m}</option>)}</select>
+          {motivoSel === 'Outro' && <input value={motivoOutro} onChange={e => setMotivoOutro(e.target.value)} placeholder="Descreva o motivo" style={{ ...s.inp, width: '100%', marginTop: 8 }} />}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+            <button onClick={() => setPerdendo(null)} style={s.btnMini}>Cancelar</button>
+            <button onClick={confirmarPerda} style={{ ...s.btn, background: '#B45309' }}>Marcar como perdido</button>
+          </div>
+        </div>
+      </div>}
       {edit && <EditorVenda API={API} idInicial={edit === 'novo' ? null : edit} onClose={() => setEdit(null)} onSaved={() => carregar(busca)} />}
     </div>
   );
@@ -1226,6 +1252,11 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
             {v.fornecedor_id ? <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, padding: '6px 10px', background: '#F3F7F4', border: '1px solid #DDEBE1', borderRadius: 8 }}>✅ <b>{v.fornecedor_nome}</b><button type="button" onClick={() => { set('fornecedor_id', ''); set('fornecedor_nome', ''); }} style={{ ...s.mv, marginLeft: 'auto' }}>trocar</button></div>
               : <BuscaERP API={API} rota="/trademkt/erp/fornecedores" campo="fornecedores" placeholder="buscar fornecedor no ERP…" onPick={f => { set('fornecedor_id', f.id); set('fornecedor_nome', f.nome); }} />}
           </div>
+          <div style={{ ...s.lbl, flex: 1, minWidth: 220 }}>Pessoa de contato <span style={{ fontWeight: 400, color: '#94a3b8' }}>(acesso ao portal — opcional)</span>
+            {v.contato_nome
+              ? <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, padding: '6px 10px', background: '#F3F7F4', border: '1px solid #DDEBE1', borderRadius: 8 }}>👤 <b>{v.contato_nome}</b>{v.contato_cpf ? <span style={{ color: '#64748b', fontSize: 12 }}>· {v.contato_cpf}</span> : ''}<button type="button" onClick={() => { set('contato_nome', ''); set('contato_cpf', ''); }} style={{ ...s.mv, marginLeft: 'auto' }}>trocar</button></div>
+              : <BuscaERP API={API} rota="/trademkt/erp/pessoas" campo="pessoas" placeholder="buscar pessoa no ERP (nome ou CPF)…" onPick={p => { set('contato_nome', p.nome); set('contato_cpf', p.cpf || ''); }} />}
+          </div>
           <label style={{ ...s.lbl, minWidth: 240 }}>Lojas envolvidas <span style={{ fontWeight: 400, color: '#94a3b8' }}>(pode marcar mais de uma)</span>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
               {lojas.map(l => {
@@ -1267,11 +1298,6 @@ function EditorVenda({ API, idInicial, onClose, onSaved }) {
             🏠 Uso interno da farmácia <span style={{ color: '#94a3b8' }}>(ocupa, mas conta como deixado de ganhar)</span>
           </label>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <label style={{ ...s.lbl, minWidth: 220, flex: 1 }}>Pessoa de contato <span style={{ fontWeight: 400, color: '#94a3b8' }}>(acesso ao portal)</span><input value={v.contato_nome || ''} onChange={e => set('contato_nome', e.target.value)} placeholder="nome do responsável do fornecedor" style={s.inp} /></label>
-          <label style={s.lbl}>CPF<input value={v.contato_cpf || ''} onChange={e => set('contato_cpf', e.target.value)} placeholder="só números" style={{ ...s.inp, width: 150 }} /></label>
-        </div>
-        {v.contato_cpf && <div style={{ fontSize: 11, color: '#7C3AED', marginTop: -4, marginBottom: 2 }}>🔑 Com esse CPF, a pessoa entra no Portal do fornecedor (CNPJ do fornecedor + o CPF dela) pra acompanhar a ação — sell-out e comprovação.</div>}
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <label style={{ ...s.lbl, flex: 1, minWidth: 200 }}>URL do contrato assinado<input value={v.contrato_url || ''} onChange={e => set('contrato_url', e.target.value)} placeholder="cole a URL" style={s.inp} /></label>
           {id && <button type="button" onClick={() => setVerContrato(true)} style={s.btnMini} title="Preenche o modelo com os dados desta negociação">📄 Gerar contrato do modelo</button>}
