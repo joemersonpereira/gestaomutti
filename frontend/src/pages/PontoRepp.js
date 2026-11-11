@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
+import { Vinculos } from './Ponto'; // aba "🔗 Vínculos Tangerino" (casar colaborador↔Tangerino por CPF)
 
 // Cores por nível de alerta de legislação
 const NIVEL = {
@@ -63,7 +64,7 @@ export default function PontoRepp() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '6px 0 12px', borderBottom: '1px solid var(--line,#ddd8cf)', marginBottom: 12 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, color: 'var(--fg,#1c2a2e)' }}>🕐 Ponto — Escala & Jornada</h1>
         <div style={{ ...s.tabs, margin: 0, marginLeft: 'auto', flexWrap: 'wrap' }}>
-          {[['inteligente', '✨ Escala Inteligente'], ['batidas', '🟢 Bater ponto'], ['apropriacao', '🛠️ Apropriação (RH)'], ['pendentes', '⚠️ Pontos suspeitos'], ['banco', '🏦 Banco de horas'], ['escalas', '📅 Escalas'], ['regras', '📋 Regras de Ponto'], ['colaborador', '👤 Colaborador (regra & HE)'], ['necessidade', '👥 Necessidade (loja/turno)'], ['fechamento', '🔒 Fechamento'], ['acompanhamento', '📊 Acompanhamento'], ['ferias', '🏖️ Férias'], ['relatorios', '📑 Relatórios (folha)'], ['fiscal', '📄 Arquivos fiscais'], ['feriados', '📆 Feriados'], ['modelos', '🗂️ Modelos de escala'], ['afastamentos', '🌴 Motivos de afastamento'], ['justificativas', '📝 Justificativas de atraso'], ['config', '⚙️ Configurações'], ['parametros', '⚙️ Parâmetros legais']].map(([k, l]) => (
+          {[['inteligente', '✨ Escala Inteligente'], ['batidas', '🟢 Bater ponto'], ['apropriacao', '🛠️ Apropriação (RH)'], ['pendentes', '⚠️ Pontos suspeitos'], ['banco', '🏦 Banco de horas'], ['escalas', '📅 Escalas'], ['regras', '📋 Regras de Ponto'], ['colaborador', '👤 Colaborador (regra & HE)'], ['necessidade', '👥 Necessidade (loja/turno)'], ['fechamento', '🔒 Fechamento'], ['acompanhamento', '📊 Acompanhamento'], ['ferias', '🏖️ Férias'], ['relatorios', '📑 Relatórios (folha)'], ['fiscal', '📄 Arquivos fiscais'], ['feriados', '📆 Feriados'], ['modelos', '🗂️ Modelos de escala'], ['afastamentos', '🌴 Motivos de afastamento'], ['justificativas', '📝 Justificativas de atraso'], ['vinculos', '🔗 Vínculos Tangerino'], ['config', '⚙️ Configurações'], ['parametros', '⚙️ Parâmetros legais']].map(([k, l]) => (
             <button key={k} onClick={() => setAba(k)} style={{ ...s.tab, ...(aba === k ? s.tabAtiva : {}) }}>{l}</button>
           ))}
         </div>
@@ -86,6 +87,7 @@ export default function PontoRepp() {
       {aba === 'relatorios' && <Relatorios API={API} />}
       {aba === 'fiscal' && <Fiscal API={API} />}
       {aba === 'feriados' && <Feriados API={API} />}
+      {aba === 'vinculos' && <Vinculos API={API} />}
       {aba === 'modelos' && <Lista API={API} url="/pontorep/modelos" cols={[['codigo', 'Código'], ['nome', 'Modelo'], ['base_legal', 'Base legal'], ['jornada_diaria_min', 'Jornada/dia', v => h(v)], ['dias_trabalha', 'Trab.'], ['dias_folga', 'Folga'], ['doc_exigido', 'Doc. p/ ativar'], ['observacao', 'Observação']]} />}
       {aba === 'afastamentos' && <Motivos API={API} podeAutorizar={podeAutorizar} />}
       {aba === 'justificativas' && <Justificativas API={API} podeAutorizar={podeAutorizar} />}

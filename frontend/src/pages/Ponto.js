@@ -166,7 +166,7 @@ function Batidas({ API }) {
   );
 }
 
-function Vinculos({ API }) {
+export function Vinculos({ API }) {
   const [d, setD] = useState(null); const [msg, setMsg] = useState(''); const [busca, setBusca] = useState('');
   const carregar = useCallback(() => API.get('/ponto/vinculos').then(r => setD(r.data)).catch(() => {}), [API]);
   useEffect(() => { carregar(); }, [carregar]);

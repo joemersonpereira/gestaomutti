@@ -130,7 +130,7 @@ const MODULOS = [
   { id: 'servicos-farmaceuticos', label: '🩺 Cuidado Farmacêutico', C: ServicosFarmaceuticos, perfis: ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria', 'Gerente', 'Subgerente', 'Balconista', 'Farmacêutico', 'Vendedor'] },
   { id: 'patrimonio', label: '🗄️ Patrimônio', C: Patrimonio, perfis: '*' },
   { id: 'ponto', label: '🕐 Ponto', C: Ponto, perfis: ['RH', 'Gestor Geral', 'Diretor Geral', 'Supervisor', 'Controladoria'] },
-  { id: 'ponto-repp', label: '🕐 Ponto — Escala & Jornada', C: PontoRepp, perfis: ['RH', 'Gestor Geral', 'Diretor Geral', 'Supervisor', 'Controladoria', 'Gerente', 'Subgerente'] },
+  { id: 'ponto-repp', label: '🕐 Ponto', C: PontoRepp, perfis: ['RH', 'Gestor Geral', 'Diretor Geral', 'Supervisor', 'Controladoria', 'Gerente', 'Subgerente'] },
   { id: 'rhia', label: '🤖 Rhia (IA do grupo)', C: Rhia, perfis: '*' },
   { id: 'pedemeia', label: '🐷 Pé de Meia', C: PeDeMeia, perfis: '*' },
   { id: 'etiquetas', label: '🏷️ Etiquetas de Preço', C: Etiquetas, perfis: ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Marketing', 'Gerente', 'Subgerente', 'Balconista', 'Farmacêutico'] },
@@ -174,7 +174,7 @@ const REMOVIDOS = new Set([
   'conferentes', 'almoxarifado', 'integracoes', 'email-tarefas',
   // Gente & Gestão — restantes
   'indicadores-colab', 'afastamentos',
-  // Ponto antigo (Tangerino) — fica só o Ponto — Escala & Jornada (REP-P)
+  // Ponto antigo — a aba "🔗 Vínculos" (casar colaborador↔Tangerino por CPF) foi incorporada ao menu Ponto (ponto-repp) 2026-11-11.
   'ponto',
   // Removidos a pedido (2026-10-04): Painel de Compras + Logística (Devoluções)
   'painel-compras', 'devolucoes',
