@@ -908,7 +908,7 @@ function overlayCalendario(emp, ini, fim) {
   for (const ev of evs) {
     const rec = ev.recorrencia || 'unico';
     const emoji = CATICO[ev.categoria] || '🗓️';
-    const base = { visibilidade: 'empresa', meu: false, editavel: false, origem: 'programacao', cor: ev.cor || '#6D4AA8', hora: null };
+    const base = { visibilidade: 'empresa', meu: false, editavel: false, origem: 'programacao', ref_id: ev.id, cor: ev.cor || '#6D4AA8', hora: null };
     if (rec === 'unico') {
       if (ev.data) { if (ev.data >= ini && ev.data <= fim) out.push({ ...base, id: 'cal-' + ev.id, data: ev.data, fim: null, titulo: emoji + ' ' + ev.nome }); }
       else if (ev.data_ini) { const a = ev.data_ini, b = ev.data_fim || ev.data_ini; if (a <= fim && b >= ini) out.push({ ...base, id: 'cal-' + ev.id, data: a, fim: b, titulo: emoji + ' ' + ev.nome }); }

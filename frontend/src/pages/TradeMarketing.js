@@ -76,7 +76,7 @@ export default function TradeMarketing() {
         {gestao && <button onClick={() => setModelo(true)} style={bannerBtn}>📄 Modelo de contrato</button>}
       </Banner>
       <div style={{ display: 'flex', gap: 6, margin: '12px 0 16px', flexWrap: 'wrap', padding: 6, background: '#fff', border: '1px solid #ecefee', borderRadius: 14, boxShadow: '0 1px 3px rgba(16,40,45,.05)' }}>
-        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['calendario', '📅 Calendário'], ['metas', '🎯 Metas'], ['leads', '📇 Leads (fornecedores)'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
+        {[['dashboard', '📊 Dashboard'], ['portal', '🌐 Portal do fornecedor'], ['vendas', '🗂️ Negociações'], ['metas', '🎯 Metas'], ['leads', '📇 Leads (fornecedores)'], ['cobranca', '💰 Cobrança'], ['porloja', '🏬 Espaços por loja'], ['capacidade', '🧮 Capacidade'], ['espacos', '🗂️ Áreas & Espaços'], ['associacoes', '🤝 Associações'], ['grupos', '🏢 Grupos econômicos']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, border: 'none', ...(aba === v ? s.chipOn : { background: 'transparent', color: '#51607a' }) }}>{l}</button>)}
       </div>
       <PainelMeta API={API} aba={aba} onNav={setAba} aberto={lateral} setAberto={setLateral} />
@@ -85,7 +85,6 @@ export default function TradeMarketing() {
       {aba === 'cobranca' && <Cobranca API={API} gestao={gestao} />}
       {aba === 'dashboard' && <Dashboard API={API} onAba={setAba} />}
       {aba === 'vendas' && <Vendas API={API} gestao={gestao} />}
-      {aba === 'calendario' && <Calendario API={API} gestao={gestao} onNav={setAba} />}
       {aba === 'metas' && <PremiacaoVendedor API={API} gestao={gestao} />}
       {aba === 'leads' && <LeadsFornecedor API={API} gestao={gestao} onFunil={() => setAba('vendas')} />}
       {aba === 'porloja' && <EspacoLoja API={API} gestao={gestao} />}
@@ -2701,7 +2700,7 @@ function PremiacaoVendedor({ API, gestao }) {
 // Lateral da área de trabalho do colaborador: navegação entre as páginas de trade + as pendências
 // dele sempre à vista (premiação/meta do mês, metas de atividade, cobranças de prospecção, atividades
 // e agenda dos próximos contatos). Fica fixa em altura cheia; o conteúdo se ajusta ao lado.
-const LAT_NAV = [['vendas', '🗂️', 'Negociações'], ['dashboard', '📊', 'Dashboard'], ['calendario', '📅', 'Calendário'], ['metas', '🎯', 'Metas'], ['leads', '📇', 'Leads'], ['porloja', '🏬', 'Espaços'], ['cobranca', '💰', 'Cobrança']];
+const LAT_NAV = [['vendas', '🗂️', 'Negociações'], ['dashboard', '📊', 'Dashboard'], ['metas', '🎯', 'Metas'], ['leads', '📇', 'Leads'], ['porloja', '🏬', 'Espaços'], ['cobranca', '💰', 'Cobrança']];
 
 // ── Calendário da empresa: eventos "empresa" todos veem; "pessoais" só o dono. ──
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -2715,6 +2714,7 @@ function Calendario({ API, gestao, onNav }) {
   const [eventos, setEventos] = useState([]);
   const [verEmpresa, setVerEmpresa] = useState(true); const [verMeus, setVerMeus] = useState(true); const [verProg, setVerProg] = useState(true);
   const [diaSel, setDiaSel] = useState(null); const [editEv, setEditEv] = useState(null); // objeto de evento ou {data} p/ novo
+  const [editProg, setEditProg] = useState(null); // 'novo' ou id da programação (tmkt_calendario)
   // grade de 6 semanas começando no domingo
   const primeiro = new Date(ano, mes, 1);
   const gridIni = new Date(ano, mes, 1 - primeiro.getDay());
@@ -2736,6 +2736,7 @@ function Calendario({ API, gestao, onNav }) {
         <button onClick={() => navMes(1)} style={s.btnMini}>▶</button>
         <button onClick={() => { setMes(hoje.getMonth()); setAno(hoje.getFullYear()); }} style={s.btnMini}>hoje</button>
         <button onClick={() => setEditEv({ data: hojeISO })} style={{ ...s.btn, marginLeft: 4 }}>+ Agendar</button>
+        {gestao && <button onClick={() => setEditProg('novo')} style={{ ...s.btn, background: '#6D4AA8' }}>+ Programação</button>}
       </div>
     </div>
     <div style={{ ...s.card, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
@@ -2771,9 +2772,13 @@ function Calendario({ API, gestao, onNav }) {
           </div>
         </div>)}
       </div>
-      <button onClick={() => { setEditEv({ data: diaSel }); setDiaSel(null); }} style={{ ...s.btn, marginTop: 12 }}>+ Agendar nesse dia</button>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+        <button onClick={() => { setEditEv({ data: diaSel }); setDiaSel(null); }} style={s.btn}>+ Agendar nesse dia</button>
+        {gestao && <button onClick={() => { setEditProg('novo'); setDiaSel(null); }} style={{ ...s.btn, background: '#6D4AA8' }}>+ Programação</button>}
+      </div>
     </div></div>}
     {editEv && <EventoModal API={API} gestao={gestao} ev={editEv} onClose={() => setEditEv(null)} onSaved={() => { setEditEv(null); carregar(); }} />}
+    {editProg && <CalEditor API={API} id={editProg === 'novo' ? null : editProg} evento={null} onClose={() => setEditProg(null)} onSaved={() => { setEditProg(null); carregar(); }} />}
   </div>;
 }
 function EventoModal({ API, gestao, ev, onClose, onSaved }) {

@@ -200,27 +200,29 @@ function podeVer(m, funcao, overrides) {
 // Cada pessoa vê só o que o perfil permite; a estrutura organiza o que ela vê.
 const NAV = [
   { camada: 'Meu dia', grupos: [
-    { nome: 'Meu dia', itens: ['comunidade', 'tarefas', 'minhasmetas', 'meu-setor', 'meurh', 'folgas', 'loja-pontos', 'pedemeia', 'rhia'] },
+    { nome: 'Meu dia', itens: ['comunidade', 'tarefas', 'agenda', 'minhasmetas', 'meu-setor', 'meurh', 'folgas', 'loja-pontos', 'pedemeia', 'rhia'] },
   ] },
   { camada: 'Departamentos', grupos: [
     { nome: 'Operacional', itens: ['gerente', 'checklist-gerente', 'checklist', 'satisfacao', 'calendario', 'formulas', 'servicos-farmaceuticos', 'etiquetas', 'faltas', 'mercado', 'patrimonio'] },
     { nome: 'Comercial', itens: ['painel-compras'], subs: [
-      { nome: 'Trade & Fornecedores', itens: ['acordos', 'trademkt'] },
+      { nome: 'Retail & Ads', itens: ['acordos', 'trademkt'] },
     ] },
     { nome: 'Marketing', itens: ['marketing', 'mkt-calendario'] },
-    { nome: 'Gente & Gestão', itens: ['cadastros', 'premiacao-fechamento', 'visao360', 'capacitacao', 'indicadores-colab', 'afastamentos', 'ponto', 'ponto-repp', 'ocorrencias', 'documentos-rh', 'beneficios', 'clima', 'desligamentos', 'canal-escuta', 'painel-rh'] },
-    { nome: 'Administrativo', itens: ['financeiro', 'contas-receber', 'conciliacao-cartao', 'tesouraria', 'estagio-rh', 'banco-talentos', 'estagios'], subs: [
+    { nome: 'Gente & Gestão', itens: ['cadastros', 'visao360', 'capacitacao', 'indicadores-colab', 'afastamentos', 'ponto', 'ponto-repp', 'ocorrencias', 'documentos-rh', 'beneficios', 'clima', 'desligamentos', 'canal-escuta', 'painel-rh', 'estagio-rh', 'estagios', 'banco-talentos'] },
+    { nome: 'Administrativo', itens: [], subs: [
+      { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'tesouraria', 'conciliacao-cartao', 'contas-receber', 'cobranca-trade'] },
       { nome: 'Controladoria', itens: ['controladoria'] },
       { nome: 'Contabilidade', itens: ['contabilidade', 'fornecedores', 'auditoria-contabil'] },
-      { nome: 'Fiscal', itens: ['fiscal'] },
+      { nome: 'Suporte', itens: ['suporte', 'fiscal'] },
     ] },
     { nome: 'Logística', itens: ['conferentes', 'devolucoes', 'almoxarifado'] },
   ] },
   { camada: 'Gestão', grupos: [
-    { nome: 'Supervisão', itens: ['supervisor', 'auditoria', 'premiacao-equipe', 'metas'], subs: [
+    { nome: 'Supervisão', itens: ['supervisor', 'metas'], subs: [
       { nome: 'Atendimento Online', itens: ['entrega'] },
     ] },
-    { nome: 'Direção', itens: ['diretoria', 'avaliacao-admin', 'ranking'] },
+    { nome: 'Resultado', itens: ['premiacao-fechamento', 'premiacao-equipe'] },
+    { nome: 'Direção', itens: ['diretoria', 'auditoria', 'avaliacao-admin', 'ranking'] },
     { nome: 'Relatórios', itens: ['relatorios'] },
     { nome: 'Configurações', itens: ['parametros', 'integracoes', 'email-tarefas'] },
   ] },
