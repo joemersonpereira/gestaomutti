@@ -59,7 +59,11 @@ async function analiseVencidos(empresaId, { lojaId, dias = 90 } = {}) {
            b.qtd * COALESCE(cpr.customedio, 0) valor,
            (SELECT em2.codigobarras FROM embalagem em2 WHERE em2.produtoid = b.produtoid AND em2.codigobarras IS NOT NULL LIMIT 1) AS ean,
            (SELECT cl.nome FROM classificacaoproduto cp JOIN classificacao cl ON cl.id = cp.classificacaoid
-              WHERE cp.produtoid = b.produtoid AND cl.principal = true ORDER BY cl.profundidade DESC LIMIT 1) AS classificacao
+              WHERE cp.produtoid = b.produtoid AND cl.principal = true ORDER BY cl.profundidade DESC LIMIT 1) AS classificacao,
+           -- grupo principal = o 2º nível do caminho da classificação principal (ex.: "PRINCIPAL > PERFUMARIA > ..." → PERFUMARIA).
+           -- O produto só é ligado à FOLHA (profundidade 3); por isso subimos pela trilha (caminho), não filtrando profundidade=2.
+           (SELECT NULLIF(split_part(cl.caminho, ' > ', 2), '') FROM classificacaoproduto cp JOIN classificacao cl ON cl.id = cp.classificacaoid
+              WHERE cp.produtoid = b.produtoid AND cl.principal = true ORDER BY cl.profundidade DESC LIMIT 1) AS grupo
     FROM base b
     LEFT JOIN custoproduto cpr ON cpr.produtoid = b.produtoid AND cpr.unidadenegocioid = b.uni
     ORDER BY dias_para_vencer ASC
@@ -93,7 +97,7 @@ async function analiseVencidos(empresaId, { lojaId, dias = 90 } = {}) {
     else { sugestao = 'Sem demanda recente na rede. Negociar troca/devolução ou promoção.'; acao = 'promover'; }
     return {
       uni, loja: nomeLoja(uni), produtoId: pid, descricao: l.descricao,
-      ean: l.ean || null, classificacao: l.classificacao || null, origem: l.origem || null,
+      ean: l.ean || null, classificacao: l.classificacao || null, grupo: l.grupo || null, origem: l.origem || null,
       validade: l.validade, diasParaVencer: ddv, vencido: ddv < 0,
       estoque, qtdLote: Number(l.qtd_lote) || 0, valor: Math.round(Number(l.valor) || 0),
       demandaAqui, melhorLoja: nomeLoja(melhorUni), melhorDemanda: melhorQtd,

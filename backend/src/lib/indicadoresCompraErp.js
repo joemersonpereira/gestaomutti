@@ -184,4 +184,74 @@ async function indicadoresEstoque(empresaId, { lojaId, compradorId } = {}) {
   };
 }
 
-module.exports = { indicadoresEstoque };
+// Retorno do falteiro — tela "Falteiro" do A7 (falta registrada no balcão). Status: A=Pendente, B=Atendido
+// (o comprador incluiu na compra), C=Cancelado. "Retorno" = taxa de atendimento = atendidos ÷ (pendentes+atendidos).
+// Escopo por comprador: só conta faltas de produtos das classificações/grupos dele (produtoid).
+async function retornoFalteiro(empresaId, { lojaId, compradorId, dias = 60 } = {}) {
+  if (!habilitado()) return { erp: false };
+  const unis = unisEmpresa(empresaId, lojaId);
+  if (!unis.length) return { erp: true, erro: 'Nenhuma loja vinculada ao ERP.' };
+  const prodIds = await produtosDoComprador(empresaId, compradorId);
+  if (compradorId && (!prodIds || !prodIds.length)) return { erp: true, semComprador: true };
+  const pf = prodIds ? ' AND f.produtoid = ANY($3::bigint[])' : '';
+  const params = prodIds ? [unis, dias, prodIds] : [unis, dias];
+  const r = (await erpQuery(`
+    SELECT count(*) FILTER (WHERE f.status='A') pendentes,
+           count(*) FILTER (WHERE f.status='B') atendidos,
+           count(*) FILTER (WHERE f.status='C') cancelados
+    FROM falteiro f
+    WHERE f.unidadenegocioid = ANY($1::bigint[]) AND f.produtoid IS NOT NULL
+      AND f.datahora >= now() - ($2 || ' days')::interval${pf}`, params).catch(() => [{}]))[0] || {};
+  const pendentes = Number(r.pendentes) || 0, atendidos = Number(r.atendidos) || 0, cancelados = Number(r.cancelados) || 0;
+  const base = pendentes + atendidos;
+  const taxa = base ? Math.round(atendidos / base * 1000) / 10 : null; // % (null = sem falta no período)
+  return { erp: true, dias, pendentes, atendidos, cancelados, taxa };
+}
+
+// CMV% do comprador no mês: custo da mercadoria vendida ÷ venda, só dos produtos dos grupos dele.
+async function cmvComprador(empresaId, { lojaId = '', compradorId, ano, mes } = {}) {
+  if (!habilitado()) return { erp: false };
+  const unis = unisEmpresa(empresaId, lojaId);
+  if (!unis.length) return { erp: true, erro: 'Nenhuma loja vinculada ao ERP.' };
+  const prodIds = await produtosDoComprador(empresaId, compradorId);
+  if (compradorId && (!prodIds || !prodIds.length)) return { erp: true, semComprador: true };
+  const now = new Date(); const y = Number(ano) || now.getFullYear(); const m = Number(mes) || (now.getMonth() + 1);
+  const pf = prodIds ? ' AND em.produtoid = ANY($4::bigint[])' : '';
+  const params = prodIds ? [unis, y, m, prodIds] : [unis, y, m];
+  const r = (await erpQuery(`
+    SELECT sum(me.custo*abs(me.quantidade)) custo, sum(iv.valortotal) venda
+    FROM itemvenda iv JOIN venda v ON v.id=iv.vendaid JOIN movimentacaoestoque me ON me.id=iv.movimentacaoestoqueid
+      JOIN embalagem em ON em.id=iv.embalagemid
+    WHERE v.status IN ('F','D') AND iv.status='F' AND v.unidadenegocioid = ANY($1::bigint[])
+      AND date_part('year', v.datahorafechamento)=$2 AND date_part('month', v.datahorafechamento)=$3${pf}`, params).catch(() => [{}]))[0] || {};
+  const custo = Number(r.custo) || 0, venda = Number(r.venda) || 0;
+  return { erp: true, ano: y, mes: m, custo, venda, cmv: venda ? Math.round(custo / venda * 1000) / 10 : null };
+}
+
+// Valor (a custo) BAIXADO por VENCIMENTO no mês — itens de baixa ligados a item pré-vencido.
+// Só dos produtos dos grupos do comprador. Usado para o indicador Vencidos (%) = vencido ÷ estoque.
+async function vencidoComprador(empresaId, { lojaId = '', compradorId, ano, mes } = {}) {
+  if (!habilitado()) return { erp: false };
+  const unis = unisEmpresa(empresaId, lojaId);
+  if (!unis.length) return { erp: true, erro: 'Nenhuma loja vinculada ao ERP.' };
+  const prodIds = await produtosDoComprador(empresaId, compradorId);
+  if (compradorId && (!prodIds || !prodIds.length)) return { erp: true, semComprador: true };
+  const now = new Date(); const y = Number(ano) || now.getFullYear(); const m = Number(mes) || (now.getMonth() + 1);
+  const pf = prodIds ? ' AND em.produtoid = ANY($4::bigint[])' : '';
+  const params = prodIds ? [unis, y, m, prodIds] : [unis, y, m];
+  // Vencidos = baixa de estoque com MOTIVO "PRODUTO VENCIDO" (a tela Baixa de Estoque do A7). É a
+  // realidade operacional; o antigo filtro por itemprevencidoid pegava só ~17% do valor real (validado).
+  const r = (await erpQuery(`
+    SELECT sum(me.custo*abs(me.quantidade))::float8 custo
+    FROM itembaixaestoque ib
+      JOIN baixaestoque b ON b.id=ib.baixaestoqueid
+      JOIN motivo mo ON mo.id=b.motivoid
+      JOIN movimentacaoestoque me ON me.id=ib.movimentacaoestoqueid
+      JOIN embalagem em ON em.id=ib.embalagemid
+    WHERE mo.descricao ILIKE '%VENCIDO%'
+      AND b.unidadenegocioid = ANY($1::bigint[])
+      AND date_part('year', b.datahora)=$2 AND date_part('month', b.datahora)=$3${pf}`, params).catch(() => [{}]))[0] || {};
+  return { erp: true, ano: y, mes: m, custo: Number(r.custo) || 0 };
+}
+
+module.exports = { indicadoresEstoque, retornoFalteiro, produtosDoComprador, cmvComprador, vencidoComprador };

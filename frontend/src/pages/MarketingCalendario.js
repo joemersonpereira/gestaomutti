@@ -2,6 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
 import { useOrdenavel, ThOrd } from '../components/Ordenavel';
+import MeuSetorArea from './MeuSetorArea';
+import MinhaAreaLateral from '../components/MinhaAreaLateral';
+import { CalendarioEmpresa } from './TradeMarketing';
 
 const TIPOS = {
   postagem: ['📱', 'Postagem', '#2E5C9E'],
@@ -9,6 +12,7 @@ const TIPOS = {
   evento: ['🎪', 'Evento', '#C0392B'],
   campanha: ['📢', 'Campanha', '#1E8449'],
   acao_fornecedor: ['🤝', 'Ação c/ fornecedor', '#B7791F'],
+  execucao: ['🏠', 'Execução (uso interno)', '#8A6D3B'],
 };
 const STATUS = ['ideia', 'planejado', 'producao', 'agendado', 'publicado', 'concluido', 'cancelado'];
 const DOW = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
@@ -32,6 +36,15 @@ export default function MarketingCalendario() {
     API.get('/mkt/influenciadores').then(r => setInflus(r.data.influenciadores || [])).catch(() => {});
   }, [API, ano, mes]);
   useEffect(() => { carregar(); }, [carregar]);
+  // Veio do Trade: abre a MESMA FormAcao — nova (preenchida c/ fornecedor+venda) ou uma existente (por id).
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('mkt_nova_acao');
+      if (raw) { sessionStorage.removeItem('mkt_nova_acao'); setAba('calendario'); setEdit(JSON.parse(raw)); return; }
+      const aid = sessionStorage.getItem('mkt_abrir_acao');
+      if (aid) { sessionStorage.removeItem('mkt_abrir_acao'); setAba('calendario'); API.get('/mkt/agenda/' + aid).then(r => setEdit(r.data.item)).catch(() => {}); }
+    } catch (e) {}
+  }, [API]);
 
   // grade do mês
   const primeiro = new Date(ano, mes, 1);
@@ -44,40 +57,28 @@ export default function MarketingCalendario() {
     <div style={s.wrap}>
       <Banner emoji="📣" titulo="Marketing — Calendário" cor="laranja" sub="Programe postagens, ações, campanhas e eventos. Envolva influenciadores, funcionários e fornecedores." />
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-        {[['calendario', '🗓️ Calendário'], ['lista', '📋 Lista'], ['verba', '💰 Verba'], ['influ', '⭐ Influenciadores'], ['criar', '✨ Criar post (Rhia)']].map(([v, l]) =>
+        {[['calendario', '🗓️ Calendário'], ['lista', '📋 Lista'], ['materiais', '📦 Materiais'], ['redes', '📱 Redes'], ['influ', '⭐ Influenciadores'], ['meu-setor', '🎯 Meu Setor'], ['metas', '⚙️ Metas']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
-        {gestao && (aba === 'calendario' || aba === 'lista') && <button onClick={() => setEdit({ novo: iso(new Date()) })} style={{ ...s.btn, marginLeft: 'auto' }}>+ Nova ação</button>}
+        {gestao && aba === 'lista' && <button onClick={() => setEdit({ novo: iso(new Date()) })} style={{ ...s.btn, marginLeft: 'auto' }}>+ Nova ação</button>}
       </div>
 
-      {(aba === 'calendario' || aba === 'lista') && (
+      {aba === 'lista' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <button onClick={() => setRef(new Date(ano, mes - 1, 1))} style={s.nav}>‹</button>
           <div style={{ fontSize: 16, fontWeight: 700, minWidth: 170, textAlign: 'center' }}>{MES[mes]} {ano}</div>
           <button onClick={() => setRef(new Date(ano, mes + 1, 1))} style={s.nav}>›</button>
-          {verbaTotal > 0 && <span style={{ marginLeft: 'auto', fontSize: 12, color: '#666' }}>💰 Verba do mês: <b>R$ {verbaTotal.toLocaleString('pt-BR')}</b></span>}
         </div>
       )}
 
-      {aba === 'calendario' && (
-        <div style={{ overflowX: 'auto' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 4, minWidth: 780 }}>
-            {DOW.map(d => <div key={d} style={{ fontSize: 11, fontWeight: 700, color: '#999', textAlign: 'center', padding: 4 }}>{d.toUpperCase()}</div>)}
-            {dias.map((d, i) => {
-              const fora = d.getMonth() !== mes; const hoje = iso(d) === iso(new Date());
-              return (
-                <div key={i} onClick={() => gestao && setEdit({ novo: iso(d) })} style={{ minHeight: 88, background: fora ? '#FAFAFA' : '#fff', border: hoje ? '2px solid #2E5C9E' : '1px solid #eee', borderRadius: 8, padding: 4, cursor: gestao ? 'pointer' : 'default' }}>
-                  <div style={{ fontSize: 11, color: fora ? '#ccc' : '#888', textAlign: 'right' }}>{d.getDate()}</div>
-                  {doDia(d).slice(0, 4).map(it => { const [emoji, , cor] = TIPOS[it.tipo] || ['•', '', '#666']; return (
-                    <div key={it.id} onClick={e => { e.stopPropagation(); setEdit(it); }} title={it.titulo} style={{ fontSize: 10.5, background: cor + '18', color: cor, borderRadius: 5, padding: '2px 4px', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
-                      {emoji} {it.titulo}
-                    </div>
-                  ); })}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {aba === 'calendario' && (<>
+        <div style={{ fontSize: 12.5, color: '#64748b', margin: '0 2px 8px' }}>📅 O <b>mesmo calendário da empresa</b> — as ações de marketing (📣) aparecem aqui junto dos eventos, feriados e programações. Para criar/editar uma ação com materiais, briefing e gastos, use <b>+ Nova ação</b> ou a aba <b>Lista</b>.</div>
+        <CalendarioEmpresa API={API} gestao={gestao} onEvento={refId => {
+          const realId = String(refId).split(':')[0]; // eventos mensais usam acaoId:AAAA-MM
+          const it = itens.find(x => x.id === realId);
+          if (it) return setEdit(it);
+          API.get('/mkt/agenda/' + realId).then(r => setEdit(r.data.item)).catch(() => setAba('lista'));
+        }} botaoExtra={gestao ? <button onClick={() => setEdit({ novo: iso(new Date()) })} style={{ ...s.btn, background: '#111' }}>+ Nova ação</button> : null} />
+      </>)}
 
       {aba === 'lista' && (
         <div>
@@ -103,11 +104,14 @@ export default function MarketingCalendario() {
         </div>
       )}
 
-      {aba === 'verba' && <VerbaMarketing API={API} gestao={gestao} />}
+      {aba === 'materiais' && <PainelMateriais API={API} gestao={gestao} />}
+      {aba === 'redes' && <RedesSociais API={API} gestao={gestao} />}
       {aba === 'influ' && <Influenciadores API={API} gestao={gestao} influs={influs} onChange={carregar} />}
-      {aba === 'criar' && <CriarPost API={API} gestao={gestao} />}
+      {aba === 'meu-setor' && <MeuSetorArea area="marketing" embutido abaFixa="setor" />}
+      {aba === 'metas' && <MeuSetorArea area="marketing" embutido abaFixa="metas" />}
 
-      {edit && <FormAcao API={API} item={edit.novo ? { data_ini: edit.novo } : edit} influs={influs} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); carregar(); }} />}
+      {edit && <FormAcao API={API} gestao={gestao} item={edit.novo ? { data_ini: edit.novo } : edit} influs={influs} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); carregar(); }} />}
+      <MinhaAreaLateral area="marketing" titulo="Minha área" />
     </div>
   );
 }
@@ -144,7 +148,7 @@ function EnvolvidoErp({ API, tipo, onPick }) {
   );
 }
 
-function FormAcao({ API, item, influs, onClose, onSaved }) {
+function FormAcao({ API, gestao, item, influs, onClose, onSaved }) {
   const novo = !item.id;
   const [f, setF] = useState({
     titulo: item.titulo || '', tipo: item.tipo || 'postagem', canal: item.canal || '', data_ini: item.data_ini || '', data_fim: item.data_fim || '',
@@ -152,9 +156,19 @@ function FormAcao({ API, item, influs, onClose, onSaved }) {
     envolvido_tipo: '', envolvido_id: '', envolvido_nome: '', envolvido_contato: '', envolvido_email: '',
     envolvidos: item.envolvidos || [], verba: item.verba || '', patrocinador: item.patrocinador || '', patrocinio_valor: item.patrocinio_valor || '',
     comprador_id: item.comprador_id || '', comprador_prazo: item.comprador_prazo || '',
+    pauta: item.pauta || '', briefing: item.briefing || '', ideias: item.ideias || '',
+    programacao_id: item.programacao_id || '', tmkt_venda_id: item.tmkt_venda_id || '',
   });
   const [colabs, setColabs] = useState([]);
+  const [progs, setProgs] = useState([]);
+  const [canais, setCanais] = useState([]);
   useEffect(() => { API.get('/mkt/colaboradores').then(r => setColabs(r.data.colaboradores || [])).catch(() => {}); }, [API]);
+  useEffect(() => { API.get('/mkt/programacoes').then(r => setProgs(r.data.programacoes || [])).catch(() => {}); }, [API]);
+  // Canais padrão = espaços do Trade (Stories, TikTok, Tabloide, E-commerce, ponta de gôndola…) + canais comuns.
+  useEffect(() => { API.get('/trademkt/portal/posicoes').then(r => {
+    const esp = [...new Set((r.data.posicoes || []).map(p => (p.espaco || '').trim()).filter(Boolean))];
+    setCanais([...new Set(['Instagram', 'Instagram Stories', 'TikTok', 'Facebook', 'WhatsApp', 'Loja', 'Rádio', 'Monitor/TV', 'Tabloide', 'E-commerce', 'Site', ...esp])]);
+  }).catch(() => setCanais(['Instagram', 'Instagram Stories', 'TikTok', 'Facebook', 'WhatsApp', 'Loja', 'Rádio', 'Monitor/TV', 'Tabloide', 'E-commerce', 'Site'])); }, [API]);
   const set = (k, v) => setF(x => ({ ...x, [k]: v }));
   const pickInflu = id => { const inf = influs.find(i => i.id === id); if (inf) setF(x => ({ ...x, envolvido_tipo: 'influencer', envolvido_id: inf.id, envolvido_nome: inf.nome, envolvido_contato: inf.contato || '', envolvido_email: inf.email || '' })); };
   const addEnvolvido = () => {
@@ -185,7 +199,8 @@ function FormAcao({ API, item, influs, onClose, onSaved }) {
           <input value={f.titulo} onChange={e => set('titulo', e.target.value)} placeholder="Título da ação" style={s.inp} />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <select value={f.tipo} onChange={e => set('tipo', e.target.value)} style={s.inp}>{Object.entries(TIPOS).map(([k, v]) => <option key={k} value={k}>{v[0]} {v[1]}</option>)}</select>
-            <input value={f.canal} onChange={e => set('canal', e.target.value)} placeholder="Canal (Instagram, Loja…)" style={{ ...s.inp, flex: 1 }} />
+            <input value={f.canal} onChange={e => set('canal', e.target.value)} list="mkt-canais" placeholder="Canal / espaço do Trade" style={{ ...s.inp, flex: 1 }} />
+            <datalist id="mkt-canais">{canais.map(c => <option key={c} value={c} />)}</datalist>
             <select value={f.status} onChange={e => set('status', e.target.value)} style={s.inp}>{STATUS.map(x => <option key={x} value={x}>{x}</option>)}</select>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -199,7 +214,20 @@ function FormAcao({ API, item, influs, onClose, onSaved }) {
               </select>
             </label>
           </div>
-          <textarea value={f.descricao} onChange={e => set('descricao', e.target.value)} placeholder="Descrição / briefing" style={{ ...s.inp, minHeight: 54, resize: 'vertical' }} />
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <label style={{ ...s.lbl, flex: 1, minWidth: 220 }}>📌 Programação (tema do calendário)
+              <select value={f.programacao_id || ''} onChange={e => set('programacao_id', e.target.value)} style={s.inp}>
+                <option value="">— nenhuma —</option>
+                {progs.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </select>
+            </label>
+            {f.tmkt_venda_id && <span style={{ fontSize: 11.5, color: '#8A6D3B', background: '#FBF0DA', border: '1px solid #ecd9ad', borderRadius: 8, padding: '6px 10px' }}>🔗 vinculada à venda do Trade</span>}
+          </div>
+          <textarea value={f.descricao} onChange={e => set('descricao', e.target.value)} placeholder="Descrição" style={{ ...s.inp, minHeight: 44, resize: 'vertical' }} />
+          <div style={{ borderTop: '1px solid #eee', paddingTop: 8, fontSize: 12, color: '#888' }}>📝 Pauta & briefing</div>
+          <textarea value={f.pauta} onChange={e => set('pauta', e.target.value)} placeholder="Pauta — qual é o foco/objetivo da ação" style={{ ...s.inp, minHeight: 40, resize: 'vertical' }} />
+          <textarea value={f.briefing} onChange={e => set('briefing', e.target.value)} placeholder="Briefing — detalhes p/ quem vai produzir (tom, mensagem, peças, público…)" style={{ ...s.inp, minHeight: 54, resize: 'vertical' }} />
+          <textarea value={f.ideias} onChange={e => set('ideias', e.target.value)} placeholder="Ideias — anotações livres, referências" style={{ ...s.inp, minHeight: 40, resize: 'vertical' }} />
           <div style={{ borderTop: '1px solid #eee', paddingTop: 8, fontSize: 12, color: '#888' }}>Envolvidos na ação (pode adicionar vários)</div>
           {f.envolvidos.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -266,6 +294,7 @@ function FormAcao({ API, item, influs, onClose, onSaved }) {
                 : <><b>{item.comprador_atrasada ? '⏰ Atrasado' : '⏳ Aguardando'}</b> a lista de {item.comprador_nome}{item.comprador_prazo ? ` · prazo ${String(item.comprador_prazo).split('-').reverse().join('/')}` : ''}</>}
             </div>
           )}
+          {!novo && <DetalheAcao API={API} gestao={gestao} agendaId={item.id} temCaderno={!!item.comprador_caderno_id} />}
           <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
             <button onClick={salvar} style={s.btn}>Salvar</button>
             {!novo && <button onClick={gerarAtividade} style={{ ...s.btn, background: '#B7791F' }}>📌 Gerar atividade (tarefa)</button>}
@@ -511,6 +540,215 @@ function VerbaMarketing({ API, gestao }) {
       </div>}
     </div>
   );
+}
+
+// ── 📦 Painel de Materiais: desenvolvimento com PRAZO + comprovação (dor do Joe: material atrasa) ──
+const MAT_ST = { a_fazer: ['A fazer', '#64748b'], producao: ['Em produção', '#B7791F'], entregue: ['Entregue', '#1E874B'], veiculado: ['Veiculado', '#0E7C5A'], cancelado: ['Cancelado', '#94a3b8'] };
+const TIPOS_MAT = ['card_oferta', 'post_ig', 'story_ig', 'radio', 'monitor', 'tabloide', 'banner', 'trafego_pago', 'outro'];
+function PainelMateriais({ API, gestao }) {
+  const hojeMes = new Date().toISOString().slice(0, 7);
+  const [filtro, setFiltro] = useState('abertos');
+  const [mes, setMes] = useState('');
+  const [d, setD] = useState(null);
+  const [acoes, setAcoes] = useState([]);
+  const [colabs, setColabs] = useState([]);
+  const [diasAntes, setDiasAntes] = useState(2);
+  const [novo, setNovo] = useState({ agenda_id: '', tipo: 'card_oferta', descricao: '', responsavel_id: '' });
+  const carregar = useCallback(() => {
+    const p = {}; if (filtro === 'abertos') p.status = 'abertos'; else if (filtro !== 'todos') p.status = filtro;
+    if (mes) p.mes = mes;
+    API.get('/mkt/materiais', { params: p }).then(r => setD(r.data)).catch(() => setD({ materiais: [], resumo: {} }));
+  }, [API, filtro, mes]);
+  useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => {
+    const hoje = new Date(); const de = iso(new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1)); const ate = iso(new Date(hoje.getFullYear(), hoje.getMonth() + 3, 0));
+    API.get('/mkt/agenda', { params: { de, ate } }).then(r => setAcoes(r.data.itens || [])).catch(() => {});
+    API.get('/mkt/colaboradores').then(r => setColabs(r.data.colaboradores || [])).catch(() => {});
+    API.get('/mkt/material-config').then(r => setDiasAntes(r.data.diasAntes)).catch(() => {});
+  }, [API]);
+  const salvarDias = v => { setDiasAntes(v); API.put('/mkt/material-config', { diasAntes: v }).catch(() => {}); };
+  const addMaterial = () => {
+    if (!novo.agenda_id) return alert('Escolha a ação.');
+    const resp = colabs.find(c => c.id === novo.responsavel_id);
+    API.post(`/mkt/agenda/${novo.agenda_id}/materiais`, { tipo: novo.tipo, descricao: novo.descricao, responsavel_id: novo.responsavel_id || null, responsavel_nome: resp ? resp.nome : null })
+      .then(() => { setNovo({ agenda_id: '', tipo: 'card_oferta', descricao: '', responsavel_id: '' }); carregar(); }).catch(e => alert(e.response?.data?.erro || 'Falha.'));
+  };
+  const setStatus = (m, status) => API.put('/mkt/materiais/' + m.id, { status }).then(carregar).catch(() => {});
+  const upComprov = (m, file) => { const rd = new FileReader(); rd.onload = () => { API.post(`/mkt/materiais/${m.id}/comprovacao`, { dados: rd.result, mime: file.type, nome: file.name }).then(carregar).catch(() => {}); }; rd.readAsDataURL(file); };
+  const verComprov = (m) => API.get('/mkt/materiais/' + m.id + '/comprovacao').then(r => { const w = window.open(); if (w) w.document.write(`<iframe src="${r.data.dados}" style="border:0;width:100%;height:100%"></iframe>`); }).catch(() => {});
+  const delMaterial = (m) => { if (window.confirm('Remover este material?')) API.delete('/mkt/materiais/' + m.id).then(carregar).catch(() => {}); };
+  const r = d?.resumo || {}; const its = d?.materiais || [];
+  const fmtD = x => x ? String(x).slice(0, 10).split('-').reverse().join('/') : '—';
+  return (
+    <div>
+      <div style={{ ...s.card, background: '#fff7ed', border: '1px solid #fed7aa', fontSize: 12.5 }}>
+        📦 <b>Materiais da ação</b> — o marketing desenvolve cada material (card de oferta, post, rádio, monitor…) com <b>prazo de entrega</b>. Prazo padrão = <b>data da ação − {gestao ? <input type="number" min="0" value={diasAntes} onChange={e => salvarDias(Number(e.target.value) || 0)} style={{ ...s.inp, width: 48, padding: '2px 6px' }} /> : diasAntes} dias</b> (pras lojas terem tempo de organizar). Atrasado = prazo vencido e não entregue.
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+        <Card titulo="Abertos" valor={r.abertos || 0} cor={(r.abertos || 0) ? '#B7791F' : '#1E874B'} />
+        <Card titulo="⚠️ Atrasados" valor={r.atrasados || 0} cor={(r.atrasados || 0) ? '#C0392B' : '#1E874B'} />
+        <Card titulo="No filtro" valor={r.total || 0} cor="#334" />
+      </div>
+      {gestao && <div style={{ ...s.card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <label style={s.fld}>Ação<select value={novo.agenda_id} onChange={e => setNovo(n => ({ ...n, agenda_id: e.target.value }))} style={{ ...s.inp, minWidth: 200 }}><option value="">— escolher —</option>{acoes.map(a => <option key={a.id} value={a.id}>{fmtD(a.data_ini)} · {a.titulo}</option>)}</select></label>
+        <label style={s.fld}>Tipo<select value={novo.tipo} onChange={e => setNovo(n => ({ ...n, tipo: e.target.value }))} style={s.inp}>{TIPOS_MAT.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}</select></label>
+        <label style={{ ...s.fld, flex: 1, minWidth: 160 }}>Descrição<input value={novo.descricao} onChange={e => setNovo(n => ({ ...n, descricao: e.target.value }))} style={s.inp} placeholder="ex.: card de oferta p/ as lojas" /></label>
+        <label style={s.fld}>Responsável<select value={novo.responsavel_id} onChange={e => setNovo(n => ({ ...n, responsavel_id: e.target.value }))} style={s.inp}><option value="">—</option>{colabs.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></label>
+        <button onClick={addMaterial} style={s.btn}>+ Material</button>
+      </div>}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8, alignItems: 'center' }}>
+        {[['abertos', 'Abertos'], ['atrasados', 'Atrasados'], ['todos', 'Todos'], ['entregue', 'Entregues'], ['veiculado', 'Veiculados']].map(([v, l]) => <button key={v} onClick={() => setFiltro(v)} style={{ ...s.chip, ...(filtro === v ? s.chipOn : {}) }}>{l}</button>)}
+        <input type="month" value={mes} onChange={e => setMes(e.target.value)} style={{ ...s.inp, marginLeft: 'auto' }} title="filtrar por mês do prazo" />
+        {mes && <button onClick={() => setMes('')} style={s.btnMini}>limpar mês</button>}
+      </div>
+      <div style={{ ...s.card, padding: 0, overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead><tr>{['Ação', 'Material', 'Responsável', 'Prazo', 'Status', 'Comprovação', ''].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {its.length === 0 && <tr><td colSpan={7} style={{ ...s.td, color: '#1E874B', padding: 14 }}>✅ Nenhum material {filtro === 'abertos' ? 'aberto' : filtro === 'atrasados' ? 'atrasado' : ''} no filtro.</td></tr>}
+            {its.map(m => <tr key={m.id} style={{ borderTop: '1px solid #f2f2f2', background: m.atrasado ? '#FDF3F2' : '#fff' }}>
+              <td style={{ ...s.td }}><b>{m.acao_titulo}</b><div style={{ fontSize: 10.5, color: '#999' }}>{fmtD(m.acao_data)}</div></td>
+              <td style={s.td}>{(m.tipo || '—').replace(/_/g, ' ')}{m.descricao ? <div style={{ fontSize: 10.5, color: '#999' }}>{m.descricao}</div> : null}</td>
+              <td style={s.td}>{m.responsavel_nome || '—'}</td>
+              <td style={{ ...s.td, color: m.atrasado ? '#C0392B' : '#444', fontWeight: m.atrasado ? 700 : 400, whiteSpace: 'nowrap' }}>{fmtD(m.prazo)}{m.atrasado ? ' ⚠️' : m.diasRestantes != null && m.diasRestantes >= 0 && !['entregue', 'veiculado', 'cancelado'].includes(m.status) ? <span style={{ fontSize: 10, color: '#999' }}> ({m.diasRestantes}d)</span> : ''}</td>
+              <td style={s.td}>{gestao ? <select value={m.status} onChange={e => setStatus(m, e.target.value)} style={{ ...s.inp, padding: '3px 6px', color: MAT_ST[m.status]?.[1] }}>{Object.entries(MAT_ST).map(([k, v]) => <option key={k} value={k}>{v[0]}</option>)}</select> : <span style={{ color: MAT_ST[m.status]?.[1], fontWeight: 600 }}>{MAT_ST[m.status]?.[0]}</span>}</td>
+              <td style={s.td}>{m.temComprovacao ? <button onClick={() => verComprov(m)} style={s.btnMini}>👁 ver</button> : gestao ? <label style={{ ...s.btnMini, cursor: 'pointer' }}>📎 anexar<input type="file" style={{ display: 'none' }} onChange={e => e.target.files[0] && upComprov(m, e.target.files[0])} /></label> : <span style={{ color: '#bbb' }}>—</span>}</td>
+              <td style={s.td}>{gestao && <button onClick={() => delMaterial(m)} style={{ ...s.btnMini, color: '#C0392B' }}>×</button>}</td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+function Card({ titulo, valor, cor }) {
+  return <div style={{ background: '#fff', border: '1px solid #edf0f4', borderRadius: 12, padding: '10px 16px', minWidth: 120 }}><div style={{ fontSize: 11.5, color: '#888' }}>{titulo}</div><div style={{ fontSize: 24, fontWeight: 800, color: cor }}>{valor}</div></div>;
+}
+
+// 📱 Redes sociais — conectar Instagram (Graph API da Meta) e acompanhar seguidores/alcance (vira meta).
+function RedesSociais({ API, gestao }) {
+  const [contas, setContas] = useState([]); const [hist, setHist] = useState([]);
+  const [tok, setTok] = useState(''); const [cid, setCid] = useState(''); const [msg, setMsg] = useState(''); const [busy, setBusy] = useState(false); const [segMan, setSegMan] = useState('');
+  const carregar = useCallback(() => {
+    API.get('/mkt/social').then(r => setContas(r.data.contas || [])).catch(() => {});
+    API.get('/mkt/social/instagram/historico').then(r => setHist(r.data.historico || [])).catch(() => {});
+  }, [API]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const ig = contas.find(c => c.rede === 'instagram');
+  const conectar = () => { if (!tok || !cid) return setMsg('⚠️ Cole o token e o ID da conta.'); API.put('/mkt/social/instagram', { token: tok, conta_id: cid }).then(() => { setTok(''); setMsg('✅ Salvo. Clique em Atualizar métricas.'); carregar(); }).catch(() => setMsg('⚠️ Falha ao salvar.')); };
+  const atualizar = () => { setBusy(true); setMsg(''); API.post('/mkt/social/instagram/atualizar').then(r => { setMsg('✅ ' + (r.data.username ? '@' + r.data.username + ' · ' : '') + (r.data.seguidores || 0).toLocaleString('pt-BR') + ' seguidores'); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'falha'))).finally(() => setBusy(false)); };
+  const desconectar = () => { if (window.confirm('Desconectar o Instagram?')) API.delete('/mkt/social/instagram').then(carregar).catch(() => {}); };
+  const salvarManual = () => { const n = parseInt(segMan, 10); if (!Number.isFinite(n) || n < 0) return setMsg('⚠️ Digite o nº de seguidores.'); API.put('/mkt/social/instagram/manual', { seguidores: n }).then(() => { setSegMan(''); setMsg('✅ Seguidores salvos: ' + n.toLocaleString('pt-BR')); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'falha'))); };
+  const fmtDt = x => x ? new Date(String(x).replace(' ', 'T') + 'Z').toLocaleString('pt-BR') : '—';
+  return (<div>
+    <div style={s.card}>
+      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>📸 Instagram {ig && ig.conectado ? <span style={{ fontSize: 12, color: '#1E874B', fontWeight: 600 }}>· conectado{ig.username ? ' @' + ig.username : ''}</span> : <span style={{ fontSize: 12, color: '#B7791F', fontWeight: 600 }}>· não conectado</span>}</div>
+      {ig && (ig.conectado || ig.seguidores != null) && <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8, alignItems: 'center' }}>
+        <Card titulo="Seguidores" valor={(ig.seguidores || 0).toLocaleString('pt-BR')} cor="#0E7C5A" />
+        <div style={{ fontSize: 11.5, color: '#888' }}>Atualizado: {fmtDt(ig.atualizado_em)}{!ig.conectado && ig.seguidores != null ? ' · manual' : ''}</div>
+      </div>}
+      {ig && ig.erro && <div style={{ fontSize: 12, color: '#C0392B', marginBottom: 6 }}>⚠️ {ig.erro}</div>}
+      {gestao && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <label style={s.fld}>Token de acesso<input value={tok} onChange={e => setTok(e.target.value)} placeholder="cole o token da Meta" style={{ ...s.inp, width: 260 }} /></label>
+        <label style={s.fld}>ID da conta do Instagram<input value={cid} onChange={e => setCid(e.target.value)} placeholder="instagram_business_account.id" style={{ ...s.inp, width: 210 }} /></label>
+        <button onClick={conectar} style={s.btn}>Salvar conexão</button>
+        {ig && ig.conectado && <button onClick={atualizar} disabled={busy} style={{ ...s.btn, background: '#0E7C5A' }}>{busy ? '⏳' : '🔄 Atualizar métricas'}</button>}
+        {ig && ig.conectado && <button onClick={desconectar} style={{ ...s.btnMini, color: '#C0392B' }}>desconectar</button>}
+      </div>}
+      {gestao && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e0e0e0' }}>
+        <label style={s.fld}>Seguidores (manual)<input value={segMan} onChange={e => setSegMan(e.target.value.replace(/\D/g, ''))} placeholder="ex: 12400" style={{ ...s.inp, width: 120 }} /></label>
+        <button onClick={salvarManual} style={{ ...s.btn, background: '#6b7280' }}>Salvar manual</button>
+        <span style={{ fontSize: 11.5, color: '#999' }}>Enquanto a API não conecta, digite o nº de seguidores (olhe no Instagram). O indicador de Marketing já usa.</span>
+      </div>}
+      {msg && <div style={{ fontSize: 12.5, marginTop: 6, color: msg.startsWith('⚠️') ? '#C0392B' : '#15803d' }}>{msg}</div>}
+    </div>
+    {hist.length > 0 && <div style={s.card}>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>📈 Histórico</div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}><thead><tr>{['Data', 'Seguidores', 'Alcance (28d)'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+        <tbody>{hist.map((x, i) => <tr key={i}><td style={s.td}>{String(x.data).split('-').reverse().join('/')}</td><td style={s.td}>{(x.seguidores || 0).toLocaleString('pt-BR')}</td><td style={s.td}>{x.alcance != null ? x.alcance.toLocaleString('pt-BR') : '—'}</td></tr>)}</tbody></table>
+    </div>}
+    <div style={{ ...s.card, background: '#f7f9fb', fontSize: 12, color: '#555' }}>
+      <b>Como pegar o token (app tipo "Instagram API with Instagram Login"):</b>
+      <ol style={{ margin: '6px 0 0 18px', lineHeight: 1.6 }}>
+        <li>A conta precisa ser <b>Profissional</b> (Comercial/Criador) e o produto <b>Instagram Business Login</b> configurado no app (Redirect URI + conta como testadora).</li>
+        <li>No app da Meta → <b>Ferramentas → Explorador da API Graph</b>. No domínio escolha <code>.instagram.com/</code>.</li>
+        <li>Em permissões adicione <code>instagram_business_basic</code> e <code>instagram_business_manage_insights</code> → <b>Generate Instagram Access Token</b> → login do <b>Instagram</b> → autorizar.</li>
+        <li>Teste com <code>me?fields=user_id,username,followers_count</code>. Cole o <b>token longo</b> acima (o campo ID pode ficar vazio) → Salvar → Atualizar métricas.</li>
+      </ol>
+      <b style={{ color: '#6b7280' }}>Sem API?</b> Use o campo <b>Seguidores (manual)</b> acima — o indicador funciona do mesmo jeito.
+    </div>
+  </div>);
+}
+
+// Detalhe da ação (no form): 📈 sell-out do caderno vinculado + 💬 comentários da equipe.
+const GASTO_LBL = { verba: 'Verba', trafego: 'Tráfego pago', tempo_equipe: 'Tempo da equipe', material: 'Material', outro: 'Outro' };
+function DetalheAcao({ API, agendaId, temCaderno, gestao }) {
+  const [coments, setComents] = useState([]); const [meuId, setMeuId] = useState(null);
+  const [txt, setTxt] = useState(''); const [so, setSo] = useState(null);
+  const [gastos, setGastos] = useState(null); const [vh, setVh] = useState(0);
+  const [ng, setNg] = useState({ tipo: 'trafego', descricao: '', valor: '', horas: '', valor_hora: '' });
+  const carregar = useCallback(() => { API.get(`/mkt/agenda/${agendaId}/comentarios`).then(r => { setComents(r.data.comentarios || []); setMeuId(r.data.meuId); }).catch(() => {}); }, [API, agendaId]);
+  const carregarGastos = useCallback(() => { API.get(`/mkt/agenda/${agendaId}/gastos`).then(r => setGastos(r.data)).catch(() => {}); }, [API, agendaId]);
+  useEffect(() => { carregar(); carregarGastos(); API.get('/mkt/material-config').then(r => { setVh(r.data.valorHora || 0); setNg(n => ({ ...n, valor_hora: r.data.valorHora || '' })); }).catch(() => {}); if (temCaderno) API.get(`/mkt/agenda/${agendaId}/sellout`).then(r => setSo(r.data)).catch(() => setSo(null)); }, [carregar, carregarGastos, temCaderno, API, agendaId]);
+  const addGasto = () => {
+    const b = ng.tipo === 'tempo_equipe' ? { tipo: ng.tipo, descricao: ng.descricao, horas: Number(ng.horas) || 0, valor_hora: Number(ng.valor_hora) || 0 } : { tipo: ng.tipo, descricao: ng.descricao, valor: Number(ng.valor) || 0 };
+    API.post(`/mkt/agenda/${agendaId}/gastos`, b).then(() => { setNg({ tipo: 'trafego', descricao: '', valor: '', horas: '', valor_hora: vh || '' }); carregarGastos(); }).catch(() => {});
+  };
+  const delGasto = id => API.delete('/mkt/gastos/' + id).then(carregarGastos).catch(() => {});
+  const add = () => { const t = txt.trim(); if (!t) return; API.post(`/mkt/agenda/${agendaId}/comentarios`, { texto: t }).then(() => { setTxt(''); carregar(); }).catch(() => {}); };
+  const del = id => API.delete(`/mkt/comentarios/${id}`).then(carregar).catch(() => {});
+  const brl = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  const fmtDt = x => { try { return new Date(String(x).replace(' ', 'T') + 'Z').toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
+  return (<>
+    <div style={{ borderTop: '1px solid #eee', paddingTop: 8, fontSize: 12, color: '#888' }}>💸 Gastos da ação (verba, tráfego pago, tempo da equipe…)</div>
+    {gastos && <>
+      {(gastos.gastos || []).length > 0 && <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {gastos.gastos.map(g => <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, background: '#FAFAFA', border: '1px solid #eee', borderRadius: 7, padding: '4px 9px' }}>
+          <span style={{ fontWeight: 600, minWidth: 110 }}>{GASTO_LBL[g.tipo] || g.tipo}</span>
+          <span style={{ flex: 1, color: '#666' }}>{g.descricao || (g.tipo === 'tempo_equipe' && g.horas ? `${g.horas}h × R$ ${Number(g.valor_hora || 0).toLocaleString('pt-BR')}` : '')}</span>
+          <b>{brl(g.valor)}</b>
+          {gestao && <button onClick={() => delGasto(g.id)} style={{ border: 'none', background: 'none', color: '#C0392B', cursor: 'pointer' }}>×</button>}
+        </div>)}
+      </div>}
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5, marginTop: 4 }}>
+        <span>Total: <b>{brl(gastos.total)}</b></span>
+        {gastos.patrocinio > 0 && <span>Patrocínio: <b style={{ color: '#1E8449' }}>−{brl(gastos.patrocinio)}</b></span>}
+        <span>Custo líquido: <b style={{ color: '#C0392B' }}>{brl(gastos.liquido)}</b></span>
+      </div>
+      {gestao && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 4 }}>
+        <select value={ng.tipo} onChange={e => setNg(n => ({ ...n, tipo: e.target.value }))} style={{ ...s.inp, width: 150 }}>{Object.entries(GASTO_LBL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+        <input value={ng.descricao} onChange={e => setNg(n => ({ ...n, descricao: e.target.value }))} placeholder="descrição" style={{ ...s.inp, flex: 1, minWidth: 120 }} />
+        {ng.tipo === 'tempo_equipe' ? <>
+          <input type="number" value={ng.horas} onChange={e => setNg(n => ({ ...n, horas: e.target.value }))} placeholder="horas" style={{ ...s.inp, width: 72 }} />
+          <input type="number" value={ng.valor_hora} onChange={e => setNg(n => ({ ...n, valor_hora: e.target.value }))} placeholder="R$/h" style={{ ...s.inp, width: 80 }} />
+          <span style={{ fontSize: 11, color: '#888', alignSelf: 'center' }}>= {brl((Number(ng.horas) || 0) * (Number(ng.valor_hora) || 0))}</span>
+        </> : <input type="number" value={ng.valor} onChange={e => setNg(n => ({ ...n, valor: e.target.value }))} placeholder="R$" style={{ ...s.inp, width: 100 }} />}
+        <button onClick={addGasto} style={s.btn}>+ Gasto</button>
+      </div>}
+    </>}
+    {temCaderno && <>
+      <div style={{ borderTop: '1px solid #eee', paddingTop: 8, fontSize: 12, color: '#888' }}>📈 Sell-out da ação (vendas do caderno vinculado)</div>
+      {!so ? <div style={{ fontSize: 12, color: '#999' }}>carregando…</div> : so.erp === false ? <div style={{ fontSize: 12, color: '#999' }}>ERP indisponível.</div> :
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', background: '#F3FBF6', border: '1px solid #cdebd8', borderRadius: 8, padding: '8px 12px' }}>
+          <div><div style={{ fontSize: 10.5, color: '#888' }}>Venda</div><b style={{ fontSize: 16, color: '#0E7C5A' }}>{brl(so.venda)}</b></div>
+          <div><div style={{ fontSize: 10.5, color: '#888' }}>Unidades</div><b style={{ fontSize: 16 }}>{(so.unidades || 0).toLocaleString('pt-BR')}</b></div>
+          <div><div style={{ fontSize: 10.5, color: '#888' }}>Produtos</div><b style={{ fontSize: 16 }}>{so.produtos || 0}</b></div>
+          <div style={{ fontSize: 10.5, color: '#999', alignSelf: 'center' }}>📕 {so.caderno || 'caderno'}{so.periodo ? ` · ${so.periodo.de}→${so.periodo.ate}` : ''}</div>
+        </div>}
+    </>}
+    <div style={{ borderTop: '1px solid #eee', paddingTop: 8, fontSize: 12, color: '#888' }}>💬 Comentários</div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 180, overflowY: 'auto' }}>
+      {coments.length === 0 && <div style={{ fontSize: 12, color: '#aaa' }}>Sem comentários ainda.</div>}
+      {coments.map(c => <div key={c.id} style={{ background: '#f7f8fa', borderRadius: 8, padding: '6px 10px', fontSize: 12.5 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}><b>{c.autor_nome || '—'}</b><span style={{ color: '#aaa', fontSize: 10.5 }}>{fmtDt(c.criado_em)}</span>{c.autor_id === meuId && <button onClick={() => del(c.id)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: '#C0392B', cursor: 'pointer', fontSize: 11 }}>×</button>}</div>
+        <div style={{ color: '#334', marginTop: 2, whiteSpace: 'pre-wrap' }}>{c.texto}</div>
+      </div>)}
+    </div>
+    <div style={{ display: 'flex', gap: 6 }}>
+      <input value={txt} onChange={e => setTxt(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} placeholder="Escreva um comentário / ideia…" style={{ ...s.inp, flex: 1 }} />
+      <button onClick={add} style={s.btn}>Enviar</button>
+    </div>
+  </>);
 }
 
 const s = {

@@ -24,10 +24,16 @@ function parseObs(obs) {
   return { cliente: cliente || null, telefone: tel };
 }
 
-async function listarFormulas(empresaId, { lojaId, dias = 30, status } = {}) {
+async function listarFormulas(empresaId, { lojaId, dias = 30, ini, fim, status } = {}) {
   if (!habilitado()) return { formulas: [], erp: false };
   const unis = unisEmpresa(empresaId, lojaId);
   if (!unis.length) return { formulas: [], erp: true };
+  // Janela: datas específicas (ini/fim) OU últimos N dias.
+  const temData = ini && fim;
+  const params = [unis];
+  const clausula = temData
+    ? (params.push(ini, fim), `cr.dataemissao >= $2::timestamp AND cr.dataemissao < ($3::date + interval '1 day')`)
+    : (params.push(dias), `cr.dataemissao >= now() - ($2 || ' days')::interval`);
   const rows = await erpQuery(`
     SELECT cr.id, cr.dataemissao, cr.datavencimento, cr.valor, cr.observacao, cr.status, cr.unidadenegocioid uni,
       pf.nome formula,
@@ -42,8 +48,8 @@ async function listarFormulas(empresaId, { lojaId, dias = 30, status } = {}) {
     LEFT JOIN recebimentocrediario rc ON rc.id = cr.recebimentocrediarioid
     LEFT JOIN caixa cx ON cx.id = rc.caixaid
     WHERE pf.nome ILIKE 'FORMULA%' AND cr.unidadenegocioid = ANY($1::bigint[])
-      AND cr.dataemissao >= now() - ($2 || ' days')::interval
-    ORDER BY cr.dataemissao DESC LIMIT 500`, [unis, dias]);
+      AND ${clausula}
+    ORDER BY cr.dataemissao DESC LIMIT 500`, params);
 
   const ctrlStmt = db.prepare('SELECT status, responsavel_nome, obs, atualizado_em FROM formulas_controle WHERE empresa_id=? AND crediario_id=?');
   const lojaNome = uni => (db.prepare('SELECT nome FROM lojas WHERE erp_unidadenegocio_id=?').get(uni) || {}).nome || String(uni);

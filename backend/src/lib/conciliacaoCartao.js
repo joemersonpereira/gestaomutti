@@ -927,6 +927,8 @@ async function correcoes(empresaId, { ini, fim, lojaId } = {}) {
     porOperador: agrupa(r => (r.operador || '').trim() || '—', r => trocouForma(r) && r.operador).slice(0, 20),
     porQuemCorrigiu: agrupa(r => r.quem).slice(0, 15),
     porDia: agrupa(r => r.data).sort((a, b) => a.nome.localeCompare(b.nome)),
+    // itens individuais (as correções com troca de forma = modalidade errada) com o operador
+    itens: rows.filter(trocouForma).map(r => ({ data: r.data, operador: (r.operador || '').trim() || '—', troca: `${r.mod_errada || '—'} → ${r.mod_correta || '—'}`, valor: round(r.valor), quem: (r.quem || '').trim() })).slice(0, 100),
   };
 }
 

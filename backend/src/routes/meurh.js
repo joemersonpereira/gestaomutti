@@ -5,8 +5,36 @@ const db = require('../db/connection');
 const { auth } = require('../middleware/auth');
 const { gerarTarefa } = require('./tarefas');
 const vendasErp = require('../lib/vendasErp');
+const tes = require('../lib/tesourariaErp');
+const { erpQuery, habilitado } = require('../db/erp');
+const _soDig = s => String(s || '').replace(/\D/g, '');
+const _hojeISO = () => new Date().toISOString().slice(0, 10);
+const _diasAtras = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
 
 router.use(auth);
+
+// ── Minhas diferenças de caixa (o próprio operador) ─────────────────────────────────
+// Mapeia o CPF do colaborador logado para o(s) usuário(s) do ERP e filtra as quebras de caixa
+// da loja dele (últimos 90 dias). Mesmo vínculo do Portal do Caixa, mas dentro do Meu RH.
+router.get('/minhas-diferencas', async (req, res) => {
+  const vazio = { erpVinculado: false, diferencas: [], resumo: { faltas: 0, sobras: 0, valorFalta: 0, valorSobra: 0 } };
+  try {
+    const c = db.prepare('SELECT cpf, loja_id FROM colaboradores WHERE id=?').get(req.usuario.id);
+    const cpf = _soDig(c && c.cpf);
+    if (cpf.length !== 11 || !habilitado()) return res.json(vazio);
+    const us = await erpQuery(`SELECT u.id::text uid FROM usuario u JOIN pessoa p ON p.id=u.pessoaid
+      WHERE regexp_replace(COALESCE(p.cpf,''),'[^0-9]','','g') = $1`, [cpf]);
+    const uids = new Set(us.map(u => String(u.uid)));
+    if (!uids.size) return res.json(vazio);
+    const q = await tes.quebras(req.usuario.empresa_id, { ini: _diasAtras(90), fim: _hojeISO(), lojaId: (c && c.loja_id) || '' });
+    const diferencas = (q.quebras || []).filter(x => x.operadorId && uids.has(String(x.operadorId)))
+      .map(x => ({ data: x.data, valor: x.valor, tipo: x.tipo, loja: x.loja, observacao: x.observacao }));
+    const resumo = { faltas: 0, sobras: 0, valorFalta: 0, valorSobra: 0 };
+    diferencas.forEach(d => { if (d.tipo === 'falta') { resumo.faltas++; resumo.valorFalta += d.valor; } else { resumo.sobras++; resumo.valorSobra += d.valor; } });
+    resumo.valorFalta = Math.round(resumo.valorFalta * 100) / 100; resumo.valorSobra = Math.round(resumo.valorSobra * 100) / 100;
+    res.json({ erpVinculado: true, diferencas, resumo });
+  } catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
 
 // ── Meus dados (o próprio colaborador vê e atualiza seus dados pessoais) ──────────
 router.get('/dados', (req, res) => {

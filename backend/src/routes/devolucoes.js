@@ -10,6 +10,10 @@ const { erpQuery, habilitado } = require('../db/erp');
 const { gerarTarefa } = require('./tarefas');
 
 router.use(auth);
+// Cache serve-stale do ERP (Joe 2026-11-14): abre na hora e só reconsulta o Alpha ~1x/h ou após escrita. ?forcar=1 recalcula.
+const { cacheMiddleware: _erpCache, invalidarMiddleware: _erpInval } = require('../lib/erpCache');
+router.use(_erpCache('devol'));
+router.use(_erpInval('devol'));
 
 // Fluxo principal de status (a devolução já abre em "andamento").
 const STATUS = ['andamento', 'analise_fornecedor', 'coleta', 'reembolso', 'concluido'];

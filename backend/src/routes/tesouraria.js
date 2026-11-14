@@ -11,6 +11,9 @@ const pathNode = require('path');
 const { erpQuery } = require('../db/erp');
 const cc = require('../lib/conciliacaoCartao'); // erros de cartão (correções) p/ o painel da loja
 const cpontos = require('../lib/caixaPontos'); // Caixa Destaque por pontos (ranking trimestral + avulso)
+const orcErp = require('../lib/orcamentoErp'); // movimento do orçamento no Alpha 7 (p/ cruzar a despesa do gerente)
+const metas = require('../lib/tesourariaMetas'); // metas do setor (alvo cadastrável + realizado automático)
+const { unisEmpresa } = require('../lib/escopoCompras');
 
 // Chefe de tesouraria + gestão (veem tudo, todas as lojas). O GERENTE também acessa, mas SÓ a parte
 // de anexar depósitos/despesas e SÓ as lojas configuradas pra ele (colaborador_lojas). Os indicadores
@@ -20,10 +23,11 @@ const ACESSO_ANEXO = [...GESTAO_TES, 'Gerente', 'Subgerente'];
 router.use(auth);
 router.use(exigePerfil(...ACESSO_ANEXO));
 // cache de ERP por rota (aplicado DEPOIS do soGestao, pra não vazar dado de gestão em cache hit).
-// invalidação router-wide: qualquer escrita limpa o cache 'tes:'.
+// SERVE-STALE: o cache fica salvo e abre na hora; só recalcula com ?forcar=1 ou quando uma escrita que
+// muda o relatório (diferença avulsa / cobrança) invalida. Anexos/lançamentos NÃO limpam o cache.
 const { cacheMiddleware: _tesCacheMw, invalidarMiddleware: _tesInvMw } = require('../lib/erpCache');
 const tesCache = _tesCacheMw('tes');
-router.use(_tesInvMw('tes:'));
+const tesInval = _tesInvMw('tes:'); // aplicar só nas rotas que mudam o que os relatórios do ERP mostram
 const soGestao = exigePerfil(...GESTAO_TES); // bloqueia gerente nas telas de indicador/quebra
 
 const hoje = () => new Date().toISOString().slice(0, 10);
@@ -65,9 +69,15 @@ router.put('/pontos/regras', soGestao, (req, res) => {
   res.json({ ok: true });
 });
 
+// Nomes dos colaboradores ativos (p/ buscar o operador no lançamento avulso de pontos/diferença).
+router.get('/colaboradores-nomes', soGestao, (req, res) => {
+  const rows = db.prepare("SELECT id, nome FROM colaboradores WHERE empresa_id=? AND ativo=1 AND nome IS NOT NULL AND nome<>'' ORDER BY nome").all(req.usuario.empresa_id);
+  res.json({ nomes: rows.map(r => r.nome), colaboradores: rows });
+});
+
 // Ranking de pontos (Caixa Destaque) — trimestral, com o critério de cada ponto.
 router.get('/pontos/ranking', soGestao, async (req, res) => {
-  try { res.json(await cpontos.rankingPontos(req.usuario.empresa_id, { ano: req.query.ano, tri: req.query.tri, lojaId: req.query.loja || null })); }
+  try { res.json(await cpontos.rankingComCache(req.usuario.empresa_id, { ano: req.query.ano, tri: req.query.tri, lojaId: req.query.loja || null, forcar: req.query.forcar === '1' })); }
   catch (e) { res.status(502).json({ erro: e.message }); }
 });
 router.get('/pontos/lancamentos', soGestao, (req, res) => res.json(cpontos.listarLancamentos(req.usuario.empresa_id, { ano: req.query.ano, tri: req.query.tri })));
@@ -76,13 +86,75 @@ router.post('/pontos/lancamento', soGestao, (req, res) => {
   catch (e) { res.status(400).json({ erro: e.message }); }
 });
 router.delete('/pontos/lancamento/:id', soGestao, (req, res) => res.json(cpontos.removerLancamento(req.usuario.empresa_id, req.params.id)));
+// Ciclo de apuração do Caixa Destaque (a cada N meses, fechando no dia de corte).
+// Metas do setor (alvo cadastrável + realizado automático + farol)
+router.get('/metas', soGestao, tesCache, async (req, res) => {
+  try { res.json(await metas.apurar(req.usuario.empresa_id, { ini: req.query.ini, fim: req.query.fim, lojaId: req.query.loja || null })); }
+  catch (e) { res.status(502).json({ erro: e.message }); }
+});
+router.get('/metas/config', soGestao, (req, res) => res.json({ metas: metas.configMetas(req.usuario.empresa_id) }));
+// Lista os últimos N ciclos de fechamento (atual + anteriores) com a janela ini/fim — p/ o seletor.
+router.get('/ciclos-fechamento', soGestao, (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const n = Math.min(12, Math.max(1, Number(req.query.n) || 6));
+  const { periodos } = cpontos.cicloConfig(emp);
+  const atual = cpontos.periodoAtual(emp);
+  const out = []; let { ano, periodo } = atual;
+  for (let i = 0; i < n; i++) {
+    const r = cpontos.periodoRange(emp, ano, periodo);
+    out.push({ ano, periodo, ini: r.ini, fim: r.fim, label: cpontos.periodoLabel(emp, ano, periodo), atual: i === 0 });
+    periodo -= 1; if (periodo < 1) { periodo = periodos; ano -= 1; }
+  }
+  res.json({ ciclos: out, config: cpontos.cicloConfig(emp) });
+});
+router.put('/metas/config', soGestao, (req, res) => { try { res.json(metas.setMeta(req.usuario.empresa_id, { chave: req.body.chave, meta_valor: req.body.meta_valor, ativo: req.body.ativo })); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.get('/metas/sugerir', soGestao, tesCache, async (req, res) => {
+  try { res.json(await metas.sugerir(req.usuario.empresa_id, { reducao: req.query.reducao, ciclos: req.query.ciclos })); }
+  catch (e) { res.status(502).json({ erro: e.message }); }
+});
+router.post('/metas/aplicar-sugestoes', soGestao, (req, res) => res.json(metas.aplicarSugestoes(req.usuario.empresa_id, req.body.sugestoes)));
+// Faixas do prêmio: teto R$/pilar + pessoas vinculadas (colaborador + fator). Configurado na aba Metas.
+router.get('/premio', soGestao, (req, res) => res.json({ premioValor: metas.premioPilar(req.usuario.empresa_id), bonusPct: metas.premioBonusPct(req.usuario.empresa_id), pessoas: metas.listPremioPessoas(req.usuario.empresa_id) }));
+router.put('/premio', soGestao, tesInval, (req, res) => { try { res.json(metas.setPremioConfig(req.usuario.empresa_id, { valor: req.body.valor, bonusPct: req.body.bonusPct })); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.post('/premio/pessoa', soGestao, tesInval, (req, res) => { try { res.json(metas.setPremioPessoa(req.usuario.empresa_id, { colaborador_id: req.body.colaborador_id, fator: req.body.fator })); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.delete('/premio/pessoa/:id', soGestao, tesInval, (req, res) => res.json(metas.removePremioPessoa(req.usuario.empresa_id, req.params.id)));
+// Piso de data da conciliação (padrão 01/10/2026)
+router.get('/conc-inicio', soGestao, (req, res) => res.json({ conc_inicio: metas.concInicio(req.usuario.empresa_id) }));
+router.put('/conc-inicio', soGestao, (req, res) => res.json(metas.setConcInicio(req.usuario.empresa_id, req.body.data)));
+// Controle de saldo bancário (financeiro anota data da última conciliação + saldo)
+// Observações do Meu Setor (Tesouraria)
+const obs = require('../lib/setorObservacoes');
+router.get('/observacoes', soGestao, (req, res) => res.json(obs.list(req.usuario.empresa_id, 'tesouraria')));
+router.post('/observacoes', soGestao, (req, res) => { try { res.json(obs.add(req.usuario.empresa_id, 'tesouraria', { texto: req.body.texto, usuario: req.usuario })); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.delete('/observacoes/:id', soGestao, (req, res) => { try { res.json(obs.remover(req.usuario.empresa_id, 'tesouraria', req.params.id, { usuario: req.usuario })); } catch (e) { res.status(400).json({ erro: e.message }); } });
 
-// Horário padrão do mês (p/ validar pontualidade com o Tangerino).
-router.get('/horario-mes', soGestao, (req, res) => res.json(cpontos.getHorario(req.usuario.empresa_id, { ano: req.query.ano, mes: req.query.mes, lojaId: req.query.loja || '' }) || {}));
+router.get('/saldos-banco', soGestao, async (req, res) => { try { res.json({ contas: await t.saldosBanco(req.usuario.empresa_id) }); } catch (e) { res.status(502).json({ erro: e.message }); } });
+router.put('/saldos-banco', soGestao, (req, res) => { try { res.json(t.setSaldoBanco(req.usuario.empresa_id, { ...req.body, usuario: req.usuario })); } catch (e) { res.status(400).json({ erro: e.message }); } });
+
+router.get('/pontos/ciclo', soGestao, (req, res) => { const c = cpontos.cicloConfig(req.usuario.empresa_id); res.json({ ...c, atual: cpontos.periodoAtual(req.usuario.empresa_id) }); });
+router.put('/pontos/ciclo', soGestao, (req, res) => res.json(cpontos.setCiclo(req.usuario.empresa_id, { meses: req.body.meses, diaCorte: req.body.diaCorte })));
+
+// Horário do mês POR OPERADOR (p/ validar pontualidade com o Tangerino). colaboradorId '' = padrão da loja.
+router.get('/horario-mes', soGestao, (req, res) => res.json(cpontos.getHorario(req.usuario.empresa_id, { ano: req.query.ano, mes: req.query.mes, lojaId: req.query.loja || '', colaboradorId: req.query.colaborador || '' }) || {}));
+router.get('/horarios-mes', soGestao, (req, res) => res.json(cpontos.listarHorarios(req.usuario.empresa_id, { ano: req.query.ano, mes: req.query.mes })));
 router.put('/horario-mes', soGestao, (req, res) => {
-  try { res.json(cpontos.setHorario(req.usuario.empresa_id, { ano: req.body.ano, mes: req.body.mes, lojaId: req.body.loja || '', entrada: req.body.entrada, saida_almoco: req.body.saida_almoco, volta_almoco: req.body.volta_almoco, saida: req.body.saida, tolerancia_min: req.body.tolerancia_min })); }
+  try { res.json(cpontos.setHorario(req.usuario.empresa_id, { ano: req.body.ano, mes: req.body.mes, lojaId: req.body.loja || '', colaboradorId: req.body.colaborador || '', entrada: req.body.entrada, saida_almoco: req.body.saida_almoco, volta_almoco: req.body.volta_almoco, saida: req.body.saida, tolerancia_min: req.body.tolerancia_min })); }
   catch (e) { res.status(400).json({ erro: e.message }); }
 });
+router.delete('/horario-mes/:id', soGestao, (req, res) => res.json(cpontos.removerHorario(req.usuario.empresa_id, req.params.id)));
+
+// A pagar / Desconto do operador (ciclo configurável + contato p/ a Agilidade).
+router.get('/apagar', soGestao, (req, res) => res.json(t.listApagar(req.usuario.empresa_id, { status: req.query.status || 'aberto' })));
+router.post('/apagar', soGestao, (req, res) => {
+  try { res.json(t.addApagar(req.usuario.empresa_id, { ...req.body, usuario: req.usuario })); }
+  catch (e) { res.status(400).json({ erro: e.message }); }
+});
+router.post('/apagar/:id/contato', soGestao, (req, res) => res.json(t.registrarContatoApagar(req.usuario.empresa_id, req.params.id, { contato_em: req.body.contato_em, retorno_em: req.body.retorno_em })));
+router.post('/apagar/:id/quitar', soGestao, (req, res) => res.json(t.quitarApagar(req.usuario.empresa_id, req.params.id, { usuario: req.usuario, origem: req.body.origem })));
+router.post('/apagar/quitar-todos', soGestao, (req, res) => res.json(t.quitarTodosApagar(req.usuario.empresa_id, { usuario: req.usuario, origem: req.body.origem })));
+router.delete('/apagar/:id', soGestao, (req, res) => res.json(t.removerApagar(req.usuario.empresa_id, req.params.id)));
+router.get('/apagar-config', soGestao, (req, res) => res.json(t.cfgDesconto(req.usuario.empresa_id)));
+router.put('/apagar-config', soGestao, (req, res) => res.json(t.setCfgDesconto(req.usuario.empresa_id, { diaCorte: req.body.diaCorte, slaHoras: req.body.slaHoras })));
 
 // Débitos do operador (quebras cobradas em aberto) — "contas a receber do funcionário".
 router.get('/debitos', soGestao, (req, res) => res.json(t.debitosOperador(req.usuario.empresa_id, { lojaId: req.query.loja || null, incluirPagos: req.query.incluirPagos === '1' })));
@@ -112,8 +184,15 @@ router.get('/quebras', soGestao, tesCache, async (req, res) => {
   } catch (e) { res.status(502).json({ erro: e.message }); }
 });
 
+// Lançamento AVULSO de diferença (falta/sobra) pela gestão — aparece na aba Diferenças.
+router.post('/diferenca-avulsa', soGestao, tesInval, (req, res) => {
+  try { res.json(t.addDiferencaAvulsa(req.usuario.empresa_id, { ...req.body, usuario: req.usuario })); }
+  catch (e) { res.status(400).json({ erro: e.message }); }
+});
+router.delete('/diferenca-avulsa/:id', soGestao, tesInval, (req, res) => res.json(t.removerDiferencaAvulsa(req.usuario.empresa_id, req.params.id)));
+
 // Marca decisão de cobrança de uma quebra (cobrado/perdoado/pontuado/pendente)
-router.post('/quebras/cobranca', soGestao, async (req, res) => {
+router.post('/quebras/cobranca', soGestao, tesInval, async (req, res) => {
   const { quebra, status, valorCobrado, observacao } = req.body || {};
   if (!quebra || !quebra.id) return res.status(400).json({ erro: 'Quebra inválida.' });
   const st = ['pendente', 'cobrado', 'perdoado', 'pontuado'].includes(status) ? status : 'pendente';
@@ -164,7 +243,7 @@ router.get('/dia', tesCache, async (req, res) => {
 
 // Visão GERAL do dia (todas as lojas do usuário, lado a lado): caixas + diferenças (read-only) + contagem de anexos.
 // Acessível ao GERENTE (anexa as fotos e SÓ VISUALIZA quem teve diferença — a apuração é da gestão). Joe 2026-11-11.
-router.get('/dia-geral', async (req, res) => {
+router.get('/dia-geral', tesCache, async (req, res) => {
   try {
     const emp = req.usuario.empresa_id;
     const data = req.query.data || hoje();
@@ -195,7 +274,7 @@ router.get('/dia-geral', async (req, res) => {
 
 // Painel de indicadores do DIA de UMA loja (carrega só da loja selecionada = rápido). Acessível ao
 // gerente da própria loja (vê os indicadores dela) e à gestão. Joe 2026-11-11.
-router.get('/loja-painel', async (req, res) => {
+router.get('/loja-painel', tesCache, async (req, res) => {
   try {
     const emp = req.usuario.empresa_id;
     const data = req.query.data || hoje();
@@ -221,7 +300,7 @@ router.get('/loja-painel', async (req, res) => {
 });
 
 // Detalhe de um indicador do painel da loja (drill-down ao clicar no tile). Acessível ao gerente da loja.
-router.get('/loja-painel-detalhe', async (req, res) => {
+router.get('/loja-painel-detalhe', tesCache, async (req, res) => {
   try {
     const emp = req.usuario.empresa_id, data = req.query.data || hoje(), loja = req.query.loja, tipo = req.query.tipo;
     if (!loja || !podeLoja(req, loja)) return res.status(403).json({ erro: 'Sem acesso a esta loja.' });
@@ -235,7 +314,7 @@ router.get('/loja-painel-detalhe', async (req, res) => {
     }
     if (tipo === 'cartao') {
       const r = await cc.correcoes(emp, { ini: data, fim: data, lojaId: loja });
-      return res.json({ tipo, total: r.total || 0, trocaDeForma: r.trocaDeForma || 0, porTroca: r.porTroca || [], porOperador: r.porOperador || [] });
+      return res.json({ tipo, total: r.total || 0, trocaDeForma: r.trocaDeForma || 0, itens: r.itens || [], porTroca: r.porTroca || [], porOperador: r.porOperador || [] });
     }
     if (tipo === 'atendimento') {
       const r = await t.cuponsPorOperador(emp, { ini: data, fim: data, lojaId: loja });
@@ -272,23 +351,60 @@ router.get('/anexos', (req, res) => {
   res.json({ anexos: rows, total });
 });
 // Despesas anexadas no período (p/ a conferência fiscal dentro do Orçamento loja): lista + totais fiscal/não-fiscal/pendente.
-router.get('/despesas-fiscal', soGestao, (req, res) => {
+router.get('/despesas-fiscal', soGestao, async (req, res) => {
   const emp = req.usuario.empresa_id;
   const de = req.query.de || primeiroDoMes();
   const ate = req.query.ate || hoje();
   const loja = req.query.loja || null;
   const rows = db.prepare(`SELECT id, loja_id, data, descricao, valor, plano_contas, fiscal, tipo_doc, fiscal_conf, fiscal_conf_por
-    FROM tesouraria_anexo WHERE empresa_id=? AND tipo='despesa' AND data>=? AND data<=? ${loja ? 'AND loja_id=?' : ''}
+    FROM tesouraria_anexo WHERE empresa_id=? AND tipo='orcamento' AND data>=? AND data<=? ${loja ? 'AND loja_id=?' : ''}
     ORDER BY data DESC`).all(...(loja ? [emp, de, ate, loja] : [emp, de, ate]));
-  const lojas = {}; try { db.prepare('SELECT id, nome FROM lojas WHERE empresa_id=?').all(emp).forEach(l => { lojas[l.id] = l.nome; }); } catch (e) { /* */ }
-  const tot = { fiscal: 0, nao_fiscal: 0, pendente: 0, vFiscal: 0, vNaoFiscal: 0, vPendente: 0 };
-  rows.forEach(r => {
+  const lojas = {}, appParaErp = {};
+  try { lojasEmpresa(emp).forEach(l => { lojas[l.id] = l.nome; appParaErp[l.id] = String(l.erp_unidadenegocio_id); }); } catch (e) { /* */ }
+
+  // Cruzamento com o Alpha 7: casa a despesa do gerente (loja + valor + data próxima) a um gasto já lançado
+  // na conta "Orçamento - <loja>". ERP indisponível não derruba a lista — só não marca o Alpha.
+  let poolAlpha = null; // Map loja_erp -> [{valor, data, plano, descricao, usado}]
+  try {
+    const unis = unisEmpresa(emp, loja);
+    if (unis.length) {
+      const mov = await orcErp.orcamentoMovimento(unis, { de, ate });
+      poolAlpha = new Map();
+      for (const m of mov) {
+        if (m.credito) continue; // só gastos (débitos)
+        const k = String(m.loja_erp);
+        if (!poolAlpha.has(k)) poolAlpha.set(k, []);
+        poolAlpha.get(k).push({ valor: Math.abs(Number(m.valor) || 0), data: m.data, plano: m.plano_contas || null, descricao: m.descricao || null, usado: false });
+      }
+    }
+  } catch (e) { poolAlpha = null; }
+  const casarAlpha = (anexo) => {
+    if (!poolAlpha) return null;
+    const erpId = appParaErp[anexo.loja_id]; if (!erpId) return null;
+    const lista = poolAlpha.get(erpId); if (!lista) return { lancado: false };
+    const v = Number(anexo.valor) || 0;
+    // candidato: mesmo valor (±R$0,02), ainda não usado, data mais próxima
+    let melhor = null, melhorDist = Infinity;
+    for (const g of lista) {
+      if (g.usado || Math.abs(g.valor - v) > 0.02) continue;
+      const dist = Math.abs((new Date(g.data) - new Date(anexo.data)) / 86400000);
+      if (dist < melhorDist) { melhorDist = dist; melhor = g; }
+    }
+    if (melhor) { melhor.usado = true; return { lancado: true, data: melhor.data, plano: melhor.plano, descricao: melhor.descricao, dias: Math.round(melhorDist) }; }
+    return { lancado: false };
+  };
+
+  const tot = { fiscal: 0, nao_fiscal: 0, pendente: 0, vFiscal: 0, vNaoFiscal: 0, vPendente: 0, lancadoAlpha: 0, naoLancadoAlpha: 0, vNaoLancado: 0 };
+  const despesas = rows.map(r => {
     const v = Number(r.valor) || 0;
     if (r.fiscal_conf === 1) { tot.fiscal++; tot.vFiscal += v; }
     else if (r.fiscal_conf === 0) { tot.nao_fiscal++; tot.vNaoFiscal += v; }
     else { tot.pendente++; tot.vPendente += v; }
+    const alpha = casarAlpha(r);
+    if (alpha) { if (alpha.lancado) tot.lancadoAlpha++; else { tot.naoLancadoAlpha++; tot.vNaoLancado += v; } }
+    return { ...r, loja: lojas[r.loja_id] || r.loja_id, alpha };
   });
-  res.json({ ok: true, despesas: rows.map(r => ({ ...r, loja: lojas[r.loja_id] || r.loja_id })), total: tot });
+  res.json({ ok: true, despesas, total: tot, alphaOk: poolAlpha != null });
 });
 
 // Conferência fiscal da despesa pelo escritório: marca fiscal (1) / não fiscal (0) / limpa (null). Só gestão.
@@ -308,12 +424,15 @@ router.post('/anexos', (req, res) => {
   const b = req.body || {};
   if (!b.loja_id || !b.data || !b.tipo) return res.status(400).json({ erro: 'Loja, data e tipo são obrigatórios.' });
   if (!podeLoja(req, b.loja_id)) return res.status(403).json({ erro: 'Você não tem acesso a essa loja.' });
-  if (!['deposito', 'despesa', 'recarga'].includes(b.tipo)) return res.status(400).json({ erro: 'Tipo inválido.' });
+  if (!['deposito', 'despesa', 'recarga', 'orcamento'].includes(b.tipo)) return res.status(400).json({ erro: 'Tipo inválido.' });
   if (!b.dados) return res.status(400).json({ erro: 'Anexe o arquivo/foto.' });
   // Não permite 2º anexo do mesmo tipo na mesma data/loja (a não ser que exclua o anterior).
-  const ROT = { deposito: 'depósito', despesa: 'despesa', recarga: 'recarga' };
-  const ja = db.prepare(`SELECT 1 FROM tesouraria_anexo WHERE empresa_id=? AND loja_id=? AND data=? AND tipo=? LIMIT 1`).get(req.usuario.empresa_id, b.loja_id, b.data, b.tipo);
-  if (ja) return res.status(409).json({ erro: `Já existe ${ROT[b.tipo]} anexado para esta loja em ${String(b.data).split('-').reverse().join('/')}. Exclua o anterior para anexar outro.` });
+  // EXCEÇÃO: 'orcamento' (gastos da verba) pode ter vários lançamentos no mesmo dia.
+  const ROT = { deposito: 'depósito', despesa: 'despesa', recarga: 'recarga', orcamento: 'gasto de orçamento' };
+  if (b.tipo !== 'orcamento') {
+    const ja = db.prepare(`SELECT 1 FROM tesouraria_anexo WHERE empresa_id=? AND loja_id=? AND data=? AND tipo=? LIMIT 1`).get(req.usuario.empresa_id, b.loja_id, b.data, b.tipo);
+    if (ja) return res.status(409).json({ erro: `Já existe ${ROT[b.tipo]} anexado para esta loja em ${String(b.data).split('-').reverse().join('/')}. Exclua o anterior para anexar outro.` });
+  }
   const id = uuidv4();
   // Salva organizado em <ano>/<mês>/<loja>/ — despesa→pasta do Orçamento; depósito/recarga→Controle de Caixa.
   const buf = base64ParaBuffer(b.dados);
@@ -370,7 +489,8 @@ function salvarOrganizado(base, lojaNome, dataStr, nomeArq, buffer) {
   try { fsNode.writeFileSync(destino, buffer); return destino; } catch { return null; }
 }
 // Pasta de destino conforme o tipo: despesa→orçamento; depósito/recarga→controle de caixa.
-function baseDe(emp, tipo) { return cfgGet(emp, tipo === 'despesa' ? 'despesa_salvar_base' : 'deposito_salvar_base'); }
+// despesa (caixa) E orcamento (verba) → pasta do Orçamento (Notas Fiscais - Orçamento); depósito/recarga → Controle de Caixa.
+function baseDe(emp, tipo) { return cfgGet(emp, (tipo === 'orcamento' || tipo === 'despesa') ? 'despesa_salvar_base' : 'deposito_salvar_base'); }
 function lojaNomeDe(emp, lojaId) { const l = lojasEmpresa(emp).find(x => x.id === lojaId); return l ? l.nome : lojaId; }
 function base64ParaBuffer(dados) { const b64 = String(dados || '').replace(/^data:[^;]+;base64,/, ''); try { return Buffer.from(b64, 'base64'); } catch { return null; } }
 // Lista imagens/PDFs da pasta (recursivo, até 200) p/ o gerente/tesouraria escolher e importar.
@@ -395,9 +515,11 @@ router.post('/pasta/importar', (req, res) => {
   const ext = pathNode.extname(b.caminho).toLowerCase();
   const mime = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
   const id = uuidv4();
-  const tipo = b.tipo === 'deposito' ? 'deposito' : b.tipo === 'recarga' ? 'recarga' : 'despesa';
-  const jaImp = db.prepare(`SELECT 1 FROM tesouraria_anexo WHERE empresa_id=? AND loja_id=? AND data=? AND tipo=? LIMIT 1`).get(req.usuario.empresa_id, b.loja_id, b.data, tipo);
-  if (jaImp) return res.status(409).json({ erro: `Já existe ${tipo} anexado para esta loja nessa data. Exclua o anterior para anexar outro.` });
+  const tipo = ['deposito', 'recarga', 'orcamento'].includes(b.tipo) ? b.tipo : 'despesa';
+  if (tipo !== 'orcamento') { // orçamento aceita vários por dia
+    const jaImp = db.prepare(`SELECT 1 FROM tesouraria_anexo WHERE empresa_id=? AND loja_id=? AND data=? AND tipo=? LIMIT 1`).get(req.usuario.empresa_id, b.loja_id, b.data, tipo);
+    if (jaImp) return res.status(409).json({ erro: `Já existe ${tipo} anexado para esta loja nessa data. Exclua o anterior para anexar outro.` });
+  }
   const salvo = salvarOrganizado(baseDe(req.usuario.empresa_id, tipo), lojaNomeDe(req.usuario.empresa_id, b.loja_id), b.data, pathNode.basename(b.caminho), buf);
   db.prepare(`INSERT INTO tesouraria_anexo (id,empresa_id,loja_id,data,tipo,descricao,valor,plano_contas,nome,tipo_mime,dados,origem,criado_por,arquivo_salvo)
     VALUES (?,?,?,?,?,?,?,?,?,?,?, 'pasta', ?, ?)`)

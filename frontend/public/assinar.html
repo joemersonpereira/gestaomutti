@@ -69,6 +69,9 @@
   }
 
   function render(d){
+    // O que o gestor marcou para pedir (padrão: tudo). Nome, CPF e aceite são sempre obrigatórios.
+    var ex = d.exige || { selfie:true, documento:true, assinatura:true };
+    dados.exige = ex;
     app.innerHTML =
       '<div class="card"><h2>Contrato '+esc(d.codigo||'')+'</h2>'+
         '<div style="font-size:12.5px;color:var(--muted);margin-bottom:8px">Fornecedor: <b>'+esc(d.fornecedor||'—')+'</b></div>'+
@@ -78,17 +81,17 @@
         '<label class="f">Nome completo de quem assina</label><input id="nome" type="text" placeholder="Nome completo" autocomplete="name" />'+
         '<label class="f">CPF de quem assina (obrigatório — precisa ser o designado no contrato)</label><input id="doc" type="text" inputmode="numeric" placeholder="000.000.000-00" />'+
 
-        '<label class="f">Selfie (foto do seu rosto)</label>'+
+        (ex.selfie ? '<label class="f">Selfie (foto do seu rosto)</label>'+
         '<div class="shot"><span class="btn-sec btn-file">📷 Tirar selfie<input id="fSelfie" type="file" accept="image/*" capture="user" /></span>'+
-          '<img id="tSelfie" class="thumb" alt="" /><span id="okSelfie" class="ok">✓ ok</span></div>'+
+          '<img id="tSelfie" class="thumb" alt="" /><span id="okSelfie" class="ok">✓ ok</span></div>' : '')+
 
-        '<label class="f">Foto do documento (RG ou CNH)</label>'+
+        (ex.documento ? '<label class="f">Foto do documento (RG ou CNH)</label>'+
         '<div class="shot"><span class="btn-sec btn-file">📄 Fotografar documento<input id="fDoc" type="file" accept="image/*" capture="environment" /></span>'+
-          '<img id="tDoc" class="thumb" alt="" /><span id="okDoc" class="ok">✓ ok</span></div>'+
+          '<img id="tDoc" class="thumb" alt="" /><span id="okDoc" class="ok">✓ ok</span></div>' : '')+
 
-        '<label class="f">Assinatura (desenhe com o dedo ou o mouse)</label>'+
+        (ex.assinatura ? '<label class="f">Assinatura (desenhe com o dedo ou o mouse)</label>'+
         '<canvas id="sig"></canvas>'+
-        '<div class="hint">Assine no quadro acima. <button type="button" id="limpar" class="btn-sec" style="padding:4px 10px;margin-top:6px">Limpar</button></div>'+
+        '<div class="hint">Assine no quadro acima. <button type="button" id="limpar" class="btn-sec" style="padding:4px 10px;margin-top:6px">Limpar</button></div>' : '')+
 
         '<label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;font-size:12.5px;color:var(--ink);cursor:pointer">'+
           '<input id="aceite" type="checkbox" style="margin-top:2px" />'+
@@ -98,9 +101,9 @@
         '<div class="hint" style="margin-top:8px">Ao assinar, registramos a data/hora e o endereço de IP do dispositivo usado, para validade do aceite.</div>'+
       '</div>';
     document.getElementById('nome').value = d.representante_nome || '';
-    setupShot('fSelfie','tSelfie','okSelfie','selfie');
-    setupShot('fDoc','tDoc','okDoc','documento');
-    setupSig();
+    if (ex.selfie) setupShot('fSelfie','tSelfie','okSelfie','selfie');
+    if (ex.documento) setupShot('fDoc','tDoc','okDoc','documento');
+    if (ex.assinatura) setupSig();
     document.getElementById('enviar').addEventListener('click', enviar);
   }
 
@@ -154,13 +157,14 @@
     if (nome.length<3) return msg('Informe seu nome completo.');
     if (doc.replace(/\D/g,'').length!==11) return msg('Informe um CPF válido (11 dígitos).');
     if (!aceite) return msg('Marque que reconhece o contrato e assina conforme a MP.');
-    if (!dados.selfie) return msg('Tire a selfie.');
-    if (!dados.documento) return msg('Fotografe o documento.');
-    if (!cv || !cv._has()) return msg('Assine no quadro.');
+    var ex=dados.exige||{};
+    if (ex.selfie && !dados.selfie) return msg('Tire a selfie.');
+    if (ex.documento && !dados.documento) return msg('Fotografe o documento.');
+    if (ex.assinatura && (!cv || !cv._has())) return msg('Assine no quadro.');
     var btn=document.getElementById('enviar'); btn.disabled=true; btn.textContent='Enviando…';
     fetch(BASE+'/assinar',{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ assinante_nome:nome, assinante_doc:doc, aceite_mp:true, assinatura:cv._url(), selfie:dados.selfie, documento:dados.documento })
+      body: JSON.stringify({ assinante_nome:nome, assinante_doc:doc, aceite_mp:true, assinatura:(ex.assinatura && cv)?cv._url():null, selfie:ex.selfie?dados.selfie:null, documento:ex.documento?dados.documento:null })
     }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
       .then(function(x){ if(!x.ok) throw new Error(x.j.erro||'Erro ao assinar.'); renderDone(nome, new Date().toISOString(), false); })
       .catch(function(e){ btn.disabled=false; btn.textContent='Assinar contrato'; msg(e.message); });

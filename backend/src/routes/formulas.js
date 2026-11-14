@@ -7,11 +7,16 @@ const { auth } = require('../middleware/auth');
 const { listarFormulas } = require('../lib/formulasErp');
 
 router.use(auth);
+// Cache serve-stale do ERP (Joe 2026-11-14): abre na hora e só reconsulta o Alpha ~1x/h ou após escrita. ?forcar=1 recalcula.
+const { cacheMiddleware: _erpCache, invalidarMiddleware: _erpInval } = require('../lib/erpCache');
+router.use(_erpCache('formulas'));
+router.use(_erpInval('formulas'));
 
 router.get('/', async (req, res) => {
   try {
     res.json(await listarFormulas(req.usuario.empresa_id, {
-      lojaId: req.query.loja || undefined, dias: Number(req.query.dias) || 30, status: req.query.status || undefined,
+      lojaId: req.query.loja || undefined, dias: Number(req.query.dias) || 30,
+      ini: req.query.ini || undefined, fim: req.query.fim || undefined, status: req.query.status || undefined,
     }));
   } catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
 });

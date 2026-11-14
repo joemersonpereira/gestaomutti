@@ -85,6 +85,105 @@ async function divergComprador(unis, prodIds, per) {
   return { divergentes: Number(r.divergentes) || 0, sobras: Number(r.sobras) || 0, faltas: Number(r.faltas) || 0, impactoPreco: Math.round(Number(r.impacto) || 0) };
 }
 
+// Pedidos de compra PENDENTES (lançados e ainda SEM NF/recebimento) dos produtos do comprador.
+// Não é punição: é acompanhamento. O ATRASADO (prazo de entrega vencido) é o que o comprador tem de
+// resolver — atualizando o prazo no Alpha ou cobrando o fornecedor; ao atualizar o prazo, sai do atraso.
+// Pendente = pedidocompra não cancelado, sem vínculo de NF por conciliação NEM recebimento físico.
+async function pedidosPendentesComprador(unis, prodIds, per) {
+  if (!prodIds.length) return { pendentes: 0, valor: 0, atrasados: 0, atrasadosValor: 0, semPrazo: 0 };
+  const rows = await erpQuery(`
+    WITH pc AS (
+      SELECT DISTINCT pc.id, pc.dataentregaprogramada prazo
+      FROM pedidocompra pc
+      JOIN itempedidocompra ip ON ip.pedidocompraid=pc.id
+      JOIN embalagem em ON em.id=ip.embalagemid
+      WHERE pc.unidadenegocioid = ANY($1::bigint[])
+        AND pc.datahora >= $3::date AND pc.datahora < ($4::date + interval '1 day')
+        AND COALESCE(pc.status,'') = 'E'   -- E = ENVIADO (pedido de verdade). D = rascunho/digitado (não conta).
+        AND em.produtoid = ANY($2::bigint[])
+        AND NOT EXISTS (SELECT 1 FROM conciliacaocompra c WHERE c.pedidocompraprincipalid=pc.id)
+        AND NOT EXISTS (SELECT 1 FROM conciliacaocompraitem ci WHERE ci.pedidocompraid=pc.id)
+        AND NOT EXISTS (SELECT 1 FROM itemrecebimentofisico irf WHERE irf.pedidocompraid=pc.id)),
+    val AS (
+      SELECT pc.id, pc.prazo,
+        (pc.prazo IS NOT NULL AND pc.prazo::date < now()::date) atrasado, pc.prazo IS NULL semprazo,
+        COALESCE((SELECT SUM(ip.quantidadeembalagem*ip.precocompra) FROM itempedidocompra ip
+                  JOIN embalagem em ON em.id=ip.embalagemid
+                  WHERE ip.pedidocompraid=pc.id AND em.produtoid = ANY($2::bigint[])),0)::float8 v
+      FROM pc)
+    SELECT COUNT(*) n, COALESCE(SUM(v),0)::float8 valor,
+      COUNT(*) FILTER (WHERE atrasado) atrasados, COALESCE(SUM(v) FILTER (WHERE atrasado),0)::float8 atrasados_valor,
+      COUNT(*) FILTER (WHERE semprazo) semprazo
+    FROM val`, [unis, prodIds, per.desde, per.ate]);
+  const r = rows[0] || {};
+  return {
+    pendentes: Number(r.n) || 0, valor: Math.round(Number(r.valor) || 0),
+    atrasados: Number(r.atrasados) || 0, atrasadosValor: Math.round(Number(r.atrasados_valor) || 0),
+    semPrazo: Number(r.semprazo) || 0,
+  };
+}
+
+// Lista dos pedidos pendentes (p/ a aba de acompanhamento): código, fornecedor, data, prazo, valor, atraso.
+async function pedidosPendentesDetalhe(empresaId, { compradorId, dias = 30, de, ate, limite = 400 } = {}) {
+  if (!habilitado()) return { erp: false, itens: [] };
+  const unis = unisEmpresa(empresaId, null);
+  const prodIds = await prodIdsComprador(empresaId, compradorId);
+  if (!unis.length || !prodIds.length) return { erp: true, itens: [], semComprador: !prodIds.length };
+  const per = resolvePeriodo({ dias, de, ate });
+  const rows = await erpQuery(`
+    SELECT pc.codigo, pc.status, to_char(pc.datahora,'YYYY-MM-DD') data,
+      to_char(pc.dataentregaprogramada,'YYYY-MM-DD') prazo,
+      (pc.dataentregaprogramada IS NOT NULL AND pc.dataentregaprogramada::date < now()::date) atrasado,
+      GREATEST(0, (now()::date - pc.dataentregaprogramada::date))::int dias_atraso,
+      p.nome fornecedor,
+      COALESCE(SUM(ip.quantidadeembalagem*ip.precocompra) FILTER (WHERE em.produtoid = ANY($2::bigint[])),0)::float8 valor
+    FROM pedidocompra pc
+    JOIN itempedidocompra ip ON ip.pedidocompraid=pc.id
+    JOIN embalagem em ON em.id=ip.embalagemid
+    LEFT JOIN fornecedor f ON f.id=pc.fornecedorid LEFT JOIN pessoa p ON p.id=f.pessoaid
+    WHERE pc.unidadenegocioid = ANY($1::bigint[])
+      AND pc.datahora >= $3::date AND pc.datahora < ($4::date + interval '1 day')
+      AND COALESCE(pc.status,'') = 'E'   -- E = ENVIADO (pedido de verdade). D = rascunho/digitado (não conta).
+      AND NOT EXISTS (SELECT 1 FROM conciliacaocompra c WHERE c.pedidocompraprincipalid=pc.id)
+      AND NOT EXISTS (SELECT 1 FROM conciliacaocompraitem ci WHERE ci.pedidocompraid=pc.id)
+      AND NOT EXISTS (SELECT 1 FROM itemrecebimentofisico irf WHERE irf.pedidocompraid=pc.id)
+      AND EXISTS (SELECT 1 FROM itempedidocompra ip2 JOIN embalagem em2 ON em2.id=ip2.embalagemid
+                  WHERE ip2.pedidocompraid=pc.id AND em2.produtoid = ANY($2::bigint[]))
+    GROUP BY pc.codigo, pc.status, pc.datahora, pc.dataentregaprogramada, p.nome
+    ORDER BY atrasado DESC, pc.dataentregaprogramada ASC NULLS LAST, pc.datahora ASC
+    LIMIT $5`, [unis, prodIds, per.desde, per.ate, Number(limite) || 400]);
+  const itens = rows.map(r => ({
+    codigo: r.codigo, status: r.status, data: r.data, prazo: r.prazo,
+    atrasado: !!r.atrasado, diasAtraso: Number(r.dias_atraso) || 0,
+    fornecedor: (r.fornecedor || '—').trim(), valor: Math.round(Number(r.valor) || 0),
+  }));
+  return { erp: true, itens, periodo: per };
+}
+
+// Conciliação Pedido × NF do COMPRADOR (consolidado p/ o Meu Setor): sem pedido, fornecedor mais caro,
+// sobra/falta de quantidade e pedidos atrasados. Usa o mesmo vínculo produto→grupo→comprador do resto.
+async function conciliacaoComprador(empresaId, { compradorId, ano, mes, dias = 30, de, ate } = {}) {
+  if (!habilitado()) return { erp: false };
+  const unis = unisEmpresa(empresaId, null);
+  if (!unis.length) return { erp: true, erro: 'Nenhuma loja vinculada ao ERP.' };
+  const prodIds = await prodIdsComprador(empresaId, compradorId);
+  if (!prodIds.length) return { erp: true, semComprador: true };
+  const mObj = (ano && mes) ? resolveMes(`${ano}-${String(mes).padStart(2, '0')}`) : null;
+  const per = mObj ? mObj.per : resolvePeriodo({ dias, de, ate });
+  const [cs, dv, pp] = await Promise.all([
+    comprasSemPedido(unis, prodIds, per),
+    divergComprador(unis, prodIds, per),
+    pedidosPendentesComprador(unis, prodIds, per),
+  ]);
+  return {
+    erp: true, periodo: per,
+    compras: cs.compras, semPedidoValor: cs.semPedidoValor, semPedidoNfs: cs.semPedidoNfs, semPedidoPct: cs.semPedidoPct,
+    impactoPreco: dv.impactoPreco, divergentes: dv.divergentes, sobras: dv.sobras, faltas: dv.faltas, sobraFalta: dv.sobras + dv.faltas,
+    pedidosPendentes: pp.pendentes, pedidosPendentesValor: pp.valor,
+    pedidosAtrasados: pp.atrasados, pedidosAtrasadosValor: pp.atrasadosValor, pedidosSemPrazo: pp.semPrazo,
+  };
+}
+
 // Valor em risco de vencimento (estoque a custo dos produtos do comprador com lote vencendo na janela).
 async function vencidosComprador(unis, prodIds, dias = 90) {
   const r = (await erpQuery(`
@@ -204,4 +303,4 @@ async function capturarSnapshot(empresaId, ano, mes) {
   return { ok: true, capturados: n, ano, mes };
 }
 
-module.exports = { eficienciaCompradores, capturarSnapshot };
+module.exports = { eficienciaCompradores, capturarSnapshot, conciliacaoComprador, pedidosPendentesComprador, pedidosPendentesDetalhe };

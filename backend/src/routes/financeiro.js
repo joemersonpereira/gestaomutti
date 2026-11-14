@@ -10,6 +10,10 @@ const dfcImport = require('../lib/dfcImport');
 
 const GESTAO_FIN = ['Diretor Geral', 'Gestor Geral', 'Controladoria'];
 router.use(auth);
+// Cache serve-stale do ERP (Joe 2026-11-14): abre na hora e só reconsulta o Alpha ~1x/h ou após escrita. ?forcar=1 recalcula.
+const { cacheMiddleware: _erpCache, invalidarMiddleware: _erpInval } = require('../lib/erpCache');
+router.use(_erpCache('financeiro'));
+router.use(_erpInval('financeiro'));
 router.use(exigePerfil(...GESTAO_FIN));
 
 router.get('/lojas', (req, res) => res.json({ lojas: lojasEmpresa(req.usuario.empresa_id) }));

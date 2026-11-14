@@ -1438,6 +1438,60 @@ const ROT_TIPO_SPED = { fiscal: 'SPED Fiscal (ICMS/IPI)', contribuicoes: 'SPED C
 const ROT_ETAPA = { envio: 'Envio (dia 01)', retorno: 'Retorno da contab.', corrigido: 'Corrigido (dia 10)', final: 'Final / entregue' };
 const kb = n => !n ? '—' : n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
 
+// Validador PRÉ-SPED: confere no ERP (antes do Alpha gerar) os erros de cadastro que quebram o SPED.
+function PreSpedValidacao({ API, lojas, competencias }) {
+  const mesAtual = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
+  const [comp, setComp] = React.useState(mesAtual);
+  const [loja, setLoja] = React.useState('');
+  const [d, setD] = React.useState(null);
+  const [carr, setCarr] = React.useState(false);
+  const [aberto, setAberto] = React.useState({});
+  const opcComp = React.useMemo(() => {
+    const set = new Set([mesAtual, ...((competencias || []).map(c => c.competencia))]);
+    return [...set].sort().reverse();
+  }, [competencias, mesAtual]);
+  const rodar = () => {
+    setCarr(true); setD(null);
+    API.get('/contabilidade/sped/pre-validar', { params: { competencia: comp, loja: loja || undefined } })
+      .then(r => setD(r.data)).catch(e => setD({ erro: e.response?.data?.erro || 'Falha ao validar.' })).finally(() => setCarr(false));
+  };
+  const sevCor = s => s === 'alta' ? '#C0392B' : s === 'media' ? '#B7791F' : '#64748b';
+  return (
+    <div style={{ ...s.card, marginBottom: 16, border: '1px solid #cfe3da' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+        <div style={{ fontSize: 14, fontWeight: 800 }}>✅ Validação pré-SPED <span style={{ fontSize: 11.5, color: '#94a3b8', fontWeight: 400 }}>— confere no ERP os erros de cadastro ANTES do Alpha gerar o arquivo</span></div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 8 }}>
+        <div style={s.lab}>Competência<select value={comp} onChange={e => setComp(e.target.value)} style={s.inp}>{opcComp.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+        <div style={s.lab}>Loja<select value={loja} onChange={e => setLoja(e.target.value)} style={s.inp}><option value="">Todas</option>{(lojas || []).map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></div>
+        <button onClick={rodar} disabled={carr} style={{ ...s.btn, cursor: 'pointer' }}>{carr ? '⏳ conferindo…' : '🔎 Validar no ERP'}</button>
+      </div>
+      {d && d.erro && <div style={{ color: '#C0392B', fontSize: 13 }}>⚠️ {d.erro}</div>}
+      {d && !d.erro && <>
+        <div style={{ fontSize: 13, marginBottom: 8 }}>{d.totalProblemas === 0
+          ? <b style={{ color: '#15803d' }}>✅ Nenhum erro de cadastro para {d.competencia}.{d.aRevisar ? ` Pode gerar — só ${d.aRevisar} item(ns) de uso/consumo pra revisar.` : ' Pode gerar o SPED.'}</b>
+          : <b style={{ color: '#C0392B' }}>⚠️ {d.totalProblemas} erro(s) de cadastro em {d.competencia} — corrija no Alpha antes de gerar{d.aRevisar ? ` · + ${d.aRevisar} de uso/consumo a revisar` : ''}.</b>}</div>
+        {(d.checks || []).map(c => (
+          <div key={c.chave} style={{ border: '1px solid #eef2f0', borderRadius: 9, marginBottom: 6, overflow: 'hidden' }}>
+            <div onClick={() => c.qtd && setAberto(a => ({ ...a, [c.chave]: !a[c.chave] }))} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px', cursor: c.qtd ? 'pointer' : 'default', background: c.qtd ? '#fff7f5' : '#f5f9f6' }}>
+              <span style={{ width: 8, height: 8, borderRadius: 999, background: c.qtd ? sevCor(c.severidade) : '#15803d' }} />
+              <div style={{ flex: 1, minWidth: 0 }}><b style={{ fontSize: 12.5 }}>{c.titulo}</b> <span style={{ fontSize: 10.5, color: '#94a3b8' }}>reg {c.registro}</span><div style={{ fontSize: 10.5, color: '#94a3b8' }}>{c.descricao}</div></div>
+              <b style={{ fontSize: 15, color: c.qtd ? sevCor(c.severidade) : '#15803d' }}>{c.qtd}</b>
+              {!!c.qtd && <span style={{ color: '#94a3b8' }}>{aberto[c.chave] ? '▲' : '▼'}</span>}
+            </div>
+            {aberto[c.chave] && !!c.qtd && <div style={{ padding: '4px 11px 10px', fontSize: 12 }}>
+              {(c.itens || []).slice(0, 50).map((i, k) => <div key={k} style={{ padding: '3px 0', borderTop: k ? '1px solid #f4f4f4' : 'none', color: '#475569' }}>
+                {i.nome ? <b>{i.nome}</b> : ''}{i.numero ? <b>NF {i.numero}</b> : ''}{i.ean ? ' · 🔖 ' + i.ean : ''}{i.cnpj === null ? ' · sem CNPJ' : ''}{i.valor != null ? ' · R$ ' + Number(i.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : ''}{i.emissao ? ' · emit. ' + String(i.emissao).slice(0, 10).split('-').reverse().join('/') : ''}{i.nf ? ' · NF ' + i.nf : ''}{i.loja ? ' · ' + i.loja : ''}{i.fornecedor ? ' · ' + i.fornecedor : ''}
+              </div>)}
+              {(c.itens || []).length > 50 && <div style={{ color: '#94a3b8', marginTop: 4 }}>… e mais {c.itens.length - 50} (mostrando os 50 primeiros).</div>}
+            </div>}
+          </div>
+        ))}
+      </>}
+    </div>
+  );
+}
+
 export function SpedRepo({ API }) {
   const [arquivos, setArquivos] = useState([]);
   const [lojas, setLojas] = useState([]);
@@ -1544,8 +1598,6 @@ export function SpedRepo({ API }) {
       <div style={s.tabs}>
         <button style={s.tab(false)} onClick={() => setSub('arquivos')}>📁 Arquivos</button>
         <button style={s.tab(true)} onClick={() => setSub('correcao')}>🛠️ Retorno & Banco de correção</button>
-        <button style={s.tab(false)} onClick={() => setSub('faltantes')}>🔎 Conciliação NF × XML</button>
-        <button style={s.tab(false)} onClick={() => setSub('leadtime')}>⏱️ Tempo de entrada</button>
       </div>
       <BancoCorrecao API={API} lojas={lojas} competencias={competencias} />
     </>
@@ -1577,10 +1629,9 @@ export function SpedRepo({ API }) {
       <div style={s.tabs}>
         <button style={s.tab(true)} onClick={() => setSub('arquivos')}>📁 Arquivos</button>
         <button style={s.tab(false)} onClick={() => setSub('correcao')}>🛠️ Retorno & Banco de correção</button>
-        <button style={s.tab(false)} onClick={() => setSub('faltantes')}>🔎 Conciliação NF × XML</button>
-        <button style={s.tab(false)} onClick={() => setSub('leadtime')}>⏱️ Tempo de entrada</button>
       </div>
       <LeadResumoCard API={API} onDetalhe={() => setSub('leadtime')} />
+      <PreSpedValidacao API={API} lojas={lojas} competencias={competencias} />
       <p style={s.sub}>O arquivo SPED é gerado no Alpha (<b>Fiscal → Exportação Arquivo → SPED Fiscal / Contribuições</b>) e fica disponível aqui pro <b>usuário da contabilidade baixar direto</b> — sem precisar enviar por fora. Competência, tipo e loja são <b>detectados do próprio arquivo</b>; quando a contabilidade já devolveu erros antes, o sistema <b>já aponta sozinho</b> os que reconhece no arquivo novo. Para subir automático quando o Alpha gera, use o vigia de pasta (<code>scripts/sped-watch.js</code>).</p>
 
       <div style={{ ...s.card, marginBottom: 16 }}>

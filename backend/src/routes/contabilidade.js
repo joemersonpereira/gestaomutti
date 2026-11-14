@@ -13,6 +13,7 @@ const { erpQuery } = require('../db/erp');
 const { parseSpedHeader, soDigitos, classificarErroSped, referenciaErro, linhasDeErro, verificarSped, chavesEntradaSped } = require('../lib/spedArquivo');
 const espiao = require('../lib/espiaoNfe');
 const { validarSpedArquivo } = require('../lib/spedValidadorErp');
+const { validarPreSped } = require('../lib/spedPreValidadorErp');
 const contab = require('../lib/contabilidadeErp');
 const cofre = require('../lib/cofreErp');
 const auditoria = require('../lib/auditoriaErp');
@@ -995,6 +996,19 @@ router.get('/sped', (req, res) => {
     FROM contabil_sped WHERE ${w.join(' AND ')} ORDER BY competencia DESC, tipo, criado_em DESC`).all(...p);
   res.json({ ok: true, arquivos: rows.map(r => ({ ...r, loja_nome: r.loja_id ? (mapLoja[r.loja_id] || r.loja_id) : 'Grupo (consolidado)' })) });
 });
+// Validador PRÉ-SPED: confere no ERP (antes de gerar) os erros de cadastro que quebram o SPED.
+router.get('/sped/pre-validar', async (req, res) => {
+  try {
+    const now = new Date();
+    let ano = Number(req.query.ano), mes = Number(req.query.mes);
+    if (!ano || !mes) { // aceita competencia=YYYY-MM
+      const c = String(req.query.competencia || '');
+      if (/^\d{4}-\d{2}$/.test(c)) { ano = Number(c.slice(0, 4)); mes = Number(c.slice(5, 7)); }
+      else { ano = now.getFullYear(); mes = now.getMonth() + 1; }
+    }
+    res.json(await validarPreSped(req.usuario.empresa_id, { ano, mes, lojaId: req.query.loja || '' }));
+  } catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
 // competências que já têm arquivo (pro seletor)
 router.get('/sped/competencias', (req, res) => {
   const rows = db.prepare(`SELECT competencia, COUNT(*) n FROM contabil_sped WHERE empresa_id=? GROUP BY competencia ORDER BY competencia DESC`).all(req.usuario.empresa_id);
@@ -1507,6 +1521,13 @@ router.get('/recebimento-aberto', async (req, res) => {
   try {
     const unis = unisEmpresa(req.usuario.empresa_id, req.query.loja);
     if (!unis.length) return res.json({ itens: [], resumo: { total: 0, criticos: 0 } });
+    const dias = Number(req.query.dias) || 0; // 0 = todos (abertos, independente da data)
+    const dOk = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+    const ini = dOk(req.query.ini) ? req.query.ini : null, fim = dOk(req.query.fim) ? req.query.fim : null;
+    const params = [unis];
+    let filtroData = '';
+    if (ini && fim) { params.push(ini, fim); filtroData = ` AND rf.datahora >= $2::timestamp AND rf.datahora < ($3::date + interval '1 day')`; }
+    else if (dias > 0) { filtroData = ` AND rf.datahora >= now() - (${dias} || ' days')::interval`; }
     const rows = await erpQuery(`
       SELECT rf.codigo, rf.unidadenegocioid AS loja_erp,
              to_char(rf.datahora,'YYYY-MM-DD') AS inicio,
@@ -1521,9 +1542,9 @@ router.get('/recebimento-aberto', async (req, res) => {
         LEFT JOIN notafiscal nf ON nf.id = rfn.notafiscalid
         LEFT JOIN pessoa forn ON forn.id = nf.fornecedorid
         LEFT JOIN usuario ui ON ui.id = rf.usuarioinicialid
-       WHERE rf.status = 'A' AND rf.unidadenegocioid = ANY($1::bigint[])
+       WHERE rf.status = 'A' AND rf.unidadenegocioid = ANY($1::bigint[])${filtroData}
        GROUP BY rf.id, rf.codigo, rf.unidadenegocioid, rf.datahora, ui.apelido
-       ORDER BY rf.datahora ASC`, [unis]);
+       ORDER BY rf.datahora ASC`, params);
     const mapa = mapaLojas(req.usuario.empresa_id);
     const itens = rows.map(r => ({ ...r, loja: mapa[Number(r.loja_erp)] || r.loja_erp, dias: Number(r.dias), nfs: Number(r.nfs), itens: Number(r.itens) }));
     res.json({ itens, resumo: { total: itens.length, criticos: itens.filter(i => i.dias > 2).length } });

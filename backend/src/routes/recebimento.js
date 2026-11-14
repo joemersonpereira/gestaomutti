@@ -6,6 +6,10 @@ const { auth } = require('../middleware/auth');
 const recebimentoErp = require('../lib/recebimentoErp');
 
 router.use(auth);
+// Cache serve-stale do ERP (Joe 2026-11-14): abre na hora e só reconsulta o Alpha ~1x/h ou após escrita. ?forcar=1 recalcula.
+const { cacheMiddleware: _erpCache, invalidarMiddleware: _erpInval } = require('../lib/erpCache');
+router.use(_erpCache('recebim'));
+router.use(_erpInval('recebim'));
 
 // GET /recebimento/pendencias?loja_id=&dias=   (loja_id vazio/"todas" = rede, p/ gestão)
 // Notas pendentes de recepção de transporte + conferências em aberto, por loja.

@@ -59,8 +59,18 @@ const ms = (d, fimDoDia) => {
 };
 
 // Batidas/marcações de ponto por período (e opcionalmente por colaborador)
-function batidas({ startDate, endDate, employeeId, page = 0, size = 200 } = {}) {
-  return req(HOST_API, '/api/punch', { startDate: ms(startDate), endDate: ms(endDate, true), employeeId, page, size });
+// Batidas por colaborador. A antiga API (api.tangerino.com.br/api/punch) SAIU DO AR (404); agora é
+// GET employer.tangerino.com.br/external/api/v1/payssego/punches/{employeeId} com initialDate/finalDate (ms).
+// Retorna 1 item por DIA trabalhado: { employeeId, dateWorked, startDateTimestamp (entrada), workedTimeInSeconds, status }.
+function batidasColaborador(employeeId, { startDate, endDate, pageSize = 500 } = {}) {
+  return req(HOST_EMPLOYER, '/external/api/v1/payssego/punches/' + encodeURIComponent(employeeId),
+    { initialDate: ms(startDate), finalDate: ms(endDate, true), pageSize });
+}
+// Compat (shape antigo): aceita {employeeId} e devolve a lista do content.
+async function batidas({ startDate, endDate, employeeId } = {}) {
+  if (!employeeId) return [];
+  const r = await batidasColaborador(employeeId, { startDate, endDate });
+  return Array.isArray(r) ? r : (r && r.content) || [];
 }
 
 // Espelho de ponto (relatório PDF em base64)
@@ -69,13 +79,24 @@ function espelho({ startDate, endDate, employeeId } = {}) {
 }
 
 // Todas as batidas do período (pagina até acabar; teto de segurança em maxRegistros).
-async function todasBatidas({ startDate, endDate, employeeId, maxRegistros = 5000 } = {}) {
-  const out = []; const size = 500;
-  for (let page = 0; page < 40; page++) {
-    const r = await batidas({ startDate, endDate, employeeId, page, size });
-    const arr = Array.isArray(r) ? r : (r && r.content) || [];
-    out.push(...arr);
-    if (arr.length < size || out.length >= maxRegistros) break;
+// Devolve as batidas de VÁRIOS colaboradores no período, achatadas no shape antigo
+// { employeeId, dateIn (entrada), dateOut (entrada + trabalhado/12h), dateWorked }.
+// Como o endpoint novo é POR colaborador, precisa da lista de employeeIds (tangerino_id).
+const TURNO_MS = 12 * 3600 * 1000;
+async function todasBatidas({ startDate, endDate, employeeIds = [], employeeId } = {}) {
+  const ids = employeeIds.length ? employeeIds : (employeeId ? [employeeId] : []);
+  const out = [];
+  for (const eid of ids) {
+    try {
+      const r = await batidasColaborador(eid, { startDate, endDate });
+      const arr = Array.isArray(r) ? r : (r && r.content) || [];
+      for (const d of arr) {
+        if (!d.startDateTimestamp) continue;
+        const inTs = Number(d.startDateTimestamp);
+        const dur = (Number(d.workedTimeInSeconds) || 0) * 1000;
+        out.push({ employeeId: d.employeeId || eid, dateIn: inTs, dateOut: inTs + (dur > 0 ? dur : TURNO_MS), dateWorked: d.dateWorked });
+      }
+    } catch (e) { /* um colaborador pode falhar; segue */ }
   }
   return out;
 }

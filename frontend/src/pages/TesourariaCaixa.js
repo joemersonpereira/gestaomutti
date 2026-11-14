@@ -39,7 +39,9 @@ export default function TesourariaCaixa({ embed } = {}) {
   const [dia, setDia] = useState(null);
   const [geral, setGeral] = useState(null); // visão de todas as lojas do dia (caixas + diferenças + anexos)
   const [painel, setPainel] = useState(null); // indicadores do dia da loja selecionada (cancel/estorno/cartão/atendimento)
+  const [carregPainel, setCarregPainel] = useState(false); // painel/orçamento puxam ERP (lento) — mostra "carregando"
   const [detalhe, setDetalhe] = useState(null); // drill-down de um indicador (modal)
+  const [orc, setOrc] = useState(null); // resumo do orçamento (verba×gasto×saldo) da loja no mês
   const [anexos, setAnexos] = useState([]);
   const [msg, setMsg] = useState('');
   const [cfg, setCfg] = useState(false);
@@ -49,22 +51,26 @@ export default function TesourariaCaixa({ embed } = {}) {
   const [pasta, setPasta] = useState(null); // {arquivos} quando aberto o seletor da nuvem
   const [pastaTipo, setPastaTipo] = useState('despesa');
   const [planos, setPlanos] = useState([]);
-  const [form, setForm] = useState({ deposito: { valor: '', desc: '' }, despesa: { valor: '', desc: '', plano: '' }, recarga: { valor: '', desc: '' } });
+  const [form, setForm] = useState({ deposito: { valor: '', desc: '' }, despesa: { valor: '', desc: '', plano: '' }, recarga: { valor: '', desc: '' }, orcamento: { valor: '', desc: '', plano: '' } });
   const setF = (tipo, k, v) => setForm(f => ({ ...f, [tipo]: { ...f[tipo], [k]: v } }));
   const [pend, setPend] = useState({}); // arquivo escolhido (ainda não salvo) por tipo
   const [lendo, setLendo] = useState(''); // tipo que está lendo o valor (OCR)
-  const [aberto, setAberto] = useState({}); // seções recolhíveis (Depósitos/Recargas/Despesas)
+  const [aberto, setAberto] = useState({}); // seções recolhíveis (Depósitos/Recargas/Despesas) — recolhidas por padrão
 
   useEffect(() => { API.get('/tesouraria/lojas').then(r => { setLojas(r.data.lojas || []); }).catch(() => {}); /* eslint-disable-next-line */ }, [API]);
   useEffect(() => { API.get('/tesouraria/pasta-config').then(r => { setBase(r.data.base || ''); setSalvarBase(r.data.salvarBase || ''); setDepositoBase(r.data.depositoBase || ''); }).catch(() => {}); }, [API]);
   useEffect(() => { API.get('/tesouraria/planos').then(r => setPlanos(r.data.planos || [])).catch(() => {}); }, [API]);
 
-  const carregar = useCallback(() => {
-    API.get(`/tesouraria/dia-geral?data=${data}`).then(r => setGeral(r.data.lojas || [])).catch(() => setGeral(null));
-    if (!loja) { setPainel(null); return; }
-    API.get(`/tesouraria/dia?loja=${loja}&data=${data}`).then(r => setDia(r.data)).catch(() => setDia(null));
+  const carregar = useCallback((forcar) => {
+    const fz = forcar ? '&forcar=1' : '';
+    API.get(`/tesouraria/dia-geral?data=${data}${fz}`).then(r => setGeral(r.data.lojas || [])).catch(() => setGeral(null));
+    if (!loja) { setPainel(null); setOrc(null); setCarregPainel(false); return; }
+    setCarregPainel(true); setPainel(null); setOrc(null);
+    API.get(`/tesouraria/dia?loja=${loja}&data=${data}${fz}`).then(r => setDia(r.data)).catch(() => setDia(null));
     API.get(`/tesouraria/anexos?loja=${loja}&data=${data}`).then(r => setAnexos(r.data.anexos || [])).catch(() => setAnexos([]));
-    API.get(`/tesouraria/loja-painel?loja=${loja}&data=${data}`).then(r => setPainel(r.data)).catch(() => setPainel(null));
+    API.get(`/tesouraria/loja-painel?loja=${loja}&data=${data}${fz}`).then(r => setPainel(r.data)).catch(() => setPainel(null)).finally(() => setCarregPainel(false));
+    const iniMes = data.slice(0, 8) + '01';
+    API.get(`/contabilidade/orcamento/resumo?loja=${loja}&de=${iniMes}&ate=${data}${fz}`).then(r => setOrc(r.data)).catch(() => setOrc(null));
   }, [API, loja, data]);
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -83,7 +89,7 @@ export default function TesourariaCaixa({ embed } = {}) {
           const jaTinha = form[tipo].valor !== '';
           setForm(f => ({ ...f, [tipo]: { ...f[tipo], valor: (f[tipo].valor === '' ? String(r.data.valor) : f[tipo].valor) } }));
           const det = (r.data.n_valores > 1) ? ` (somei ${r.data.n_valores}: ${r.data.valores.map(brl).join(' + ')})` : '';
-          const fisc = tipo === 'despesa' ? (r.data.ehNf ? ' · 📄 nota fiscal' : ' · ⚠️ recibo (não é NF)') : '';
+          const fisc = (tipo === 'despesa' || tipo === 'orcamento') ? (r.data.ehNf ? ' · 📄 nota fiscal' : ' · ⚠️ recibo (não é NF)') : '';
           setMsg('✅ Valor lido: ' + brl(r.data.valor) + det + fisc + (jaTinha ? ' — mantive o que você digitou' : ''));
           setTimeout(() => setMsg(''), 6000);
         }
@@ -97,16 +103,16 @@ export default function TesourariaCaixa({ embed } = {}) {
     try {
       await API.post('/tesouraria/anexos', body);
       setPend(x => ({ ...x, [tipo]: null }));
-      setForm(f => ({ ...f, [tipo]: tipo === 'despesa' ? { valor: '', desc: '', plano: '' } : { valor: '', desc: '' } }));
+      setForm(f => ({ ...f, [tipo]: (tipo === 'despesa' || tipo === 'orcamento') ? { valor: '', desc: '', plano: '' } : { valor: '', desc: '' } }));
       setMsg('✅ Anexado.'); carregar(); setTimeout(() => setMsg(''), 2500);
     } catch (e) { setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro ao anexar.')); setTimeout(() => setMsg(''), 6000); }
   };
-  const remover = (a) => { if (!window.confirm('Remover este anexo?')) return; API.delete(`/tesouraria/anexos/${a.id}`).then(carregar).catch(() => {}); };
-  const validarFiscal = (a, fiscal) => API.post(`/tesouraria/anexos/${a.id}/fiscal`, { fiscal }).then(carregar).catch(() => {});
+  const remover = (a) => { if (!window.confirm('Remover este anexo?')) return; API.delete(`/tesouraria/anexos/${a.id}`).then(() => carregar()).catch(() => {}); };
+  const validarFiscal = (a, fiscal) => API.post(`/tesouraria/anexos/${a.id}/fiscal`, { fiscal }).then(() => carregar()).catch(() => {});
   const ver = (a) => API.get(`/tesouraria/anexo/${a.id}`).then(r => { const w = window.open(); if (w) w.document.write(`<iframe src="${r.data.dados}" style="width:100%;height:100vh;border:0"></iframe>`); }).catch(() => {});
   const salvarCfg = () => API.put('/tesouraria/pasta-config', { base, salvarBase, depositoBase }).then(() => { setMsg('✅ Pastas salvas.'); setTimeout(() => setMsg(''), 2500); }).catch(() => {});
   const abrirPasta = (tipo) => { setPastaTipo(tipo); API.get('/tesouraria/pasta/listar').then(r => setPasta(r.data)).catch(e => { setPasta({ arquivos: [], erro: e.response?.data?.erro || 'Erro' }); }); };
-  const importar = (arq) => { const ff = form.despesa || {}; API.post('/tesouraria/pasta/importar', { caminho: arq.caminho, loja_id: loja, data, tipo: pastaTipo, descricao: ff.desc || arq.arquivo, plano_contas: ff.plano || null, valor: ff.valor !== '' ? Number(ff.valor) : null }).then(() => { setMsg('✅ Importado da pasta.'); setPasta(null); carregar(); setTimeout(() => setMsg(''), 2500); }).catch(e => { setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro ao importar.')); setTimeout(() => setMsg(''), 6000); }); };
+  const importar = (arq) => { const ff = form[pastaTipo] || {}; API.post('/tesouraria/pasta/importar', { caminho: arq.caminho, loja_id: loja, data, tipo: pastaTipo, descricao: ff.desc || arq.arquivo, plano_contas: ff.plano || null, valor: ff.valor !== '' ? Number(ff.valor) : null }).then(() => { setMsg('✅ Importado da pasta.'); setPasta(null); carregar(); setTimeout(() => setMsg(''), 2500); }).catch(e => { setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro ao importar.')); setTimeout(() => setMsg(''), 6000); }); };
 
   const abrirDetalhe = (tipo) => { setDetalhe({ tipo, loading: true }); API.get(`/tesouraria/loja-painel-detalhe?loja=${loja}&data=${data}&tipo=${tipo}`).then(r => setDetalhe({ ...r.data, tipo, loading: false })).catch(() => setDetalhe({ tipo, loading: false, erro: true })); };
   // diferença por operador (login→valor) da loja selecionada, p/ mostrar no grid de Caixas do dia
@@ -115,14 +121,15 @@ export default function TesourariaCaixa({ embed } = {}) {
   const depositos = anexos.filter(a => a.tipo === 'deposito');
   const despesas = anexos.filter(a => a.tipo === 'despesa');
   const recargas = anexos.filter(a => a.tipo === 'recarga');
+  const orcamentos = anexos.filter(a => a.tipo === 'orcamento');
   const soma = lista => lista.reduce((a, x) => a + (Number(x.valor) || 0), 0);
 
-  const Secao = ({ titulo, tipo, lista, deposito, temPlano }) => {
+  const Secao = ({ titulo, tipo, lista, deposito, temPlano, col }) => {
     const ff = form[tipo] || {};
     const p = pend[tipo];
     const open = !!aberto[tipo];
     return (
-      <div style={s.card}>
+      <div style={{ ...s.card, ...(col ? { flex: '1 1 300px', minWidth: 0, marginBottom: 0 } : {}) }}>
         <div onClick={() => setAberto(a => ({ ...a, [tipo]: !a[tipo] }))} style={{ fontWeight: 700, marginBottom: open ? 10 : 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, userSelect: 'none' }}>
           <span style={{ fontSize: 12, color: '#94a3b8' }}>{open ? '▾' : '▸'}</span>{titulo} <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>({lista.length}{lista.length ? ' · ' + brl(soma(lista)) : ''})</span>{!open && lista.length > 0 && <span style={{ color: '#15803d', fontSize: 11, fontWeight: 600 }}> ✓ anexado</span>}
         </div>
@@ -136,7 +143,7 @@ export default function TesourariaCaixa({ embed } = {}) {
           {!p && <>
             <label style={{ ...s.btn, cursor: 'pointer' }}>📎 Anexar<input type="file" accept="application/pdf,image/*" style={{ display: 'none' }} onChange={e => escolher(tipo, e.target.files[0], 'anexo')} /></label>
             <label style={{ ...s.btnG, cursor: 'pointer' }}>📷 Foto<input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => escolher(tipo, e.target.files[0], 'foto')} /></label>
-            {temPlano && <button style={s.btn} onClick={() => abrirPasta('despesa')}>☁️ Da pasta</button>}
+            {temPlano && <button style={s.btn} onClick={() => abrirPasta(tipo)}>☁️ Da pasta</button>}
           </>}
           {p && <>
             <span style={{ fontSize: 12, color: '#334155', background: '#eef2f0', borderRadius: 6, padding: '6px 10px' }}>📎 {p.nome.length > 22 ? p.nome.slice(0, 20) + '…' : p.nome}</span>
@@ -148,13 +155,13 @@ export default function TesourariaCaixa({ embed } = {}) {
           <div key={a.id} style={s.lanc}>
             <span>{a.tipo_mime === 'application/pdf' ? '📄' : '🖼️'}</span>
             <span style={{ flex: 1 }}>{a.descricao || a.nome}
-              {tipo === 'despesa' && a.fiscal != null && <span style={{ fontSize: 11, fontWeight: 600, color: a.fiscal ? '#15803d' : '#b45309' }}> · {a.fiscal ? ('📄 ' + (a.tipo_doc || 'nota fiscal')) : ('⚠️ ' + (a.tipo_doc || 'recibo'))}</span>}
+              {(tipo === 'despesa' || tipo === 'orcamento') && a.fiscal != null && <span style={{ fontSize: 11, fontWeight: 600, color: a.fiscal ? '#15803d' : '#b45309' }}> · {a.fiscal ? ('📄 ' + (a.tipo_doc || 'nota fiscal')) : ('⚠️ ' + (a.tipo_doc || 'recibo'))}</span>}
               {a.plano_contas && <span style={{ color: '#64748b', fontSize: 11 }}> · {a.plano_contas}</span>}
               {a.origem === 'pasta' && <span style={{ color: '#0d6b5e', fontSize: 11 }}> · da pasta</span>}
               {a.origem === 'foto' && <span style={{ color: '#b45309', fontSize: 11 }}> · foto</span>}
               {a.arquivo_salvo && <span title={a.arquivo_salvo} style={{ color: '#15803d', fontSize: 11 }}> · 📁 salvo na pasta</span>}</span>
             {a.valor != null && <span style={{ fontWeight: 600 }}>{brl(a.valor)}</span>}
-            {tipo === 'despesa' && (a.fiscal_conf != null
+            {(tipo === 'despesa' || tipo === 'orcamento') && (a.fiscal_conf != null
               ? <span title={a.fiscal_conf_por ? ('conferido por ' + a.fiscal_conf_por) : ''} style={{ fontSize: 11, fontWeight: 700, color: a.fiscal_conf ? '#15803d' : '#b45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}>{a.fiscal_conf ? '✅ fiscal' : '❌ não fiscal'}{ehGestao && <button onClick={() => validarFiscal(a, null)} title="refazer conferência" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>↺</button>}</span>
               : ehGestao
                 ? <span style={{ display: 'inline-flex', gap: 4 }}><button onClick={() => validarFiscal(a, true)} style={{ ...s.btn, padding: '3px 8px', fontSize: 11, color: '#15803d' }}>fiscal</button><button onClick={() => validarFiscal(a, false)} style={{ ...s.btn, padding: '3px 8px', fontSize: 11, color: '#b45309' }}>não fiscal</button></span>
@@ -170,7 +177,7 @@ export default function TesourariaCaixa({ embed } = {}) {
   };
 
   return (
-    <div style={s.wrap}>
+    <div style={embed ? { padding: 0, margin: 0, width: '100%' } : s.wrap}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: embed ? '0 0 10px' : '6px 0 12px', borderBottom: '1px solid var(--line,#ddd8cf)', marginBottom: 16 }}>
         {!embed && <h1 style={s.h1}>🏦 Tesouraria</h1>}
         {embed && <div style={{ fontWeight: 800, fontSize: 15 }}>📎 Fechamento do dia</div>}
@@ -196,29 +203,27 @@ export default function TesourariaCaixa({ embed } = {}) {
       <div style={s.filtros}>
         <label style={s.lab}>Loja<select style={{ ...s.inp, minWidth: 180 }} value={loja} onChange={e => setLoja(e.target.value)}><option value="">Todas as lojas</option>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select></label>
         <label style={s.lab}>Dia<input type="date" style={s.inp} value={data} onChange={e => setData(e.target.value)} /></label>
-        <button style={s.btn} onClick={carregar}>🔄 Atualizar</button>
+        <button style={s.btn} onClick={() => carregar(true)} title="Recalcula do ERP (ignora o cache salvo)">🔄 Atualizar</button>
         {msg && <span style={{ color: msg.startsWith('⚠️') ? '#b91c1c' : '#15803d', fontSize: 13, fontWeight: 600 }}>{msg}</span>}
       </div>
 
-      {/* Visão de TODAS as lojas do dia, lado a lado: caixas + diferenças (só visualizar) + anexos. Clique numa loja p/ anexar. */}
-      {geral && geral.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(250px,1fr))', gap: 10, marginBottom: 16 }}>
-          {geral.filter(g => !loja || g.loja_id === loja).map(g => {
+      {/* Visão de TODAS as lojas do dia (só quando "Todas"): clique numa loja p/ ver o detalhe e anexar. */}
+      {!loja && geral && geral.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(176px,1fr))', gap: 8, marginBottom: 16 }}>
+          {geral.map(g => {
             const sel = g.loja_id === loja;
             const okFech = g.todos_fechados;
+            const semCaixa = g.total_caixas === 0;
             return (
               <div key={g.loja_id} onClick={() => setLoja(g.loja_id)} title="Clique para anexar nesta loja"
-                style={{ cursor: 'pointer', border: '1px solid ' + (sel ? '#0d6b5e' : '#e5e7eb'), borderRadius: 12, padding: 12, background: sel ? '#f0fdf9' : '#fff', boxShadow: sel ? '0 0 0 2px #0d6b5e22' : 'none' }}>
+                style={{ cursor: 'pointer', border: '1px solid ' + (sel ? '#0d6b5e' : semCaixa ? '#eef1f4' : '#e5e7eb'), borderRadius: 10, padding: semCaixa ? '7px 10px' : 10, background: sel ? '#f0fdf9' : semCaixa ? '#fafbfc' : '#fff', boxShadow: sel ? '0 0 0 2px #0d6b5e22' : 'none', opacity: semCaixa ? 0.72 : 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                  <b style={{ fontSize: 13.5 }}>{g.loja_nome}</b>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: g.total_caixas === 0 ? '#94a3b8' : okFech ? '#15803d' : '#b45309' }}>
-                    {g.total_caixas === 0 ? 'sem caixa' : okFech ? '✅ fechados' : `⏳ ${g.fechados}/${g.total_caixas}`}
+                  <b style={{ fontSize: 12.5 }}>{g.loja_nome}</b>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', color: semCaixa ? '#94a3b8' : okFech ? '#15803d' : '#b45309' }}>
+                    {semCaixa ? 'sem caixa' : okFech ? '✅' : `⏳ ${g.fechados}/${g.total_caixas}`}
                   </span>
                 </div>
-                <div style={{ fontSize: 11.5, color: '#64748b', margin: '3px 0 7px' }}>💰 {g.n_depositos} · 🧾 {g.n_despesas} · 📱 {g.n_recargas}</div>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: g.n_diferencas ? '#b91c1c' : '#15803d' }}>
-                  {g.n_diferencas ? `⚠️ ${g.n_diferencas} diferença(s)${g.n_relevantes ? ` · ${g.n_relevantes} acima do limite` : ''}` : '✅ sem diferença'}
-                </div>
+                {!semCaixa && <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>💰 {g.n_depositos} · 🧾 {g.n_despesas} · 📱 {g.n_recargas}</div>}
               </div>
             );
           })}
@@ -237,7 +242,7 @@ export default function TesourariaCaixa({ embed } = {}) {
 
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
       {dia && (dia.sessoes || []).length > 0 && (
-        <div style={{ ...s.card, flex: '1 1 360px', marginBottom: 0 }}>
+        <div style={{ ...s.card, flex: '1 1 340px', minWidth: 0, marginBottom: 0 }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>🧰 Caixas do dia</div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
@@ -261,8 +266,14 @@ export default function TesourariaCaixa({ embed } = {}) {
         </div>
       )}
 
+      {loja && !painel && carregPainel && (
+        <div style={{ ...s.card, flex: '1 1 300px', minWidth: 0, marginBottom: 0 }}>
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>📊 Indicadores do dia</div>
+          <div style={{ color: '#94a3b8', fontSize: 12.5, padding: 8 }}>⏳ Calculando indicadores do dia… (puxa do ERP, pode levar alguns segundos)</div>
+        </div>
+      )}
       {loja && painel && (
-        <div style={{ ...s.card, flex: '1 1 320px', marginBottom: 0 }}>
+        <div style={{ ...s.card, flex: '1 1 300px', minWidth: 0, marginBottom: 0 }}>
           <div style={{ fontWeight: 700, marginBottom: 10 }}>📊 Indicadores do dia <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>— {lojas.find(l => l.id === loja)?.nome || ''}</span></div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 10 }}>
             <div onClick={() => abrirDetalhe('cancelamentos')} style={{ ...ind.box, cursor: 'pointer' }} title="ver detalhe"><div style={ind.lab}>🚫 Cancelamentos</div><div style={ind.val}>{painel.cancelamentos.qtd}{painel.cancelamentos.taxa != null ? <span style={ind.sub}> · {painel.cancelamentos.taxa}%</span> : ''}</div>{painel.cancelamentos.fora > 0 && <div style={{ fontSize: 11.5, color: '#b91c1c', fontWeight: 700 }}>⏰ {painel.cancelamentos.fora} fora do horário{painel.cancelamentos.valorFora ? ` · ${brl(painel.cancelamentos.valorFora)}` : ''}</div>}</div>
@@ -275,10 +286,32 @@ export default function TesourariaCaixa({ embed } = {}) {
       )}
       </div>
 
-      <Secao titulo="💰 Depósitos" tipo="deposito" lista={depositos} deposito />
-      <Secao titulo="📱 Recargas" tipo="recarga" lista={recargas} />
-      <Secao titulo="🧾 Despesas" tipo="despesa" lista={despesas} temPlano />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 14, alignItems: 'start' }}>
+        <Secao titulo="💰 Depósitos" tipo="deposito" lista={depositos} deposito col />
+        <Secao titulo="📱 Recargas" tipo="recarga" lista={recargas} col />
+        <Secao titulo="🧾 Despesas" tipo="despesa" lista={despesas} temPlano col />
+      </div>
       <datalist id="planosTesDL">{planos.map(p => <option key={p.id} value={p.nome} />)}</datalist>
+
+      {loja && !orc && carregPainel && (
+        <div style={s.card}><div style={{ fontWeight: 700, marginBottom: 4 }}>💰 Orçamento da loja</div><div style={{ color: '#94a3b8', fontSize: 12.5 }}>⏳ Carregando verba × gasto do Alpha 7…</div></div>
+      )}
+      {loja && orc && !orc.total && (
+        <div style={s.card}><div style={{ fontWeight: 700, marginBottom: 4 }}>💰 Orçamento da loja</div><div style={{ color: '#94a3b8', fontSize: 12.5 }}>Sem conta de orçamento desta loja no Alpha 7 no período.</div></div>
+      )}
+      {loja && orc && orc.total && (
+        <div style={s.card}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>💰 Orçamento da loja <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>— mês atual</span></div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div style={ind.box}><div style={ind.lab}>Verba (crédito escritório)</div><div style={{ ...ind.val, color: '#0f172a' }}>{brl(orc.total.verba)}</div></div>
+            <div style={ind.box}><div style={ind.lab}>Gasto (gerente)</div><div style={{ ...ind.val, color: '#b45309' }}>{brl(orc.total.gasto)}</div></div>
+            <div style={ind.box}><div style={ind.lab}>Saldo</div><div style={{ ...ind.val, color: (orc.total.saldo >= 0 ? '#15803d' : '#b91c1c') }}>{brl(orc.total.saldo)}</div></div>
+            <div style={ind.box}><div style={ind.lab}>% consumido</div><div style={{ ...ind.val, color: '#334' }}>{orc.total.verba > 0 ? Math.round((orc.total.gasto / orc.total.verba) * 100) + '%' : '—'}</div></div>
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>Verba × gasto do Alpha 7 (não tem a ver com o caixa do dia). O escritório confere o fiscal e cruza com o Alpha 7 na aba <b>Orçamento loja</b>.</div>
+        </div>
+      )}
+      {loja && <Secao titulo="💳 Lançar gasto do orçamento" tipo="orcamento" lista={orcamentos} temPlano />}
 
       {pasta && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }} onClick={() => setPasta(null)}>
@@ -308,10 +341,7 @@ export default function TesourariaCaixa({ embed } = {}) {
                 {detalhe.tipo === 'atendimento' && <ListaDet cols={['#', 'Operador', 'Cupons', 'Valor', 'Ticket']} linhas={(detalhe.itens || []).map((o, i) => [i + 1, o.operador, o.cupons, brl(o.valor), brl(o.ticket)])} vazio="Sem atendimento no dia." />}
                 {detalhe.tipo === 'cartao' && <>
                   <div style={{ fontSize: 13, marginBottom: 8 }}><b>{detalhe.total}</b> correções · <b>{detalhe.trocaDeForma}</b> com troca de forma (modalidade errada)</div>
-                  <div style={{ fontWeight: 700, fontSize: 12.5, margin: '6px 0 2px' }}>Por troca de modalidade</div>
-                  <ListaDet cols={['Troca', 'Qtd', 'Valor']} linhas={(detalhe.porTroca || []).map(x => [x.nome, x.n, brl(x.valor)])} vazio="—" />
-                  <div style={{ fontWeight: 700, fontSize: 12.5, margin: '10px 0 2px' }}>Por operador (modalidade errada)</div>
-                  <ListaDet cols={['Operador', 'Qtd', 'Valor']} linhas={(detalhe.porOperador || []).map(x => [x.nome, x.n, brl(x.valor)])} vazio="—" />
+                  <ListaDet cols={['Operador', 'Troca (modalidade errada)', 'Valor', 'Corrigido por']} linhas={(detalhe.itens || []).map(x => [x.operador, x.troca, brl(x.valor), x.quem || '—'])} vazio="Nenhuma troca de forma no dia." />
                 </>}
               </>
             )}

@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3001;
 
 // Middlewares globais
 app.use(cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE'] }));
-app.use(express.json({ limit: '12mb' }));
+app.use(express.json({ limit: '12mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true, limit: '12mb' }));
 
 // Log de requisições em desenvolvimento
@@ -70,8 +70,15 @@ app.use('/api/clima', require('./routes/clima'));
 app.use('/api/pesquisas', require('./routes/pesquisas'));
 app.use('/api/kudos', require('./routes/kudos'));
 app.use('/api/compras', require('./routes/compras'));
+app.use('/api/faturamento', require('./routes/faturamento'));
+app.use('/api/precificacao', require('./routes/precificacao'));
+app.use('/api/suporte-loja', require('./routes/suporteLoja'));
+app.use('/api/meu-setor-area', require('./routes/meuSetorArea'));
+app.use('/api/setor-obs', require('./routes/setorObs'));
+app.use('/api/hoptodesk', require('./routes/hoptodesk'));
 app.use('/api/financeiro', require('./routes/financeiro'));
 app.use('/api/tesouraria', require('./routes/tesouraria'));
+app.use('/api/diretoria', require('./routes/diretoria'));
 app.use('/api/contas-receber', require('./routes/contasReceber'));
 app.use('/api/convenio', require('./routes/convenio'));
 app.use('/api/conciliacao-cartao', require('./routes/conciliacaoCartao'));
@@ -91,6 +98,7 @@ app.use('/api/pontorep', require('./routes/pontoRepp'));
 app.use('/api/estagios', require('./routes/estagios'));
 app.use('/api/estagio', require('./routes/estagioRh'));
 app.use('/api/publico', require('./routes/publico'));
+app.use('/api/portal', require('./routes/portalCaixa'));
 app.use('/api/suporte', require('./routes/suporte'));
 app.use('/api/controladoria', require('./routes/controladoria'));
 app.use('/api/contabilidade', require('./routes/contabilidade'));
@@ -160,6 +168,34 @@ setTimeout(() => {
       .catch(() => {}));
   } catch { /* ignora */ }
 }, 8000);
+
+// Sincroniza os ATENDIMENTOS do BotVendas (tempos do Online: 1ª resposta / atendimento) no boot e a
+// cada 60 min — só se configurado no .env (BOTVENDAS_*). Assim os tempos ficam atualizados sozinhos.
+setTimeout(function syncBotVendas() {
+  const proximo = () => setTimeout(syncBotVendas, 60 * 60 * 1000);
+  try {
+    const api = require('./lib/botvendasApi');
+    if (!api.habilitado()) return proximo();
+    const sync = require('./lib/botvendasSync');
+    const db = require('./db/connection');
+    const empresas = [...new Set(db.prepare('SELECT empresa_id FROM lojas').all().map(r => r.empresa_id))];
+    empresas.forEach(eid => {
+      sync.sincronizarAtendimentos(eid, { statuses: [4] })
+        .then(r => { if (r && r.ok) { console.log(`[botvendas] ${eid}: ${r.sincronizados || 0} atendimento(s) sincronizado(s)`); return sync.processarConversas(eid, { limite: 60 }); } })
+        .catch(() => {});
+      // CSAT (satisfação) — fonte real da média de avaliação do Online. Incremental (só os novos).
+      sync.sincronizarSatisfacao(eid, { dias: 30 })
+        .then(r => { if (r && r.ok) console.log(`[botvendas] ${eid}: ${r.gravados || 0} avaliação(ões) CSAT (${r.periodo})`); })
+        .catch(() => {});
+      // VENDAS — finalizados de TODOS os setores (não só televendas) p/ encher venda/ticket/conversão
+      // do Online. sectorIds:[] = sem filtro de setor. Upsert por order_id (não duplica).
+      sync.sincronizarAtendimentos(eid, { statuses: [4], sectorIds: [], maxPaginas: 10 })
+        .then(r => { if (r && r.ok) console.log(`[botvendas] ${eid}: ${r.sincronizados || 0} finalizado(s) (vendas, todos setores)`); })
+        .catch(() => {});
+    });
+  } catch { /* ignora */ }
+  proximo();
+}, 15000);
 
 // Backfill de CPF do ERP: preenche o CPF de quem tem vínculo (erp_pessoa_id/erp_usuario_id) mas
 // está sem CPF. Idempotente — depois de preencher, as próximas execuções não acham candidatos.

@@ -36,6 +36,7 @@ export default function IndicadoresColaborador() {
     setNovo(null); setMsg(''); setLote([]); carregar();
   }
   const fonteAuto = novo && novo.fonte && novo.fonte !== 'manual';
+  const fonteCompras = novo && novo.fonte && String(novo.fonte).startsWith('compras_');
   const apurar = (id, realizado) => API.post(`/colab-indicadores/${id}/apurar`, { mes, ano, realizado: Number(realizado) || 0 }).then(carregar);
   const remover = id => { if (window.confirm('Remover este indicador?')) API.delete(`/colab-indicadores/${id}`).then(carregar); };
 
@@ -66,7 +67,7 @@ export default function IndicadoresColaborador() {
                   setNovo({ ...novo, fonte: e.target.value, ...(fo && fo.unidade ? { unidade: fo.unidade, sentido: fo.sentido } : {}) });
                 }} style={s.inp}>{fontes.map(fo => <option key={fo.id} value={fo.id}>{fo.label}</option>)}</select>
               </label>
-              {fonteAuto && <div style={{ fontSize: 11, color: '#7a3d9c', margin: '-4px 0 8px' }}>⚙️ O realizado é calculado automático das tarefas do colaborador — só defina a meta.</div>}
+              {fonteAuto && <div style={{ fontSize: 11, color: '#7a3d9c', margin: '-4px 0 8px' }}>⚙️ O realizado é automático {fonteCompras ? 'do ERP (mesmo número do Meu Setor de Compras do comprador)' : 'das tarefas/devoluções do colaborador'} — só defina a meta e o prêmio.</div>}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <label style={s.lbl}>Meta<input type="number" value={novo.meta} onChange={e => setNovo({ ...novo, meta: e.target.value })} style={{ ...s.inp, width: 110 }} /></label>
                 <label style={s.lbl}>Unidade<select value={novo.unidade} disabled={fonteAuto} onChange={e => setNovo({ ...novo, unidade: e.target.value })} style={{ ...s.inp, width: 130, opacity: fonteAuto ? 0.6 : 1 }}>{UNIDADES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>

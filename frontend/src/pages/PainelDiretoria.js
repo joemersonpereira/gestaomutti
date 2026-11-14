@@ -77,9 +77,11 @@ export default function PainelGestao() {
               </div>
               <div style={{ fontSize: 10.5, color: '#aaa', marginTop: 8 }}>{carreg ? 'atualizando…' : `atualizado ${d.geradoEm?.split('-').reverse().join('/') || ''}`}</div>
             </div>
+            <PessoasPorLoja API={API} />
           </aside>
 
           <div style={s.centro}>
+            {podeEditar && <AprovacoesArrasto API={API} />}
             {(d.setores || []).map(sx => {
               const doSetor = areas.filter(a => a.setor === sx.key);
               if (!doSetor.length) return null;
@@ -105,6 +107,61 @@ export default function PainelGestao() {
   );
 }
 
+// Aprovações de ARRASTO de orçamento (carry) — a Diretoria aprova aqui, num lugar só.
+function AprovacoesArrasto({ API }) {
+  const [d, setD] = useState(null);
+  const MESN = ['', 'jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const brl = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR');
+  const carregar = useCallback(() => { API.get('/compras/orcamento/carry-pendentes').then(r => setD(r.data)).catch(() => setD({ pendentes: [] })); }, [API]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const aprovar = (p) => API.post('/compras/orcamento/carry', { ano: p.ano, mes: p.mesNum, valor: p.valor, aprovado: true }).then(carregar).catch(e => alert(e.response?.data?.erro || 'Erro ao aprovar.'));
+  const pend = (d && d.pendentes) || [];
+  if (!d) return null;
+  return (
+    <div style={{ ...s.card, borderLeft: '4px solid ' + (pend.length ? COR.amarelo : COR.verde) }}>
+      <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 2 }}>💰 Aprovações de arrasto de orçamento (Compras)</div>
+      <div style={{ fontSize: 11.5, color: '#888', marginBottom: 8 }}>Quando os compromissos superam o orçamento do mês, o excedente é <b>empurrado para o mês seguinte</b> e precisa da sua aprovação. É um risco de caixa — autorize ou cobre o Compras.</div>
+      {!pend.length ? <div style={{ fontSize: 12.5, color: COR.verde, fontWeight: 600 }}>✓ Nenhum arrasto pendente.</div> :
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {pend.map((p, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#FCF7EA', border: '1px solid #F0E0BE', borderRadius: 10, padding: '9px 12px' }}>
+              <div style={{ fontWeight: 700, color: '#8A6D3B', minWidth: 90 }}>{MESN[p.mesNum]}/{String(p.ano).slice(2)}</div>
+              <div style={{ fontSize: 13 }}>Arrasto: <b style={{ color: COR.vermelho }}>{brl(p.valor)}</b></div>
+              <div style={{ fontSize: 11.5, color: '#999' }}>orçamento {brl(p.orcamento)} · comprometido {brl(p.comprometido)}</div>
+              <button onClick={() => aprovar(p)} style={{ marginLeft: 'auto', background: '#B7791F', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>Aprovar arrasto</button>
+            </div>
+          ))}
+        </div>}
+    </div>
+  );
+}
+function PessoasPorLoja({ API }) {
+  const [d, setD] = useState(null);
+  useEffect(() => { API.get('/painel/pessoas-por-loja').then(r => setD(r.data)).catch(() => setD(false)); }, [API]);
+  if (!d || d === false) return null;
+  const t = d.total || {};
+  return (
+    <div style={s.card}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#666', marginBottom: 8 }}>👥 Pessoas por loja</div>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 8 }}>
+        <Mini n={t.colaboradores ?? '—'} l="Colaboradores" cor="#0E7C5A" />
+        <Mini n={t.estagiarios ?? '—'} l="Estagiários" cor="#6D4AA8" />
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <thead><tr>
+          <th style={{ textAlign: 'left', color: '#94a3b8', fontWeight: 600, padding: '3px 0' }}>Loja</th>
+          <th style={{ textAlign: 'right', color: '#94a3b8', fontWeight: 600 }}>Colab.</th>
+          <th style={{ textAlign: 'right', color: '#94a3b8', fontWeight: 600 }}>Estag.</th>
+        </tr></thead>
+        <tbody>{(d.linhas || []).map(l => <tr key={l.loja_id}>
+          <td style={{ padding: '3px 0' }}>{l.loja}</td>
+          <td style={{ textAlign: 'right', fontWeight: 700 }}>{l.colaboradores}</td>
+          <td style={{ textAlign: 'right', color: '#6D4AA8', fontWeight: 700 }}>{l.estagiarios || '—'}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+  );
+}
 function Mini({ n, l, cor }) {
   return <div style={{ background: '#F6F7F9', borderRadius: 10, padding: '8px 12px' }}>
     <div style={{ fontSize: 20, fontWeight: 800, color: cor }}>{n}</div>

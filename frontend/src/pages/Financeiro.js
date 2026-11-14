@@ -3,6 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
 import { useOrdenavel, ThOrd } from '../components/Ordenavel';
 import MultiLojaSelect from '../components/MultiLojaSelect';
+import MeuSetorArea from './MeuSetorArea';
+import MinhaAreaLateral from '../components/MinhaAreaLateral';
 
 const brl = n => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 const dataBR = d => d ? String(d).slice(0, 10).split('-').reverse().join('/') : '—';
@@ -22,7 +24,11 @@ export default function Financeiro() {
       <Banner emoji="💼" titulo="Financeiro" cor="verde" sub="DFC / DRE, orçamento projetado × realizado e análise de despesas — geral e por loja." />
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
         <MultiLojaSelect lojas={lojas} value={loja} onChange={setLoja} compact />
-        {[['repr', '🏪 Eficiência de loja'], ['fluxo', '💵 Fluxo de caixa'], ['manuais', '🧾 Lançamentos manuais'], ['dre', '📄 DRE (fiscal)'], ['confronto', '⚖️ DRE × DFC'], ['orcamento', '🎯 Orçamento × realizado'], ['reajustes', '📈 Reajuste de despesas']].map(([v, l]) =>
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#0E7C5A', background: '#E6F4EC', border: '1px solid #c7ead6', borderRadius: 999, padding: '4px 10px' }}>📊 Gerencial</span>
+        {[['meusetor', '🏆 Meu Setor'], ['metas', '⚙️ Metas'], ['fluxo', '💵 Fluxo de caixa'], ['dre', '📄 DRE (fiscal)'], ['confronto', '⚖️ DRE × DFC'], ['orcamento', '🎯 Orçamento × realizado'], ['reajustes', '📈 Análise de despesas']].map(([v, l]) =>
+          <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
+        <span style={{ width: 1, height: 20, background: '#e2e8f0', margin: '0 2px' }} />
+        {[['repr', '🏪 Eficiência de loja'], ['manuais', '🧾 Lançamentos manuais']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
       </div>
       {aba === 'repr' && <EficienciaLoja API={API} loja={loja} setLoja={setLoja} lojas={lojas} />}
@@ -32,6 +38,9 @@ export default function Financeiro() {
       {aba === 'confronto' && <Confronto API={API} loja={loja} />}
       {aba === 'orcamento' && <OrcamentoFin API={API} loja={loja} lojas={lojas} setLoja={setLoja} />}
       {aba === 'reajustes' && <Reajustes API={API} loja={loja} />}
+      {aba === 'meusetor' && <MeuSetorArea area="gerencial" embutido abaFixa="setor" />}
+      {aba === 'metas' && <MeuSetorArea area="gerencial" embutido abaFixa="metas" />}
+      <MinhaAreaLateral area="gerencial" titulo="Minha área" />
     </div>
   );
 }
@@ -540,8 +549,9 @@ function FluxoCaixa({ API, loja }) {
 
               {(() => {
                 const ehForn = c => /cmv|compra|fornecedor/i.test(c || '');
-                const despLines = d.despesas.filter(l => !ehForn(l.categoria));
-                const fornLines = d.despesas.filter(l => ehForn(l.categoria));
+                const totL = l => Math.abs((l.valores || []).reduce((a, b) => a + (Number(b) || 0), 0)); // soma do ano p/ ordenar
+                const despLines = d.despesas.filter(l => !ehForn(l.categoria)).sort((a, b) => totL(b) - totL(a)); // maior → menor
+                const fornLines = d.despesas.filter(l => ehForn(l.categoria)).sort((a, b) => totL(b) - totL(a));
                 const somaCol = (lines, key, j) => lines.reduce((a, l) => a + ((l[key] || [])[j] || 0), 0);
                 const totDespReal = d.periodos.map((_, j) => somaCol(despLines, 'valores', j));
                 const totDespPrev = d.periodos.map((_, j) => somaCol(despLines, 'previsto', j));
@@ -549,15 +559,15 @@ function FluxoCaixa({ API, loja }) {
                 const totFornPrev = d.periodos.map((_, j) => somaCol(fornLines, 'previsto', j));
                 return (
                   <React.Fragment>
-                    <tr><td colSpan={d.periodos.length + 1} style={secaoc}>❤️ DESPESAS <span style={{ fontWeight: 400, color: '#999' }}>(sem fornecedores/compras · clique no grupo p/ detalhar · clique na célula p/ ver lançamentos)</span></td></tr>
-                    {despLines.map((l, i) => linhaDesp(l, i))}
-                    <tr style={s.totalRow}><td style={tdCatc}>Total de despesas</td>{totDespReal.map((v, j) => cellPR(totDespPrev[j], v, d.periodos[j].projetado, { cor: COR.vermelho }))}</tr>
-
                     {fornLines.length > 0 && <>
                       <tr><td colSpan={d.periodos.length + 1} style={secaoc}>📦 FORNECEDORES / COMPRAS <span style={{ fontWeight: 400, color: '#999' }}>(CMV — custo de mercadoria)</span></td></tr>
                       {fornLines.map((l, i) => linhaDesp(l, 'f' + i))}
                       <tr style={s.totalRow}><td style={tdCatc}>Total fornecedores pagos</td>{totFornReal.map((v, j) => cellPR(totFornPrev[j], v, d.periodos[j].projetado, { cor: COR.vermelho }))}</tr>
                     </>}
+
+                    <tr><td colSpan={d.periodos.length + 1} style={secaoc}>❤️ DESPESAS <span style={{ fontWeight: 400, color: '#999' }}>(maior → menor · sem fornecedores/compras · clique no grupo p/ detalhar · clique na célula p/ ver lançamentos)</span></td></tr>
+                    {despLines.map((l, i) => linhaDesp(l, i))}
+                    <tr style={s.totalRow}><td style={tdCatc}>Total de despesas</td>{totDespReal.map((v, j) => cellPR(totDespPrev[j], v, d.periodos[j].projetado, { cor: COR.vermelho }))}</tr>
                   </React.Fragment>
                 );
               })()}

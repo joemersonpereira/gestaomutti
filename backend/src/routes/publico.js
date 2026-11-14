@@ -682,6 +682,16 @@ async function comprasPorEscopo(tipo, refs, ini, fim) {
 // O gestor gera o link em Trade → Negociação → aba Contrato. O assinante vê o contrato e envia
 // selfie + foto do documento + assinatura na tela; o servidor grava IP e user-agent.
 const ehDataImg = s => typeof s === 'string' && /^data:image\/(png|jpe?g|webp);base64,/.test(s) && s.length < 8_000_000;
+// O que foi marcado para pedir ao assinante (migr 368). Coluna ausente/NULL = exige (padrão antigo).
+const exigeDe = r => ({ selfie: r.exige_selfie !== 0, documento: r.exige_documento !== 0, assinatura: r.exige_assinatura !== 0 });
+// Valida só as provas exigidas; devolve a mensagem de erro ou null. Imagens não exigidas são descartadas.
+function provasFaltando(ex, b) {
+  if (ex.assinatura && !ehDataImg(b.assinatura)) return 'Assine na tela (campo de assinatura).';
+  if (ex.selfie && !ehDataImg(b.selfie)) return 'Envie a selfie.';
+  if (ex.documento && !ehDataImg(b.documento)) return 'Envie a foto do documento.';
+  return null;
+}
+const provaOuNulo = (exigida, img) => (exigida && ehDataImg(img) ? img : null);
 router.get('/trade/contrato/:token', (req, res) => {
   const c = db.prepare("SELECT c.*, v.codigo, v.fornecedor_nome FROM tmkt_contrato c JOIN tmkt_vendas v ON v.id=c.venda_id WHERE c.token=? AND c.empresa_id=?").get(req.params.token, EMP);
   if (!c || !c.token) return res.status(404).json({ erro: 'Link inválido ou expirado.' });
@@ -689,6 +699,7 @@ router.get('/trade/contrato/:token', (req, res) => {
     codigo: c.codigo, fornecedor: c.contratante_nome || c.fornecedor_nome, corpo: c.corpo || '', objeto: c.objeto || '',
     representante_nome: c.representante_nome || '', // quem deve assinar (nome pré-preenchido)
     assinado: c.status === 'assinado', assinante_nome: c.assinante_nome || null, assinado_em: c.assinado_em || null,
+    exige: exigeDe(c),
   });
 });
 router.post('/trade/contrato/:token/assinar', async (req, res) => {
@@ -702,14 +713,15 @@ router.post('/trade/contrato/:token/assinar', async (req, res) => {
   if (cpf.length !== 11) return res.status(400).json({ erro: 'Informe um CPF válido (11 dígitos).' });
   if (c.representante_cpf && soDig(c.representante_cpf) !== cpf) return res.status(400).json({ erro: 'O CPF informado não confere com o de quem foi designado para assinar este contrato.' });
   if (!b.aceite_mp) return res.status(400).json({ erro: 'Marque que reconhece o contrato e assina conforme a MP nº 2.200-2/2001.' });
-  if (!ehDataImg(b.assinatura)) return res.status(400).json({ erro: 'Assine na tela (campo de assinatura).' });
-  if (!ehDataImg(b.selfie)) return res.status(400).json({ erro: 'Envie a selfie.' });
-  if (!ehDataImg(b.documento)) return res.status(400).json({ erro: 'Envie a foto do documento.' });
+  const ex = exigeDe(c);
+  const falta = provasFaltando(ex, b);
+  if (falta) return res.status(400).json({ erro: falta });
+  const prova = { assinatura: provaOuNulo(ex.assinatura, b.assinatura), selfie: provaOuNulo(ex.selfie, b.selfie), documento: provaOuNulo(ex.documento, b.documento) };
   const ip = (String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket?.remoteAddress || req.ip || '';
   const ua = String(req.headers['user-agent'] || '').slice(0, 400);
   db.prepare(`UPDATE tmkt_contrato SET status='assinado', assinante_nome=?, assinante_doc=?, assinatura_img=?, selfie_img=?, documento_img=?,
       ip=?, user_agent=?, aceite_mp=1, assinado_em=datetime('now') WHERE id=?`)
-    .run(nome, cpf, b.assinatura, b.selfie, b.documento, ip, ua, c.id);
+    .run(nome, cpf, prova.assinatura, prova.selfie, prova.documento, ip, ua, c.id);
   // ao assinar: MOVE pra Briefing (se ainda antes) + ALERTA pro criador da negociação
   const v = db.prepare('SELECT id, status, codigo, fornecedor_nome, criado_por, loja_id FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(c.venda_id, EMP);
   if (v) {
@@ -730,7 +742,7 @@ router.post('/trade/contrato/:token/assinar', async (req, res) => {
     const pdf = await gerarPdfAssinado({
       titulo: 'Contrato', codigo: v && v.codigo, corpo: c.corpo, cedente: cedentePub(),
       assinante_nome: nome, assinante_doc: cpf, ip, assinado_em: new Date().toISOString(),
-      assinatura_img: b.assinatura, selfie_img: b.selfie, documento_img: b.documento,
+      assinatura_img: prova.assinatura, selfie_img: prova.selfie, documento_img: prova.documento,
     });
     db.prepare("UPDATE tmkt_contrato SET pdf_b64=? WHERE id=?").run(pdf.toString('base64'), c.id);
   } catch (e) { /* PDF best-effort — não bloqueia a assinatura */ }
@@ -745,6 +757,7 @@ router.get('/trade/veiculacao/:token', (req, res) => {
     codigo: t.codigo, fornecedor: t.fornecedor_nome, corpo: t.corpo || '', objeto: '',
     representante_nome: t.representante_nome || '',
     assinado: t.status === 'assinado', assinante_nome: t.assinante_nome || null, assinado_em: t.assinado_em || null,
+    exige: exigeDe(t),
   });
 });
 router.post('/trade/veiculacao/:token/assinar', async (req, res) => {
@@ -758,14 +771,15 @@ router.post('/trade/veiculacao/:token/assinar', async (req, res) => {
   if (cpf.length !== 11) return res.status(400).json({ erro: 'Informe um CPF válido (11 dígitos).' });
   if (t.representante_cpf && soDig(t.representante_cpf) !== cpf) return res.status(400).json({ erro: 'O CPF informado não confere com o de quem foi designado para assinar.' });
   if (!b.aceite_mp) return res.status(400).json({ erro: 'Marque que reconhece o termo e assina conforme a MP nº 2.200-2/2001.' });
-  if (!ehDataImg(b.assinatura)) return res.status(400).json({ erro: 'Assine na tela (campo de assinatura).' });
-  if (!ehDataImg(b.selfie)) return res.status(400).json({ erro: 'Envie a selfie.' });
-  if (!ehDataImg(b.documento)) return res.status(400).json({ erro: 'Envie a foto do documento.' });
+  const ex = exigeDe(t);
+  const falta = provasFaltando(ex, b);
+  if (falta) return res.status(400).json({ erro: falta });
+  const prova = { assinatura: provaOuNulo(ex.assinatura, b.assinatura), selfie: provaOuNulo(ex.selfie, b.selfie), documento: provaOuNulo(ex.documento, b.documento) };
   const ip = (String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket?.remoteAddress || req.ip || '';
   const ua = String(req.headers['user-agent'] || '').slice(0, 400);
   db.prepare(`UPDATE tmkt_veic_termo SET status='assinado', assinante_nome=?, assinante_doc=?, assinatura_img=?, selfie_img=?, documento_img=?,
       ip=?, user_agent=?, aceite_mp=1, assinado_em=datetime('now') WHERE id=?`)
-    .run(nome, cpf, b.assinatura, b.selfie, b.documento, ip, ua, t.id);
+    .run(nome, cpf, prova.assinatura, prova.selfie, prova.documento, ip, ua, t.id);
   // ao assinar o termo: MOVE p/ veiculação ('vigente') + ALERTA
   const v = db.prepare('SELECT id, status, codigo, fornecedor_nome, criado_por, loja_id FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(t.venda_id, EMP);
   if (v) {
@@ -785,7 +799,7 @@ router.post('/trade/veiculacao/:token/assinar', async (req, res) => {
     const pdf = await gerarPdfAssinado({
       titulo: 'Termo de veiculação', codigo: v && v.codigo, corpo: t.corpo, cedente: cedentePub(),
       assinante_nome: nome, assinante_doc: cpf, ip, assinado_em: new Date().toISOString(),
-      assinatura_img: b.assinatura, selfie_img: b.selfie, documento_img: b.documento,
+      assinatura_img: prova.assinatura, selfie_img: prova.selfie, documento_img: prova.documento,
     });
     db.prepare("UPDATE tmkt_veic_termo SET pdf_b64=? WHERE id=?").run(pdf.toString('base64'), t.id);
   } catch (e) { /* PDF best-effort */ }

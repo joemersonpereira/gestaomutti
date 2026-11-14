@@ -26,15 +26,19 @@ function chaveDe(base, empresaId, q) {
   return `${base}|${empresaId}|${qs}`;
 }
 
+// SERVE-STALE: sempre devolve o que está salvo (abre na hora), mesmo "velho" — só marca `stale`.
+// Recalcular é decisão do usuário (?forcar=1) ou de uma escrita que invalida. Assim, toda vez que
+// abrir o sistema a tela aparece instantânea, sem recarregar tudo do ERP.
 function ler(base, empresaId, q) {
   if ((q || {}).forcar === '1') return null;
   const row = db.prepare('SELECT payload, atualizado_em FROM erp_cache WHERE chave=?').get(chaveDe(base, empresaId, q));
   if (!row) return null;
+  let stale = false;
   if (periodoVolatil(q)) {
     const idadeMin = (Date.now() - new Date(row.atualizado_em.replace(' ', 'T') + 'Z').getTime()) / 60000;
-    if (!(idadeMin <= TTL_MIN)) return null;
+    stale = idadeMin > TTL_MIN; // passou do TTL: ainda serve, mas marca que pode estar desatualizado
   }
-  try { return { payload: JSON.parse(row.payload), atualizado_em: row.atualizado_em }; } catch { return null; }
+  try { return { payload: JSON.parse(row.payload), atualizado_em: row.atualizado_em, stale }; } catch { return null; }
 }
 
 function gravar(base, empresaId, q, payload) {
@@ -63,7 +67,7 @@ function wrapCache(base) {
     try {
       const emp = req.usuario.empresa_id;
       const hit = ler(base, emp, req.query);
-      if (hit) return res.json(comMeta(hit.payload, { atualizado_em: hit.atualizado_em, deCache: true }));
+      if (hit) return res.json(comMeta(hit.payload, { atualizado_em: hit.atualizado_em, deCache: true, stale: hit.stale }));
       const payload = await fn(req);
       const at = gravar(base, emp, req.query, payload);
       res.json(comMeta(payload, { atualizado_em: at, deCache: false }));
@@ -83,15 +87,18 @@ function wrapInvalidar(prefixo) {
 // Cobre inclusive rotas com :id (a chave usa req.path). Pula GETs listados em `skip(req)`.
 // Base da chave = `${modulo}:${req.path}` → invalidar com o prefixo `${modulo}:`.
 // Respostas de erro (status >= 400 ou body.erro) não são cacheadas.
-function cacheMiddleware(modulo, { skip } = {}) {
+// keyUser=true inclui o id do usuário na CHAVE (cache por-usuário): seguro p/ módulos cujos GET dependem
+// do usuário (ex.: `req.usuario.loja_id` como fallback, ou guarda de perfil por rota). Cada usuário aquece
+// o próprio cache uma vez; respostas de erro (403 etc.) não são cacheadas, então a guarda continua valendo.
+function cacheMiddleware(modulo, { skip, keyUser } = {}) {
   return (req, res, next) => {
     if (req.method !== 'GET') return next();
     const emp = req.usuario && req.usuario.empresa_id;
     if (!emp) return next();
     if (skip && skip(req)) return next();
-    const base = `${modulo}:${req.path}`;
+    const base = keyUser ? `${modulo}:u${(req.usuario && req.usuario.id) || '?'}:${req.path}` : `${modulo}:${req.path}`;
     const hit = ler(base, emp, req.query);
-    if (hit) return res.json(comMeta(hit.payload, { atualizado_em: hit.atualizado_em, deCache: true }));
+    if (hit) return res.json(comMeta(hit.payload, { atualizado_em: hit.atualizado_em, deCache: true, stale: hit.stale }));
     const orig = res.json.bind(res);
     res.json = (body) => {
       if (res.statusCode < 400 && body && !(typeof body === 'object' && body.erro)) {

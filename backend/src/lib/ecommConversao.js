@@ -99,13 +99,36 @@ async function vendasDoCliente(fone8, nomes, ini, fim) {
      ORDER BY v.datahorafechamento`, [ini, fim, fone8, pessoas, nomes]);
   if (!vendas.length) return [];
   const itens = await erpQuery(`
-    SELECT i.id, i.vendaid, pr.descricao, i.valortotal
+    SELECT i.id, i.vendaid, pr.descricao, i.valortotal,
+           ARRAY(SELECT cp.classificacaoid::text FROM classificacaoproduto cp WHERE cp.produtoid = pr.id) classificacoes
       FROM itemvenda i JOIN embalagem e ON e.id = i.embalagemid JOIN produto pr ON pr.id = e.produtoid
      WHERE i.vendaid = ANY($1::bigint[]) AND i.status <> 'C'
      ORDER BY i.vendaid, i.sequencia`, [vendas.map(v => v.id)]);
   for (const v of vendas) v.itens = itens.filter(i => String(i.vendaid) === String(v.id));
   return vendas;
 }
+
+// ── Giro de categoria ────────────────────────────────────────────────────────
+// "Giro 15% OFF · CONDICIONADOR E SHAMPOO ADULTO" → rótulo "CONDICIONADOR E SHAMPOO ADULTO".
+// Produto comum (sem "·") → null.
+function rotuloDe(produto) {
+  const i = (produto || '').lastIndexOf('·');
+  return i < 0 ? null : norm(produto.slice(i + 1));
+}
+
+// Cadastro rótulo → conjunto de ids de classificação do A7 (já expandido para a subárvore).
+async function categoriasCadastradas(empresaId) {
+  const cad = db.prepare('SELECT rotulo, classificacao_ids FROM ecomm_conversao_categoria WHERE empresa_id=?').all(empresaId);
+  const out = new Map();
+  for (const c of cad) {
+    const ids = c.classificacao_ids.split(',').map(x => x.trim()).filter(Boolean);
+    const sub = await erpQuery(`SELECT cl.id::text id FROM classificacao cl JOIN classificacao pai ON pai.id = ANY($1::bigint[])
+      WHERE cl.caminho LIKE pai.caminho || '%'`, [ids]);
+    out.set(norm(c.rotulo), new Set(sub.map(r => r.id)));
+  }
+  return out;
+}
+const naCategoria = (it, ids) => (it.classificacoes || []).some(id => ids.has(String(id)));
 
 // ── Execução ─────────────────────────────────────────────────────────────────
 // opts.simular = true → analisa e grava o histórico, mas NÃO chama o registro na API.
@@ -133,8 +156,10 @@ async function executar(empresaId, opts = {}) {
   }
 
   const agora = agoraLocal();
-  const itensUsados = new Set(db.prepare(`SELECT erp_item_id FROM ecomm_conversao_log
-    WHERE empresa_id=? AND resultado='registrada' AND erp_item_id IS NOT NULL`).all(empresaId).map(r => r.erp_item_id));
+  const itensUsados = new Set(db.prepare(`SELECT erp_item_id, erp_itens FROM ecomm_conversao_log
+    WHERE empresa_id=? AND resultado='registrada'`).all(empresaId)
+    .flatMap(r => [r.erp_item_id, ...(r.erp_itens || '').split(',')]).filter(Boolean).map(String));
+  const categorias = await categoriasCadastradas(empresaId);
   const res = []; // {c, resultado, ...}
   for (const c of pendentes.filter(ehTeste)) res.push({ c, resultado: 'teste' });
 
@@ -153,18 +178,34 @@ async function executar(empresaId, opts = {}) {
     // Cada ITEM vendido confirma no máximo 1 checkout: o mais recente anterior à venda, do mesmo
     // produto ou variação, dentro da janela. Item que já confirmou venda antes fica de fora.
     const confirmado = new Map();
+    const naJanela = (c, v) => !confirmado.has(c.id) && c.quando <= v.quando && v.quando < fimJanela(c);
     for (const v of vendas) {
+      // Giro de CATEGORIA: a compra confirma o checkout mais recente daquele rótulo; o valor é a
+      // SOMA de todos os itens da categoria no cupom (regra do Joe, 27/10/2026).
+      for (const rot of new Set(lista.map(c => rotuloDe(c.product_name)).filter(r => r && categorias.has(r)))) {
+        const itensCat = v.itens.filter(it => !itensUsados.has(String(it.id)) && naCategoria(it, categorias.get(rot)));
+        if (!itensCat.length) continue;
+        const alvo = lista.filter(c => rotuloDe(c.product_name) === rot && naJanela(c, v)).pop();
+        if (!alvo) continue;
+        confirmado.set(alvo.id, { v, itens: itensCat, tipo: 'categoria' });
+        itensCat.forEach(it => itensUsados.add(String(it.id))); // não reaproveita no mesmo run
+      }
       for (const it of v.itens) {
         if (itensUsados.has(String(it.id))) continue;
-        const alvo = lista.filter(c => !confirmado.has(c.id) && c.quando <= v.quando && v.quando < fimJanela(c)
+        const alvo = lista.filter(c => !rotuloDe(c.product_name) && naJanela(c, v)
             && casaProduto(c.product_name, it.descricao, cfg.palavrasVariacao))
           .pop();
-        if (alvo) confirmado.set(alvo.id, { v, it, tipo: casaProduto(alvo.product_name, it.descricao, cfg.palavrasVariacao) });
+        if (alvo) confirmado.set(alvo.id, { v, itens: [it], tipo: casaProduto(alvo.product_name, it.descricao, cfg.palavrasVariacao) });
       }
     }
     for (const c of lista) {
       const m = confirmado.get(c.id);
       if (m) { res.push({ c, resultado: 'venda', ...m }); continue; }
+      const rot = rotuloDe(c.product_name);
+      if (rot && !categorias.has(rot)) {
+        res.push({ c, resultado: 'sem_regra', detalhe: `Cupom de categoria "${rot}" sem cadastro em ecomm_conversao_categoria` });
+        continue;
+      }
       const depois = vendas.filter(v => c.quando <= v.quando && v.quando < fimJanela(c));
       if (depois.length) {
         const v = depois[0];
@@ -179,26 +220,26 @@ async function executar(empresaId, opts = {}) {
   // Registro na API + histórico
   const up = db.prepare(`INSERT INTO ecomm_conversao_log
       (checkout_id, empresa_id, checkout_em, origem, cliente, telefone, produto, preco, resultado, via,
-       erp_venda_id, erp_item_id, coo, loja, venda_em, item_erp, valor, detalhe, analisado_em, registrado_em)
+       erp_venda_id, erp_item_id, erp_itens, coo, loja, venda_em, item_erp, valor, detalhe, analisado_em, registrado_em)
     VALUES (@checkout_id,@empresa_id,@checkout_em,@origem,@cliente,@telefone,@produto,@preco,@resultado,@via,
-       @erp_venda_id,@erp_item_id,@coo,@loja,@venda_em,@item_erp,@valor,@detalhe,@analisado_em,@registrado_em)
-    ON CONFLICT(checkout_id) DO UPDATE SET resultado=excluded.resultado, via=excluded.via, erp_venda_id=excluded.erp_venda_id, erp_item_id=excluded.erp_item_id,
+       @erp_venda_id,@erp_item_id,@erp_itens,@coo,@loja,@venda_em,@item_erp,@valor,@detalhe,@analisado_em,@registrado_em)
+    ON CONFLICT(checkout_id) DO UPDATE SET resultado=excluded.resultado, via=excluded.via, erp_venda_id=excluded.erp_venda_id, erp_item_id=excluded.erp_item_id, erp_itens=excluded.erp_itens,
        coo=excluded.coo, loja=excluded.loja, venda_em=excluded.venda_em, item_erp=excluded.item_erp, valor=excluded.valor,
        detalhe=excluded.detalhe, analisado_em=excluded.analisado_em,
        registrado_em=COALESCE(excluded.registrado_em, ecomm_conversao_log.registrado_em)`);
-  const resumo = { registrada: 0, apontada: 0, visita: 0, aguardando: 0, sem_compra: 0, teste: 0, erro: 0 };
+  const resumo = { registrada: 0, apontada: 0, visita: 0, aguardando: 0, sem_compra: 0, sem_regra: 0, teste: 0, erro: 0 };
   const vendasRegistradas = [];
 
   for (const r of res) {
     const { c } = r;
     let resultado = r.resultado, detalhe = r.detalhe || null, registradoEm = null, valor = null;
     if (resultado === 'venda') {
-      valor = Number(r.it.valortotal);
-      detalhe = `${r.tipo === 'exato' ? 'mesmo produto' : 'variação'}`;
+      valor = Math.round(r.itens.reduce((s, it) => s + Number(it.valortotal), 0) * 100) / 100;
+      detalhe = { exato: 'mesmo produto', variacao: 'variação', categoria: `categoria (${r.itens.length} item(ns) somados)` }[r.tipo];
       if (registrar) {
         try {
           const api = await registrarVenda(cfg.apiBase, c.id, valor, `A7-COO-${r.v.coo}`);
-          if (api.ok) { resultado = 'registrada'; itensUsados.add(String(r.it.id)); registradoEm = agoraLocal(); vendasRegistradas.push({ cliente: c.raw_name, produto: r.it.descricao, valor, coo: r.v.coo }); }
+          if (api.ok) { resultado = 'registrada'; r.itens.forEach(it => itensUsados.add(String(it.id))); registradoEm = agoraLocal(); vendasRegistradas.push({ cliente: c.raw_name, produto: r.itens.map(it => it.descricao).join(' + '), valor, coo: r.v.coo }); }
           else { resultado = 'erro'; }
           detalhe += ` · API ${api.status}: ${api.resposta.message || api.resposta.error || ''}`;
         } catch (e) { resultado = 'erro'; detalhe += ' · API: ' + e.message; }
@@ -210,8 +251,8 @@ async function executar(empresaId, opts = {}) {
     up.run({
       checkout_id: c.id, empresa_id: empresaId, checkout_em: c.quando, origem: c.origin || null,
       cliente: c.raw_name || null, telefone: c.fone || null, produto: c.product_name || null, preco: c.price ?? null,
-      resultado, via: r.v ? r.v.via : null, erp_venda_id: r.v ? String(r.v.id) : null, erp_item_id: r.it ? String(r.it.id) : null, coo: r.v ? r.v.coo : null,
-      loja: r.v ? r.v.loja : null, venda_em: r.v ? r.v.quando : null, item_erp: r.it ? r.it.descricao : null,
+      resultado, via: r.v ? r.v.via : null, erp_venda_id: r.v ? String(r.v.id) : null, erp_item_id: r.itens ? String(r.itens[0].id) : null, erp_itens: r.itens ? r.itens.map(it => String(it.id)).join(',') : null, coo: r.v ? r.v.coo : null,
+      loja: r.v ? r.v.loja : null, venda_em: r.v ? r.v.quando : null, item_erp: r.itens ? r.itens.map(it => it.descricao).join(' + ') : null,
       valor, detalhe, analisado_em: agoraLocal(), registrado_em: registradoEm,
     });
   }
@@ -230,4 +271,4 @@ async function talvezExecutar(empresaId) {
   return executar(empresaId);
 }
 
-module.exports = { executar, talvezExecutar, config, setConfig, casaProduto };
+module.exports = { executar, talvezExecutar, config, setConfig, casaProduto, rotuloDe };

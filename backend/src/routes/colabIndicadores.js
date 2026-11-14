@@ -27,7 +27,30 @@ const FONTES = [
   { id: 'devol_paradas', label: 'Devoluções paradas (em aberto agora)', unidade: 'qtd', sentido: 'menor' },
   { id: 'mkt_comprador_atrasadas', label: 'Listas de oferta (marketing) NÃO respondidas no prazo', unidade: 'qtd', sentido: 'menor' },
   { id: 'mkt_comprador_no_prazo_pct', label: '% de listas de oferta respondidas no prazo', unidade: 'percentual', sentido: 'maior' },
+  // ── Compras (comprador): puxados do ERP via Meu Setor de Compras. O realizado é o MESMO número
+  // que aparece no Meu Setor do comprador — aqui vira indicador individual com prêmio próprio. ──
+  { id: 'compras_saldo_estoque', label: 'Compras: saldo de estoque (R$)', unidade: 'reais', sentido: 'menor', compras: 'saldo_estoque' },
+  { id: 'compras_cobertura', label: 'Compras: cobertura de estoque (dias)', unidade: 'dias', sentido: 'menor', compras: 'cobertura' },
+  { id: 'compras_ruptura', label: 'Compras: ruptura (%)', unidade: 'percentual', sentido: 'menor', compras: 'ruptura' },
+  { id: 'compras_orcamento', label: 'Compras: orçamento de compra (%, não estourar)', unidade: 'percentual', sentido: 'menor', compras: 'orcamento' },
+  { id: 'compras_vencido', label: 'Compras: vencidos (%)', unidade: 'percentual', sentido: 'menor', compras: 'vencido' },
+  { id: 'compras_conversao_novos', label: 'Compras: conversão de itens novos (%)', unidade: 'percentual', sentido: 'maior', compras: 'conversao_novos' },
 ];
+// Fontes de Compras → chave do fonteAuto do Meu Setor de Compras. O realizado vem do ERP (assíncrono),
+// então NÃO é calculado em realizadoAuto (síncrono) — é resolvido via comprasMap (GET) e na apuração (POST).
+const COMPRAS_FONTES = {
+  compras_saldo_estoque: 'saldo_estoque', compras_cobertura: 'cobertura', compras_ruptura: 'ruptura',
+  compras_orcamento: 'orcamento', compras_vencido: 'vencido', compras_conversao_novos: 'conversao_novos',
+};
+// Calcula de uma vez (1 chamada ao ERP) o mapa de indicadores de Compras do colaborador-comprador,
+// quando ele tem ao menos um indicador de fonte 'compras_*'. Sem vínculo de comprador → {} (realizado null).
+async function comprasMapDe(emp, colabId, mes, ano, inds) {
+  if (!inds.some(i => COMPRAS_FONTES[i.fonte])) return null;
+  try {
+    const cms = require('../lib/comprasMeuSetor');
+    return (await cms.fonteAuto(emp, colabId, { ano, mes })) || {};
+  } catch (e) { return {}; }
+}
 const mm = m => String(m).padStart(2, '0');
 const DEVOL_ATIVAS = "('andamento','analise_fornecedor','coleta','reembolso')";
 // Realizado automático (ou null se fonte manual/desconhecida). empresaId usado nas fontes de devolução.
@@ -92,10 +115,13 @@ router.get('/fontes', (req, res) => res.json({ fontes: FONTES }));
 
 // Resolve o realizado/batido de um indicador no mês: usa a apuração salva; se for fonte
 // automática e ainda não apurada, calcula ao vivo. Devolve o objeto enriquecido.
-function resolver(ind, mes, ano) {
+function resolver(ind, mes, ano, comprasMap) {
   const ap = db.prepare('SELECT realizado FROM colab_indicador_apuracao WHERE colab_indicador_id=? AND mes=? AND ano=?').get(ind.id, mes, ano);
   const auto = ind.fonte && ind.fonte !== 'manual';
-  let realizado = ap != null ? ap.realizado : (auto ? realizadoAuto(ind.fonte, ind.colaborador_id, mes, ano, ind.empresa_id) : null);
+  let realizado;
+  if (ap != null) realizado = ap.realizado;
+  else if (COMPRAS_FONTES[ind.fonte]) realizado = comprasMap ? (comprasMap[COMPRAS_FONTES[ind.fonte]] ?? null) : null; // ERP, via comprasMap
+  else realizado = auto ? realizadoAuto(ind.fonte, ind.colaborador_id, mes, ano, ind.empresa_id) : null;
   const temReal = realizado != null;
   return {
     id: ind.id, colaborador_id: ind.colaborador_id, nome: ind.nome, unidade: ind.unidade, meta: ind.meta,
@@ -126,14 +152,15 @@ router.get('/colaboradores', exigePerfil(...GESTAO), (req, res) => {
 });
 
 // ── Gestão: indicadores de um colaborador (+ apuração do mês) ─────────────────
-router.get('/', exigePerfil(...GESTAO), (req, res) => {
+router.get('/', exigePerfil(...GESTAO), async (req, res) => {
   const emp = req.usuario.empresa_id;
   const colabId = req.query.colaborador_id;
   const mes = parseInt(req.query.mes) || hoje.getMonth() + 1;
   const ano = parseInt(req.query.ano) || hoje.getFullYear();
   if (!colabId) return res.json({ indicadores: [] });
   const inds = db.prepare('SELECT * FROM colab_indicadores WHERE empresa_id=? AND colaborador_id=? AND ativo=1 ORDER BY criado_em').all(emp, colabId);
-  res.json({ mes, ano, indicadores: inds.map(ind => resolver(ind, mes, ano)) });
+  const comprasMap = await comprasMapDe(emp, colabId, mes, ano, inds);
+  res.json({ mes, ano, indicadores: inds.map(ind => resolver(ind, mes, ano, comprasMap)) });
 });
 
 router.post('/', exigePerfil(...GESTAO), (req, res) => {
@@ -175,16 +202,21 @@ router.delete('/:id', exigePerfil(...GESTAO), (req, res) => {
 });
 
 // ── Gestão: apurar o realizado do mês (atualiza pontos se for prêmio em pontos) ─
-router.post('/:id/apurar', exigePerfil(...GESTAO), (req, res) => {
+router.post('/:id/apurar', exigePerfil(...GESTAO), async (req, res) => {
   const emp = req.usuario.empresa_id;
   const ind = db.prepare('SELECT * FROM colab_indicadores WHERE id=? AND empresa_id=?').get(req.params.id, emp);
   if (!ind) return res.status(404).json({ erro: 'Indicador não encontrado.' });
   const mes = parseInt(req.body.mes) || hoje.getMonth() + 1;
   const ano = parseInt(req.body.ano) || hoje.getFullYear();
-  // fonte automática sem valor informado → calcula do próprio sistema (tarefas)
+  // fonte automática sem valor informado → calcula do próprio sistema (tarefas, ou ERP p/ Compras)
   const auto = ind.fonte && ind.fonte !== 'manual';
-  const realizado = (req.body.realizado != null && req.body.realizado !== '') ? Number(req.body.realizado)
-    : (auto ? (realizadoAuto(ind.fonte, ind.colaborador_id, mes, ano, ind.empresa_id) || 0) : 0);
+  let realizado;
+  if (req.body.realizado != null && req.body.realizado !== '') realizado = Number(req.body.realizado);
+  else if (COMPRAS_FONTES[ind.fonte]) {
+    let v = null;
+    try { const cms = require('../lib/comprasMeuSetor'); const b = await cms.fonteAuto(emp, ind.colaborador_id, { ano, mes }); v = b ? b[COMPRAS_FONTES[ind.fonte]] : null; } catch (e) { }
+    realizado = v != null ? Number(v) : 0;
+  } else realizado = auto ? (realizadoAuto(ind.fonte, ind.colaborador_id, mes, ano, ind.empresa_id) || 0) : 0;
   db.prepare(`INSERT INTO colab_indicador_apuracao (id,colab_indicador_id,mes,ano,realizado,apurado_por,apurado_em)
     VALUES (?,?,?,?,?,?,datetime('now'))
     ON CONFLICT(colab_indicador_id, mes, ano) DO UPDATE SET realizado=excluded.realizado, apurado_por=excluded.apurado_por, apurado_em=datetime('now')`)
@@ -195,14 +227,15 @@ router.post('/:id/apurar', exigePerfil(...GESTAO), (req, res) => {
 });
 
 // ── Colaborador logado: meus indicadores do mês + prêmio a receber ────────────
-router.get('/meus', (req, res) => {
+router.get('/meus', async (req, res) => {
   const emp = req.usuario.empresa_id;
   const mes = parseInt(req.query.mes) || hoje.getMonth() + 1;
   const ano = parseInt(req.query.ano) || hoje.getFullYear();
   const inds = db.prepare('SELECT * FROM colab_indicadores WHERE empresa_id=? AND colaborador_id=? AND ativo=1 ORDER BY criado_em').all(emp, req.usuario.id);
+  const comprasMap = await comprasMapDe(emp, req.usuario.id, mes, ano, inds);
   let premioReais = 0, premioPontos = 0;
   const indicadores = inds.map(ind => {
-    const r = resolver(ind, mes, ano);
+    const r = resolver(ind, mes, ano, comprasMap);
     if (r.batido) { if (r.premio_tipo === 'pontos') premioPontos += Number(r.premio_valor) || 0; else premioReais += Number(r.premio_valor) || 0; }
     return r;
   });

@@ -6,6 +6,10 @@ const cv = require('../lib/convenioErp');
 
 const GESTAO_FIN = ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Tesouraria'];
 router.use(auth);
+// Cache serve-stale do ERP (Joe 2026-11-14): abre na hora e só reconsulta o Alpha ~1x/h ou após escrita. ?forcar=1 recalcula.
+const { cacheMiddleware: _erpCache, invalidarMiddleware: _erpInval } = require('../lib/erpCache');
+router.use(_erpCache('convenio'));
+router.use(_erpInval('convenio'));
 router.use(exigePerfil(...GESTAO_FIN));
 
 const wrap = fn => async (req, res) => { try { res.json(await fn(req)); } catch (e) { res.status(502).json({ erro: e.message }); } };

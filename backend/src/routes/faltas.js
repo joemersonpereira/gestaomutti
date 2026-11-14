@@ -8,6 +8,10 @@ const { auth } = require('../middleware/auth');
 const { buscarProduto, confrontoLote } = require('../lib/faltasErp');
 
 router.use(auth);
+// Cache serve-stale do ERP (Joe 2026-11-14): abre na hora e só reconsulta o Alpha ~1x/h ou após escrita. ?forcar=1 recalcula.
+const { cacheMiddleware: _erpCache, invalidarMiddleware: _erpInval } = require('../lib/erpCache');
+router.use(_erpCache('faltas'));
+router.use(_erpInval('faltas'));
 
 const COMPRADOR = ['Comprador Beleza', 'Comprador Bem-estar', 'Gestor Geral', 'Diretor Geral', 'Suporte'];
 const ehComprador = u => COMPRADOR.includes(u.funcao_nome);

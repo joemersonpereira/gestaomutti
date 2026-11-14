@@ -42,6 +42,54 @@ async function sincronizarAtendimentos(empresaId, { statuses = [4], pageSize = 5
   return { ok: true, sincronizados: lista.length };
 }
 
+// ── Satisfação (CSAT) ────────────────────────────────────────────────────────
+// Traz as respostas de satisfação do BotVendas (fonte autoritativa da média de avaliação).
+// Filtro CSAT: pergunta "classificaria ... atendimento" + nota 1-5. Casa vendedor→colaborador/loja.
+// Incremental: a lista vem da mais nova p/ a mais antiga; paramos ao chegar num answer já salvo.
+const ehPerguntaCsat = q => /classificar/i.test(q || '') && /atendimento/i.test(q || '');
+function parseDataIso(s) { // "2026-11-01 17:52:50" → ISO; null se vazio
+  const m = String(s || '').match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00` : (s || null);
+}
+async function sincronizarSatisfacao(empresaId, { dias = 40, fromDate, toDate } = {}) {
+  if (!api.habilitado()) return { ok: false, erro: 'BotVendas não configurado.' };
+  const hoje = new Date();
+  const ymd = d => d.toISOString().slice(0, 10);
+  const from = fromDate || ymd(new Date(hoje.getTime() - dias * 864e5));
+  const to = toDate || ymd(hoje);
+  const colab = mapaColaboradores(empresaId);
+  // Busca a JANELA INTEIRA (sem parada incremental). A parada antiga parava nos registros recentes
+  // já conhecidos e deixava buracos (ex.: só 25 de ~900 em Nov). O upsert por answer_id deduplica,
+  // então re-buscar a janela é idempotente — só custa páginas da API (ok p/ janelas curtas).
+  const pararSe = null;
+  const up = db.prepare(`INSERT INTO botvendas_satisfacao
+    (empresa_id, answer_id, order_id, nota, pergunta, vendedor_nome, attendant_id, colaborador_id, loja_id, respondido_em, sincronizado_em)
+    VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))
+    ON CONFLICT(empresa_id, answer_id) DO UPDATE SET nota=excluded.nota, vendedor_nome=excluded.vendedor_nome,
+      attendant_id=excluded.attendant_id, colaborador_id=excluded.colaborador_id, loja_id=excluded.loja_id,
+      respondido_em=excluded.respondido_em, sincronizado_em=datetime('now')`);
+  let gravados = 0, baixados = 0;
+  // Grava CADA página na hora (1ª carga não perde progresso se demorar/cair).
+  const onPagina = (data) => {
+    baixados += data.length;
+    const tx = db.transaction(() => {
+      for (const it of data) {
+        if (!ehPerguntaCsat(it.question)) continue;
+        const nota = parseInt(String(it.answer || '').trim(), 10);
+        if (!(nota >= 1 && nota <= 5)) continue; // só respostas numéricas 1-5
+        const vend = (it.attendant_name || '').trim() || null;
+        const c = vend ? colab.get(norm(vend)) : null;
+        up.run(empresaId, it.id, it.order_id || null, nota, (it.question || '').slice(0, 300),
+          vend, it.attendant_id || null, c ? c.id : null, c ? c.loja_id : null, parseDataIso(it.order_closed_at));
+        gravados++;
+      }
+    });
+    tx();
+  };
+  await api.listarSatisfacao({ fromDate: from, toDate: to, pararSe, onPagina });
+  return { ok: true, baixados, gravados, periodo: `${from}..${to}` };
+}
+
 // Baixa (e guarda) o histórico de mensagens de um atendimento; usa cache se já baixado.
 async function conversa(empresaId, orderId, { forcar = false } = {}) {
   const at = db.prepare('SELECT * FROM botvendas_atendimentos WHERE empresa_id=? AND order_id=?').get(empresaId, orderId);
@@ -181,4 +229,4 @@ function reclassificarTodos(empresaId) {
   return n;
 }
 
-module.exports = { sincronizarAtendimentos, conversa, conversaTexto, mapaColaboradores, processarConversas, reclassificarTodos };
+module.exports = { sincronizarAtendimentos, sincronizarSatisfacao, conversa, conversaTexto, mapaColaboradores, processarConversas, reclassificarTodos };

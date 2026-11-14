@@ -5,6 +5,10 @@ const { auth, exigePerfil } = require('../middleware/auth');
 const vendasErp = require('../lib/vendasErp');
 
 router.use(auth);
+// Cache serve-stale do ERP (Joe 2026-11-14): abre na hora e só reconsulta o Alpha ~1x/h ou após escrita. ?forcar=1 recalcula.
+const { cacheMiddleware: _erpCache, invalidarMiddleware: _erpInval } = require('../lib/erpCache');
+router.use(_erpCache('relatorios'));
+router.use(_erpInval('relatorios'));
 router.use(exigePerfil('Gerente', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'RH', 'Marketing'));
 
 function csv(rows, colunas) {

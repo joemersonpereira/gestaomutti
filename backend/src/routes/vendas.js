@@ -11,6 +11,11 @@ const indicadoresErp = require('../lib/indicadoresErp');
 const trivioPdv = require('../lib/trivioPdv');
 
 router.use(auth);
+// Cache serve-stale do ERP (Joe 2026-11-14): keyUser=true (chave inclui o usuário) porque GETs usam
+// `req.query.loja_id || req.usuario.loja_id` e há rota /meu-*. Abre na hora e só bate o Alpha ~1x/h.
+const { cacheMiddleware: _erpCache, invalidarMiddleware: _erpInval } = require('../lib/erpCache');
+router.use(_erpCache('vendas', { keyUser: true }));
+router.use(_erpInval('vendas'));
 
 const GESTAO = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Gerente'];
 

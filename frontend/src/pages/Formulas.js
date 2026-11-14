@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
+import { usePeriodo, CampoPeriodo } from '../components/Periodo';
 
 const brl = n => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 const dataBR = d => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
@@ -18,15 +19,15 @@ export default function Formulas() {
   const { API, usuario } = useAuth();
   const [lojas, setLojas] = useState([]);
   const [loja, setLoja] = useState('');
-  const [dias, setDias] = useState(30);
+  const per = usePeriodo('30');
   const [filtro, setFiltro] = useState('');
   const [d, setD] = useState(null);
   const [erro, setErro] = useState('');
   useEffect(() => { API.get('/compras/lojas').then(r => setLojas(r.data.lojas || [])).catch(() => {}); }, [API]);
   const carregar = useCallback(() => {
     setErro(''); setD(null);
-    API.get('/formulas', { params: { loja: loja || undefined, dias } }).then(r => { if (r.data.erro) setErro(r.data.erro); else setD(r.data); }).catch(e => setErro(e.response?.data?.erro || 'Falha.'));
-  }, [API, loja, dias]);
+    API.get('/formulas', { params: { loja: loja || undefined, ...per.params } }).then(r => { if (r.data.erro) setErro(r.data.erro); else setD(r.data); }).catch(e => setErro(e.response?.data?.erro || 'Falha.'));
+  }, [API, loja, per.params]);
   useEffect(() => { carregar(); }, [carregar]);
 
   const avancar = (f, novo) => API.put(`/formulas/${f.id}`, {
@@ -42,7 +43,7 @@ export default function Formulas() {
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
         <select value={loja} onChange={e => setLoja(e.target.value)} style={s.inp}><option value="">🏬 Todas as lojas</option>{lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}</select>
-        <select value={dias} onChange={e => setDias(Number(e.target.value))} style={s.inp}>{[7, 15, 30, 60, 90].map(x => <option key={x} value={x}>últimos {x} dias</option>)}</select>
+        <CampoPeriodo {...per} diasOpc={[7, 15, 30, 60, 90]} />
       </div>
 
       {d && d.resumo && (

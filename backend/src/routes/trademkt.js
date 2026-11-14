@@ -8,6 +8,7 @@ const { auth, exigePerfil } = require('../middleware/auth');
 const { enviarEmail, smtpOk } = require('../lib/mailer');
 const { cobrarVenda } = require('../lib/cobranca');
 const outreach = require('../lib/trade-outreach');
+const { sincronizarExecucaoUsoInterno } = require('../lib/mktAcoes');
 
 const GESTAO = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing'];
 // fluxo do Kanban (Joe 2026-10-16): rascunho → negociação → confirmado → briefing (material/arte pendente)
@@ -147,6 +148,16 @@ async function gerarContratoTexto(emp, v, c) {
 function contratoRow(emp, vendaId) {
   return db.prepare('SELECT * FROM tmkt_contrato WHERE empresa_id=? AND venda_id=?').get(emp, vendaId);
 }
+// O que o assinante precisa enviar (migr 368). Corpo: { exige: { selfie, documento, assinatura } };
+// sem `exige` no corpo = pede tudo (comportamento anterior).
+function exigenciasDe(body) {
+  const e = body && body.exige;
+  if (!e || typeof e !== 'object') return { selfie: 1, documento: 1, assinatura: 1 };
+  return { selfie: e.selfie ? 1 : 0, documento: e.documento ? 1 : 0, assinatura: e.assinatura ? 1 : 0 };
+}
+const exigenciasRow = r => ({
+  selfie: r ? r.exige_selfie !== 0 : true, documento: r ? r.exige_documento !== 0 : true, assinatura: r ? r.exige_assinatura !== 0 : true,
+});
 router.get('/vendas/:id/contrato', async (req, res) => {
   const emp = req.usuario.empresa_id;
   const v = db.prepare('SELECT * FROM tmkt_vendas WHERE id=? AND empresa_id=?').get(req.params.id, emp);
@@ -169,6 +180,7 @@ router.get('/vendas/:id/contrato', async (req, res) => {
     ip: c?.ip || null, assinado_em: c?.assinado_em || null, solicitado_em: c?.solicitado_em || null,
     tem_selfie: !!(c && c.selfie_img), tem_documento: !!(c && c.documento_img), tem_assinatura: !!(c && c.assinatura_img),
     tem_pdf: !!(c && c.pdf_b64),
+    exige: exigenciasRow(c),
   });
 });
 // Serve o PDF do contrato assinado (anexado automaticamente após a assinatura).
@@ -212,7 +224,9 @@ router.post('/vendas/:id/contrato/solicitar', exigePerfil(...GESTAO), async (req
   if (!(c && c.representante_nome && c.representante_cpf)) return res.status(400).json({ erro: 'Informe quem vai assinar pela empresa (nome + CPF) — o CPF precisa bater na hora de assinar.' });
   const corpo = await gerarContratoTexto(emp, v, c);
   const token = uuid().replace(/-/g, '');
-  db.prepare("UPDATE tmkt_contrato SET corpo=?, token=?, status='aguardando', solicitado_em=datetime('now') WHERE id=?").run(corpo, token, c.id);
+  const ex = exigenciasDe(req.body);
+  db.prepare("UPDATE tmkt_contrato SET corpo=?, token=?, status='aguardando', solicitado_em=datetime('now'), exige_selfie=?, exige_documento=?, exige_assinatura=? WHERE id=?")
+    .run(corpo, token, ex.selfie, ex.documento, ex.assinatura, c.id);
   res.json({ ok: true, token });
 });
 // Cancela a solicitação (volta a rascunho) — só se ainda não assinou.
@@ -277,6 +291,7 @@ router.get('/vendas/:id/veiculacao', async (req, res) => {
     tem_comprovacao: !!v.comprovacao_em,
     assinante_nome: t?.assinante_nome || null, assinante_doc: t?.assinante_doc || null, ip: t?.ip || null, assinado_em: t?.assinado_em || null,
     tem_selfie: !!(t && t.selfie_img), tem_documento: !!(t && t.documento_img), tem_assinatura: !!(t && t.assinatura_img), tem_pdf: !!(t && t.pdf_b64),
+    exige: exigenciasRow(t),
   });
 });
 router.post('/vendas/:id/veiculacao/solicitar', exigePerfil(...GESTAO), async (req, res) => {
@@ -291,8 +306,11 @@ router.post('/vendas/:id/veiculacao/solicitar', exigePerfil(...GESTAO), async (r
   if (!(repNome && repCpf)) return res.status(400).json({ erro: 'Defina quem assina pela empresa (no contrato) — o CPF precisa bater na hora de assinar.' });
   const corpo = await gerarVeicTexto(emp, v);
   const token = uuid().replace(/-/g, '');
-  if (t) db.prepare("UPDATE tmkt_veic_termo SET corpo=?, token=?, representante_nome=?, representante_cpf=?, status='aguardando', solicitado_em=datetime('now') WHERE id=?").run(corpo, token, repNome, repCpf, t.id);
-  else db.prepare("INSERT INTO tmkt_veic_termo (id,empresa_id,venda_id,corpo,token,representante_nome,representante_cpf,status,solicitado_em) VALUES (?,?,?,?,?,?,?, 'aguardando', datetime('now'))").run(uuid(), emp, v.id, corpo, token, repNome, repCpf);
+  const ex = exigenciasDe(req.body);
+  if (t) db.prepare("UPDATE tmkt_veic_termo SET corpo=?, token=?, representante_nome=?, representante_cpf=?, status='aguardando', solicitado_em=datetime('now'), exige_selfie=?, exige_documento=?, exige_assinatura=? WHERE id=?")
+    .run(corpo, token, repNome, repCpf, ex.selfie, ex.documento, ex.assinatura, t.id);
+  else db.prepare("INSERT INTO tmkt_veic_termo (id,empresa_id,venda_id,corpo,token,representante_nome,representante_cpf,status,solicitado_em,exige_selfie,exige_documento,exige_assinatura) VALUES (?,?,?,?,?,?,?, 'aguardando', datetime('now'),?,?,?)")
+    .run(uuid(), emp, v.id, corpo, token, repNome, repCpf, ex.selfie, ex.documento, ex.assinatura);
   res.json({ ok: true, token });
 });
 router.post('/vendas/:id/veiculacao/cancelar', exigePerfil(...GESTAO), (req, res) => {
@@ -776,6 +794,48 @@ router.delete('/anotacoes/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// Meu Setor (Retail) — metas do usuário logado em PILARES (mesmo formato da Tesouraria): nota + farol.
+router.get('/meu-setor', (req, res) => {
+  const emp = req.usuario.empresa_id, uid = req.usuario.id;
+  const now = new Date(); const ano = now.getFullYear(), mes = now.getMonth() + 1;
+  const ym = `${ano}-${String(mes).padStart(2, '0')}`;
+  const ef = metaEfetivaColab(emp, uid, ano, mes);
+  const fP = realizadoProsp(emp, uid, ym), fF = realizadoFech(emp, uid, ym), fC = realizadoContatos(emp, uid, ym);
+  const hoje = new Date().toISOString(), hojeD = hoje.slice(0, 10);
+  const tAtras = db.prepare(`SELECT COUNT(*) n FROM tarefas WHERE empresa_id=? AND responsavel_id=? AND origem LIKE 'trade%' AND status<>'concluido' AND prazo IS NOT NULL AND prazo < ?`).get(emp, uid, hoje).n;
+  const cobVenc = db.prepare(`SELECT COUNT(*) n FROM tmkt_prospeccao WHERE empresa_id=? AND responsavel_id=? AND etapa NOT IN ('ganho','perdido') AND proximo_contato IS NOT NULL AND substr(proximo_contato,1,10) < ?`).get(emp, uid, hojeD).n;
+  const pr = db.prepare(`SELECT COUNT(ve.id) espacos FROM tmkt_vendas v JOIN tmkt_venda_espacos ve ON ve.venda_id=v.id
+    WHERE v.empresa_id=? AND v.criado_por=? AND ${PREM_ASSINADO} AND COALESCE(v.uso_interno,0)=0 AND COALESCE(v.nao_ocupa,0)=0 AND COALESCE(v.nao_premia,0)=0 AND strftime('%Y-%m', v.criado_em)=?`).get(emp, uid, ym);
+  const CAT = [
+    { chave: 'prosp_mes', grupo: 'Prospecção', label: 'Prospecção — Novas prospecções no mês', unidade: 'qtd', direcao: 'maior', meta: ef.prospeccoes.efetiva || 0, realizado: fP, desc: 'Meta: abrir o nº combinado de prospecções no funil. O número é quantas você abriu no mês.' },
+    { chave: 'contatos_mes', grupo: 'Prospecção', label: 'Prospecção — Contatos registrados no mês', unidade: 'qtd', direcao: 'maior', meta: ef.contatos.meta || 0, realizado: fC, desc: 'Meta: manter o ritmo de contatos (ligações/visitas) nas prospecções. O número é quantos você registrou no mês.' },
+    { chave: 'fech_mes', grupo: 'Fechamento', label: 'Fechamento — Negócios ganhos no mês', unidade: 'qtd', direcao: 'maior', meta: ef.fechamentos.efetiva || 0, realizado: fF, desc: 'Meta: converter prospecções em negócio ganho. O número é quantos você fechou (etapa "ganho") no mês.' },
+    { chave: 'espacos_mes', grupo: 'Fechamento', label: 'Fechamento — Espaços vendidos (premiados)', unidade: 'qtd', direcao: 'maior', meta: 0, realizado: pr.espacos, desc: 'Espaços de contratos assinados que contam pra premiação no mês (informativo).' },
+    { chave: 'tarefas_atraso', grupo: 'Execução', label: 'Execução — Tarefas de trade atrasadas', unidade: 'qtd', direcao: 'menor', meta: 0, realizado: tAtras, desc: 'Meta: nenhuma tarefa de trade vencida. O número é quantas estão atrasadas.' },
+    { chave: 'cobrancas_venc', grupo: 'Execução', label: 'Execução — Cobranças com contato vencido', unidade: 'qtd', direcao: 'menor', meta: 0, realizado: cobVenc, desc: 'Meta: dar o próximo passo de cada prospecção na data. O número é quantas estão com o próximo contato vencido.' },
+  ];
+  const farol = m => {
+    if (m.realizado == null) return 'sem_dados';
+    if (m.direcao === 'maior') { if (!m.meta) return 'sem_dados'; const tol = Math.max(1, m.meta * 0.2); return m.realizado >= m.meta ? 'verde' : (m.realizado >= m.meta - tol ? 'amarelo' : 'vermelho'); }
+    return m.realizado <= m.meta ? 'verde' : (m.realizado <= m.meta + 1 ? 'amarelo' : 'vermelho');
+  };
+  const metas = CAT.map(m => ({ ...m, farol: farol(m) }));
+  const score = f => f === 'verde' ? 100 : f === 'amarelo' ? 50 : f === 'vermelho' ? 0 : null;
+  const pilares = ['Prospecção', 'Fechamento', 'Execução'].map(p => {
+    const ms = metas.filter(x => x.grupo === p); const sc = ms.map(x => score(x.farol)).filter(x => x != null);
+    const nota = sc.length ? Math.round(sc.reduce((a, b) => a + b, 0) / sc.length) : null;
+    return { pilar: p, nota, farol: nota == null ? 'sem_dados' : nota >= 80 ? 'verde' : nota >= 50 ? 'amarelo' : 'vermelho', total: ms.length, verde: ms.filter(x => x.farol === 'verde').length, amarelo: ms.filter(x => x.farol === 'amarelo').length, vermelho: ms.filter(x => x.farol === 'vermelho').length };
+  });
+  const nv = pilares.map(p => p.nota).filter(x => x != null);
+  res.json({ ok: true, periodo: { ym }, pilares, notaGeral: nv.length ? Math.round(nv.reduce((a, b) => a + b, 0) / nv.length) : null, metas });
+});
+
+// Observações do Meu Setor (Retail) — bloco que a equipe vai acumulando no painel de metas.
+const obsSetor = require('../lib/setorObservacoes');
+router.get('/observacoes', (req, res) => res.json(obsSetor.list(req.usuario.empresa_id, 'retail')));
+router.post('/observacoes', (req, res) => { try { res.json(obsSetor.add(req.usuario.empresa_id, 'retail', { texto: req.body.texto, usuario: req.usuario })); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.delete('/observacoes/:id', (req, res) => { try { res.json(obsSetor.remover(req.usuario.empresa_id, 'retail', req.params.id, { usuario: req.usuario })); } catch (e) { res.status(400).json({ erro: e.message }); } });
+
 // ── CRM / Lead de fornecedores: traz do Alpha 7 quem mais compramos + rastreio do relacionamento ──
 const UNIS_GRUPO = '(70417,70418,70419,70420,70421,70422,70423,70424)'; // unidades do grupo no ERP
 router.get('/leads', async (req, res) => {
@@ -929,7 +989,8 @@ function _diasEntre(ini, fim) { const out = []; const d = new Date(ini + 'T00:00
 function overlayCalendario(emp, ini, fim) {
   const out = [];
   // programações do trade (ações / dias temáticos / campanhas)
-  const CATICO = { suplemento: '💊', 'bem-estar': '🌿', beleza: '💄', saude: '🩺', geral: '📣' };
+  const CATICO = { postagem: '📱', acao: '🎯', evento: '🎪', campanha: '📢', acao_fornecedor: '🤝', execucao: '🏠',
+    suplemento: '💊', 'bem-estar': '🌿', beleza: '💄', saude: '🩺', geral: '📣' };
   const evs = db.prepare("SELECT id,nome,tipo,categoria,recorrencia,dia_semana,dia_mes,data,data_ini,data_fim,cor FROM tmkt_calendario WHERE empresa_id=? AND COALESCE(status,'ativo')='ativo'").all(emp);
   for (const ev of evs) {
     const rec = ev.recorrencia || 'unico';
@@ -970,7 +1031,7 @@ router.get('/agenda', (req, res) => {
   const manuais = db.prepare(`SELECT id, titulo, descricao, data, hora, fim, local, cor, visibilidade, dono_id, origem, ref_id, criado_por
       FROM agenda_evento WHERE empresa_id=? AND (visibilidade='empresa' OR dono_id=?)
         AND data<=? AND COALESCE(fim,data)>=? ORDER BY data, (hora IS NULL), hora`).all(emp, uid, fim, ini)
-    .map(e => ({ ...e, meu: e.dono_id === uid, editavel: (e.visibilidade === 'pessoal' ? e.dono_id === uid : GESTAO.includes(req.usuario.funcao)) }));
+    .map(e => ({ ...e, meu: e.dono_id === uid, editavel: e.origem === 'marketing' ? false : (e.visibilidade === 'pessoal' ? e.dono_id === uid : GESTAO.includes(req.usuario.funcao)) }));
   // DERIVADOS pessoais (só do usuário): próximo contato das prospecções abertas
   const prosp = db.prepare(`SELECT id, fornecedor_nome, proximo_contato FROM tmkt_prospeccao
       WHERE empresa_id=? AND responsavel_id=? AND etapa NOT IN ('ganho','perdido') AND proximo_contato IS NOT NULL
@@ -985,7 +1046,7 @@ router.get('/agenda', (req, res) => {
       hora: null, fim: null, visibilidade: 'pessoal', meu: true, editavel: false, origem: 'reabordar', aba: 'vendas', cor: '#B45309' }));
   // DERIVADOS pessoais: tarefas de trade do usuário com prazo
   const tarefas = db.prepare(`SELECT id, titulo, prazo FROM tarefas
-      WHERE empresa_id=? AND responsavel_id=? AND origem LIKE 'trade%' AND status<>'concluido' AND prazo IS NOT NULL
+      WHERE empresa_id=? AND responsavel_id=? AND (origem LIKE 'trade%' OR origem LIKE 'mkt%') AND status<>'concluido' AND prazo IS NOT NULL
         AND date(substr(prazo,1,10)) BETWEEN ? AND ?`).all(emp, uid, ini, fim)
     .map(t => ({ id: 'tar-' + t.id, ref_id: t.id, titulo: '✅ ' + t.titulo, data: String(t.prazo).slice(0, 10),
       hora: null, fim: null, visibilidade: 'pessoal', meu: true, editavel: false, origem: 'tarefa', cor: '#1E874B' }));
@@ -1231,6 +1292,7 @@ router.post('/vendas', exigePerfil(...GESTAO), (req, res) => {
   const lojasCsv = Array.isArray(b.lojas) ? b.lojas.filter(Boolean).join(',') : String(b.lojas || '');
   if (lojasCsv) db.prepare('UPDATE tmkt_vendas SET lojas=?, loja_id=? WHERE id=? AND empresa_id=?').run(lojasCsv, lojasCsv.split(',')[0] || null, id, emp);
   if (b.uso_interno) db.prepare('UPDATE tmkt_vendas SET uso_interno=1 WHERE id=? AND empresa_id=?').run(id, emp);
+  try { sincronizarExecucaoUsoInterno(emp, id, req.usuario.id); } catch (e) { console.error('execucao uso interno (post):', e.message); }
   logFase(emp, 'venda', id, STATUS.includes(b.status) ? b.status : 'rascunho', req.usuario.nome);
   res.json({ ok: true, id });
 });
@@ -1300,6 +1362,7 @@ router.put('/vendas/:id', exigePerfil(...GESTAO), (req, res) => {
   if ('uso_interno' in b) { set.push('uso_interno=?'); vals.push(b.uso_interno ? 1 : 0); }
   if (set.length) { set.push("atualizado_em=datetime('now')"); db.prepare(`UPDATE tmkt_vendas SET ${set.join(',')} WHERE id=? AND empresa_id=?`).run(...vals, req.params.id, emp); }
   if ('status' in b && STATUS.includes(b.status)) logFase(emp, 'venda', req.params.id, b.status, req.usuario.nome);
+  if ('uso_interno' in b || 'status' in b) { try { sincronizarExecucaoUsoInterno(emp, req.params.id, req.usuario.id); } catch (e) { console.error('execucao uso interno (put):', e.message); } }
   res.json({ ok: true });
 });
 // gera (ou devolve) o link de aprovação do fornecedor: ele abre, dá ciência e aprova → vai pra veiculação

@@ -7,6 +7,10 @@ const bv = require('../lib/botvendas');
 
 const GESTAO = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria', 'Gerente', 'Subgerente'];
 router.use(auth);
+// Cache serve-stale do ERP (Joe 2026-11-14): abre na hora e só reconsulta o Alpha ~1x/h ou após escrita. ?forcar=1 recalcula.
+const { cacheMiddleware: _erpCache, invalidarMiddleware: _erpInval } = require('../lib/erpCache');
+router.use(_erpCache('entrega'));
+router.use(_erpInval('entrega'));
 router.use(exigePerfil(...GESTAO));
 
 const hoje = () => new Date().toISOString().slice(0, 10);

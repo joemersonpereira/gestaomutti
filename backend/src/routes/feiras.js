@@ -10,6 +10,10 @@ const { unisEmpresa } = require('../lib/escopoCompras');
 
 const GESTAO = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria'];
 router.use(auth);
+// Cache serve-stale do ERP (Joe 2026-11-14): abre na hora e só reconsulta o Alpha ~1x/h ou após escrita. ?forcar=1 recalcula.
+const { cacheMiddleware: _erpCache, invalidarMiddleware: _erpInval } = require('../lib/erpCache');
+router.use(_erpCache('feiras'));
+router.use(_erpInval('feiras'));
 
 const participantesDe = id => db.prepare('SELECT id, tipo, ref_id, nome FROM feira_participantes WHERE feira_id=? ORDER BY nome').all(id);
 
@@ -58,9 +62,10 @@ router.post('/', exigePerfil(...GESTAO), (req, res) => {
   const b = req.body;
   if (!b.nome || !b.data_ini) return res.status(400).json({ erro: 'Informe nome e data da feira.' });
   const id = uuid();
-  db.prepare(`INSERT INTO feiras (id, empresa_id, nome, data_ini, data_fim, verba_planejada, observacao, dias_aviso, criado_por)
-    VALUES (?,?,?,?,?,?,?,?,?)`).run(id, req.usuario.empresa_id, b.nome, b.data_ini, b.data_fim || null,
-    b.verba_planejada ? Number(b.verba_planejada) : null, b.observacao || null, Number(b.dias_aviso) || 30, req.usuario.id);
+  db.prepare(`INSERT INTO feiras (id, empresa_id, nome, data_ini, data_fim, verba_planejada, observacao, dias_aviso, meses_cobertura, criado_por)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(id, req.usuario.empresa_id, b.nome, b.data_ini, b.data_fim || null,
+    b.verba_planejada ? Number(b.verba_planejada) : null, b.observacao || null, Number(b.dias_aviso) || 30,
+    b.meses_cobertura ? Number(b.meses_cobertura) : null, req.usuario.id);
   salvarParticipantes(id, b.participantes);
   res.json({ ok: true, id });
 });
@@ -69,8 +74,8 @@ router.put('/:id', exigePerfil(...GESTAO), (req, res) => {
   const f = db.prepare('SELECT id FROM feiras WHERE id=? AND empresa_id=?').get(req.params.id, req.usuario.empresa_id);
   if (!f) return res.status(404).json({ erro: 'Feira não encontrada.' });
   const b = req.body;
-  db.prepare(`UPDATE feiras SET nome=COALESCE(?,nome), data_ini=COALESCE(?,data_ini), data_fim=?, verba_planejada=?, observacao=?, dias_aviso=COALESCE(?,dias_aviso) WHERE id=?`)
-    .run(b.nome || null, b.data_ini || null, b.data_fim || null, b.verba_planejada ? Number(b.verba_planejada) : null, b.observacao || null, b.dias_aviso ? Number(b.dias_aviso) : null, req.params.id);
+  db.prepare(`UPDATE feiras SET nome=COALESCE(?,nome), data_ini=COALESCE(?,data_ini), data_fim=?, verba_planejada=?, observacao=?, dias_aviso=COALESCE(?,dias_aviso), meses_cobertura=? WHERE id=?`)
+    .run(b.nome || null, b.data_ini || null, b.data_fim || null, b.verba_planejada ? Number(b.verba_planejada) : null, b.observacao || null, b.dias_aviso ? Number(b.dias_aviso) : null, b.meses_cobertura ? Number(b.meses_cobertura) : null, req.params.id);
   if (Array.isArray(b.participantes)) salvarParticipantes(req.params.id, b.participantes);
   res.json({ ok: true });
 });

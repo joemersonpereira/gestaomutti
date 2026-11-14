@@ -167,18 +167,21 @@ function Batidas({ API }) {
 }
 
 export function Vinculos({ API }) {
-  const [d, setD] = useState(null); const [msg, setMsg] = useState(''); const [busca, setBusca] = useState('');
+  const [d, setD] = useState(null); const [msg, setMsg] = useState(''); const [busca, setBusca] = useState(''); const [soSem, setSoSem] = useState(false); const [semCpf, setSemCpf] = useState(false);
   const carregar = useCallback(() => API.get('/ponto/vinculos').then(r => setD(r.data)).catch(() => {}), [API]);
   useEffect(() => { carregar(); }, [carregar]);
   const auto = () => { setMsg('Casando por CPF…'); API.post('/ponto/vincular-cpf').then(r => { setMsg(`✅ ${r.data.vinculados} vinculado(s) por CPF (${r.data.tangerinoTotal} no Tangerino; ${r.data.semCpf} sem CPF no Mutti).`); carregar(); }).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Falha.'))); };
   const desvincular = id => API.post(`/ponto/vincular/${id}`, { tangerino_id: '', tangerino_nome: '' }).then(carregar);
-  const rows = (d?.vinculos || []).filter(v => !busca || v.nome.toLowerCase().includes(busca.toLowerCase()));
+  const excluir = v => { if (!window.confirm(`Remover "${v.nome}" da base? Ele é DESATIVADO (some das listas) — dá pra reativar depois em Colaboradores.`)) return; API.patch(`/colaboradores/${v.id}/ativar`, { ativo: false }).then(carregar).catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Falha ao remover.'))); };
+  const rows = (d?.vinculos || []).filter(v => !busca || v.nome.toLowerCase().includes(busca.toLowerCase())).filter(v => !soSem || !v.tangerino_id).filter(v => !semCpf || !v.cpf);
   return (
     <div>
       <div style={{ ...s.card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <button onClick={auto} style={s.btn}>🔗 Vincular automaticamente por CPF</button>
         {d && <span style={{ fontSize: 12.5, color: '#666' }}>{d.vinculados}/{d.total} vinculados</span>}
-        <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔎 colaborador…" style={{ ...s.inp, marginLeft: 'auto', width: 200 }} />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: '#444', marginLeft: 'auto' }}><input type="checkbox" checked={soSem} onChange={e => setSoSem(e.target.checked)} /> só sem vínculo</label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: '#444' }}><input type="checkbox" checked={semCpf} onChange={e => setSemCpf(e.target.checked)} /> só sem CPF</label>
+        <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔎 colaborador…" style={{ ...s.inp, width: 200 }} />
       </div>
       {msg && <div style={{ ...s.card, fontSize: 12.5, color: msg[0] === '✅' ? '#1E874B' : '#B7791F' }}>{msg}</div>}
       <div style={s.card}>
@@ -189,6 +192,7 @@ export function Vinculos({ API }) {
             <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               {v.tangerino_id ? <><span style={{ color: '#1E874B', fontSize: 11.5 }}>Tangerino: {v.tangerino_nome || v.tangerino_id}</span><button onClick={() => desvincular(v.id)} style={s.mv}>desvincular</button></>
                 : <span style={{ color: '#C0392B', fontSize: 11.5 }}>sem vínculo</span>}
+              <button onClick={() => excluir(v)} title="Remover da base (desativa)" style={{ ...s.mv, color: '#b91c1c', borderColor: '#f1b4ab' }}>🗑 excluir</button>
             </span>
           </div>
         ))}

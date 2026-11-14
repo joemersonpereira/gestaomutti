@@ -78,23 +78,32 @@ function clausulaProdutos(filtro, alias = 'p') {
 }
 
 // Transferências (remanejamentos) ainda não concluídas — as paradas há mais de `diasAceitavel`.
-// status: A=Aberta, S=Em separação, E=Em trânsito (enviada, não recebida). R/C = concluída/cancelada.
+// EXECUÇÃO da transferência (tabela transferencia). status: A=Aberta, S=Em separação, E=Em trânsito. R/C fora.
 const STATUS_TRANSF = { A: 'Aberta', S: 'Em separação', E: 'Em trânsito' };
-async function transferenciasPendentes(diasAceitavel = 7, uni = null) {
-  if (!habilitado()) return { transferencias: [], erp: false };
+const STATUS_OPCOES = [['', 'Todas'], ...Object.entries(STATUS_TRANSF).map(([v, l]) => [v, l])];
+async function transferenciasPendentes(diasAceitavel = 7, uni = null, { empresaId = null, compradorId = null } = {}) {
+  if (!habilitado()) return { transferencias: [], erp: false, statusOpcoes: STATUS_OPCOES };
   const lista = Array.isArray(uni) ? uni.filter(Boolean) : (uni ? [uni] : []);
-  const filtroLoja = lista.length ? 'AND (t.unidadenegocioorigemid = ANY($1::bigint[]) OR t.unidadenegociodestinoid = ANY($1::bigint[]))' : '';
+  const params = []; let filtroLoja = '', filtroComp = '';
+  if (lista.length) { params.push(lista); filtroLoja = `AND (t.unidadenegocioorigemid = ANY($${params.length}::bigint[]) OR t.unidadenegociodestinoid = ANY($${params.length}::bigint[]))`; }
+  if (compradorId && empresaId) {
+    const { produtosDoComprador } = require('./indicadoresCompraErp'); // lazy: evita dependência circular
+    const prodIds = await produtosDoComprador(empresaId, compradorId);
+    if (!prodIds.length) return { erp: true, diasAceitavel, transferencias: [], resumo: { pendentes: 0, atrasadas: 0, valorParado: 0, valorAtrasado: 0, maisAntigaDias: 0 }, statusOpcoes: STATUS_OPCOES };
+    params.push(prodIds);
+    filtroComp = `AND EXISTS (SELECT 1 FROM itemtransferencia i2 JOIN embalagem e2 ON e2.id=i2.embalagemid WHERE i2.transferenciaid=t.id AND COALESCE(i2.status,'')<>'C' AND e2.produtoid = ANY($${params.length}::bigint[]))`;
+  }
   const rows = await erpQuery(`
     SELECT t.id, t.codigo, t.status, t.datahora,
       uo.nome origem, ud.nome destino,
       (now()::date - t.datahora::date) dias,
-      (SELECT COUNT(*) FROM itemtransferencia i WHERE i.transferenciaid=t.id) itens,
-      (SELECT COALESCE(SUM(i.valortotal),0) FROM itemtransferencia i WHERE i.transferenciaid=t.id) valor
+      (SELECT COUNT(*) FROM itemtransferencia i WHERE i.transferenciaid=t.id AND COALESCE(i.status,'') <> 'C') itens,
+      (SELECT COALESCE(SUM(i.valortotal),0) FROM itemtransferencia i WHERE i.transferenciaid=t.id AND COALESCE(i.status,'') <> 'C') valor
     FROM transferencia t
     JOIN unidadenegocio uo ON uo.id = t.unidadenegocioorigemid
     JOIN unidadenegocio ud ON ud.id = t.unidadenegociodestinoid
-    WHERE t.status IN ('A','S','E') ${filtroLoja}
-    ORDER BY t.datahora ASC`, lista.length ? [lista] : []);
+    WHERE t.status IN ('A','S','E') ${filtroLoja} ${filtroComp}
+    ORDER BY t.datahora ASC`, params);
   const transferencias = rows.map(r => ({
     id: Number(r.id), codigo: r.codigo, status: r.status, statusLabel: STATUS_TRANSF[r.status] || r.status,
     origem: r.origem, destino: r.destino, data: r.datahora,
@@ -103,7 +112,7 @@ async function transferenciasPendentes(diasAceitavel = 7, uni = null) {
   }));
   const atrasadas = transferencias.filter(t => t.atrasada);
   return {
-    erp: true, diasAceitavel,
+    erp: true, diasAceitavel, statusOpcoes: STATUS_OPCOES,
     transferencias,
     resumo: {
       pendentes: transferencias.length,
@@ -119,19 +128,71 @@ async function transferenciasPendentes(diasAceitavel = 7, uni = null) {
 async function itensTransferencia(transferenciaId) {
   if (!habilitado() || !transferenciaId) return { erp: true, itens: [] };
   const rows = await erpQuery(`
-    SELECT it.id, pr.descricao, COALESCE(it.quantidade,0) qtd, COALESCE(it.valortotal,0) valor, it.lote,
+    SELECT it.id, pr.descricao, COALESCE(it.quantidade,0) qtd, COALESCE(it.valortotal,0) valor,
       (SELECT em2.codigobarras FROM embalagem em2 WHERE em2.produtoid=em.produtoid AND em2.codigobarras IS NOT NULL ORDER BY length(em2.codigobarras) DESC LIMIT 1) ean
     FROM itemtransferencia it
     JOIN embalagem em ON em.id = it.embalagemid
     JOIN produto pr ON pr.id = em.produtoid
-    WHERE it.transferenciaid = $1::bigint
+    WHERE it.transferenciaid = $1::bigint AND COALESCE(it.status,'') <> 'C'
     ORDER BY it.valortotal DESC NULLS LAST
-    LIMIT 500`, [Number(transferenciaId)]).catch(() => []);
+    LIMIT 500`, [Number(transferenciaId)]).catch((e) => { console.error('[itensTransferencia]', e.message); return []; });
   return {
     erp: true,
-    itens: rows.map(r => ({ id: Number(r.id), descricao: r.descricao, ean: r.ean || null, lote: r.lote || null, qtd: Number(r.qtd) || 0, valor: Number(r.valor) || 0 })),
+    itens: rows.map(r => ({ id: Number(r.id), descricao: r.descricao, ean: r.ean || null, qtd: Number(r.qtd) || 0, valor: Number(r.valor) || 0 })),
     total: rows.reduce((a, r) => a + (Number(r.valor) || 0), 0),
   };
 }
 
-module.exports = { listarGruposCompra, listarClassificacoes, filtroProdutosComprador, clausulaProdutos, transferenciasPendentes, itensTransferencia };
+// ── PEDIDO DE TRANSFERÊNCIA (pedidotransferencia) — o que o comprador de fato SOLICITA (visão principal).
+// status: A=Aberto, B=Em separação (pendentes). C=Recebido, D=Cancelado ficam fora.
+const STATUS_PEDIDO = { A: 'Aberto', B: 'Em separação' };
+const STATUS_OPC_PEDIDO = [['', 'Todas'], ...Object.entries(STATUS_PEDIDO).map(([v, l]) => [v, l])];
+async function pedidosTransferenciaPendentes(diasAceitavel = 7, uni = null, { empresaId = null, compradorId = null } = {}) {
+  if (!habilitado()) return { transferencias: [], erp: false, statusOpcoes: STATUS_OPC_PEDIDO };
+  const lista = Array.isArray(uni) ? uni.filter(Boolean) : (uni ? [uni] : []);
+  const params = []; let filtroLoja = '', filtroComp = '';
+  if (lista.length) { params.push(lista); filtroLoja = `AND (p.unidadenegocioorigemid = ANY($${params.length}::bigint[]) OR p.unidadenegociodestinoid = ANY($${params.length}::bigint[]))`; }
+  if (compradorId && empresaId) {
+    const { produtosDoComprador } = require('./indicadoresCompraErp');
+    const prodIds = await produtosDoComprador(empresaId, compradorId);
+    if (!prodIds.length) return { erp: true, diasAceitavel, transferencias: [], resumo: { pendentes: 0, atrasadas: 0, valorParado: 0, valorAtrasado: 0, maisAntigaDias: 0 }, statusOpcoes: STATUS_OPC_PEDIDO };
+    params.push(prodIds);
+    filtroComp = `AND EXISTS (SELECT 1 FROM itempedidotransferencia ip WHERE ip.pedidotransferenciaid=p.id AND ip.produtoid = ANY($${params.length}::bigint[]))`;
+  }
+  const rows = await erpQuery(`
+    SELECT p.id, p.codigo, p.status, p.datahora, to_char(p.dataprogramada,'YYYY-MM-DD') programada,
+      uo.nome origem, ud.nome destino, COALESCE(ps.nome, u.login) usuario,
+      (now()::date - p.datahora::date) dias,
+      (SELECT COUNT(*) FROM itempedidotransferencia ip WHERE ip.pedidotransferenciaid=p.id) itens,
+      (SELECT COALESCE(SUM(ip.valortotal),0) FROM itempedidotransferencia ip WHERE ip.pedidotransferenciaid=p.id) valor
+    FROM pedidotransferencia p
+    JOIN unidadenegocio uo ON uo.id = p.unidadenegocioorigemid
+    JOIN unidadenegocio ud ON ud.id = p.unidadenegociodestinoid
+    LEFT JOIN usuario u ON u.id = p.usuarioid LEFT JOIN pessoa ps ON ps.id = u.pessoaid
+    WHERE p.status IN ('A','B') ${filtroLoja} ${filtroComp}
+    ORDER BY p.datahora ASC`, params);
+  const transferencias = rows.map(r => ({
+    id: Number(r.id), codigo: r.codigo, status: r.status, statusLabel: STATUS_PEDIDO[r.status] || r.status,
+    origem: r.origem, destino: r.destino, data: r.datahora, programada: r.programada, usuario: (r.usuario || '').trim() || null,
+    dias: Number(r.dias) || 0, itens: Number(r.itens) || 0, valor: Number(r.valor) || 0,
+    atrasada: (Number(r.dias) || 0) > diasAceitavel,
+  }));
+  const atrasadas = transferencias.filter(t => t.atrasada);
+  return { erp: true, diasAceitavel, statusOpcoes: STATUS_OPC_PEDIDO, transferencias,
+    resumo: { pendentes: transferencias.length, atrasadas: atrasadas.length,
+      valorParado: transferencias.reduce((a, t) => a + t.valor, 0), valorAtrasado: atrasadas.reduce((a, t) => a + t.valor, 0),
+      maisAntigaDias: transferencias.length ? transferencias[0].dias : 0 } };
+}
+// Itens de UM pedido de transferência.
+async function itensPedidoTransferencia(pedidoId) {
+  if (!habilitado() || !pedidoId) return { erp: true, itens: [] };
+  const rows = await erpQuery(`
+    SELECT ip.id, pr.descricao, COALESCE(ip.quantidade,0) qtd, COALESCE(ip.valortotal,0) valor,
+      (SELECT em.codigobarras FROM embalagem em WHERE em.produtoid=ip.produtoid AND em.codigobarras IS NOT NULL ORDER BY length(em.codigobarras) DESC LIMIT 1) ean
+    FROM itempedidotransferencia ip JOIN produto pr ON pr.id = ip.produtoid
+    WHERE ip.pedidotransferenciaid = $1::bigint
+    ORDER BY ip.valortotal DESC NULLS LAST LIMIT 500`, [Number(pedidoId)]).catch((e) => { console.error('[itensPedido]', e.message); return []; });
+  return { erp: true, itens: rows.map(r => ({ id: Number(r.id), descricao: r.descricao, ean: r.ean || null, qtd: Number(r.qtd) || 0, valor: Number(r.valor) || 0 })), total: rows.reduce((a, r) => a + (Number(r.valor) || 0), 0) };
+}
+
+module.exports = { listarGruposCompra, listarClassificacoes, filtroProdutosComprador, clausulaProdutos, transferenciasPendentes, itensTransferencia, pedidosTransferenciaPendentes, itensPedidoTransferencia };

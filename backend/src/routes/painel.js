@@ -74,6 +74,11 @@ function checklistIndicadorNota(empresaId, lojaId, indicadorAlvo) {
 }
 
 router.use(auth);
+// Cache serve-stale do ERP (Joe 2026-11-14): keyUser=true (chave por usuário) porque GETs usam fallback
+// `req.usuario.loja_id` e há rotas com guarda (soEscritorio) e /meu-setor. Erro 4xx não cacheia → guarda vale.
+const { cacheMiddleware: _erpCachePn, invalidarMiddleware: _erpInvalPn } = require('../lib/erpCache');
+router.use(_erpCachePn('painel', { keyUser: true }));
+router.use(_erpInvalPn('painel'));
 
 const ESC = { bom: 100, regular: 50, ruim: 0 };
 
@@ -498,10 +503,27 @@ async function snapshotMensalMes(emp, mes, ano) {
   try { const t = require('../lib/tesourariaErp'); const q = await t.quebras(emp, { ini, fim }); out['Tesouraria'] = Number(q.resumo?.valorAcobrar || 0); } catch { /* skip */ }
   try { const en = require('../lib/entregaErp'); const r = await en.resumo(emp, { ini, fim }); out['Atendimento Online'] = Number(r.tempoMedio || 0); } catch { /* skip */ }
   try { const fin = require('../lib/financeiroErp'); const dre = await fin.dre(emp, { ano }); if (dre.ok) out['Financeiro (DRE)'] = Number((dre.resultado || [])[mes - 1] || 0); } catch { /* skip */ }
-  try { const { orcamentoCompra } = require('../lib/orcamentoErp'); const o = await orcamentoCompra(emp, { ano, mes }); const mc = o.mesCorrente || o.mes || {}; out['Compras — Orçamento'] = Number(mc.saldo != null ? mc.saldo : ((mc.orcamento || 0) - (mc.comprado || 0))); } catch { /* skip */ }
+  try { const { orcamentoCompra } = require('../lib/orcamentoCompraErp'); const o = await orcamentoCompra(emp, { ano, mes }); const mc = o.mesCorrente || o.mes || {}; out['Compras — Orçamento'] = Number(mc.saldo != null ? mc.saldo : ((mc.orcamento || 0) - (mc.comprado || 0))); } catch { /* skip */ }
   try { const ag = db.prepare('SELECT status FROM mkt_agenda WHERE empresa_id=? AND data_ini>=? AND data_ini<=?').all(emp, ini, fim); const tot = ag.length; const f = ag.filter(a => ['publicado', 'concluido'].includes(a.status)).length; if (tot) out['Marketing'] = Math.round(100 * f / tot); } catch { /* skip */ }
   return out;
 }
+
+// Pessoas por loja (Diretoria): colaboradores ativos + estagiários ativos, por loja.
+router.get('/pessoas-por-loja', (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const lojas = db.prepare('SELECT id, nome FROM lojas WHERE empresa_id=? ORDER BY nome').all(emp);
+  const col = db.prepare("SELECT loja_id, COUNT(*) n FROM colaboradores WHERE empresa_id=? AND ativo=1 GROUP BY loja_id").all(emp);
+  const est = db.prepare("SELECT loja, COUNT(*) n FROM estagio_ficha WHERE empresa_id=? AND status='ativo' GROUP BY loja").all(emp);
+  const colM = {}; col.forEach(r => { if (r.loja_id) colM[r.loja_id] = r.n; });
+  const estM = {}; est.forEach(r => { if (r.loja) estM[r.loja] = r.n; });
+  const nomeM = {}; lojas.forEach(l => { nomeM[l.id] = l.nome; });
+  const nomeFallback = id => nomeM[id] || (id === 'loja-escritorio' ? 'Escritório' : (id || '—').replace(/^loja-/, '').replace(/^\w/, c => c.toUpperCase()));
+  const ids = [...new Set([...lojas.map(l => l.id), ...Object.keys(colM), ...Object.keys(estM)].filter(Boolean))];
+  const linhas = ids.map(id => ({ loja_id: id, loja: nomeFallback(id), colaboradores: colM[id] || 0, estagiarios: estM[id] || 0 }))
+    .filter(l => l.colaboradores || l.estagiarios)
+    .sort((a, b) => (b.colaboradores + b.estagiarios) - (a.colaboradores + a.estagiarios));
+  res.json({ linhas, total: { colaboradores: linhas.reduce((s, l) => s + l.colaboradores, 0), estagiarios: linhas.reduce((s, l) => s + l.estagiarios, 0), lojas: linhas.length } });
+});
 
 router.get('/diretoria', async (req, res) => {
   const hoje = new Date();
@@ -649,7 +671,7 @@ router.get('/diretoria', async (req, res) => {
 
   // 🧮 ORÇAMENTO DE COMPRAS — orçado × comprado do mês
   try {
-    const { orcamentoCompra } = require('../lib/orcamentoErp');
+    const { orcamentoCompra } = require('../lib/orcamentoCompraErp');
     const o = await orcamentoCompra(emp, { ano, mes });
     const mc = o.mesCorrente || o.mes || {};
     const orc = mc.orcamento || 0, comp = mc.comprado || 0;

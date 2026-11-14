@@ -128,8 +128,41 @@ async function quebras(empresaId, { ini, fim, lojaId } = {}) {
       cobranca: c ? { status: c.status, valorCobrado: c.valor_cobrado, observacao: c.observacao, resolvidoEm: c.resolvido_em } : { status: 'pendente' },
     };
   });
+  // + diferenças AVULSAS lançadas pela gestão (app db) — aparecem junto, marcadas origem 'avulso'.
+  try {
+    const av = db.prepare(`SELECT * FROM tesouraria_diferenca_avulsa WHERE empresa_id=? AND data>=? AND data<=?${lojaId ? ' AND loja_id=?' : ''} ORDER BY data DESC`)
+      .all(...(lojaId ? [empresaId, ini, fim, lojaId] : [empresaId, ini, fim]));
+    const nomeLojas = {}; try { db.prepare('SELECT id, nome FROM lojas WHERE empresa_id=?').all(empresaId).forEach(l => { nomeLojas[l.id] = l.nome; }); } catch (e) { /* */ }
+    for (const a of av) {
+      const tipo = a.tipo === 'sobra' ? 'sobra' : 'falta';
+      const vSigned = tipo === 'falta' ? -Math.abs(Number(a.valor) || 0) : Math.abs(Number(a.valor) || 0);
+      const relevante = Math.abs(vSigned) > cfg.limiar;
+      if (tipo === 'falta') { resumo.faltas++; resumo.valorFalta += vSigned; } else { resumo.sobras++; resumo.valorSobra += vSigned; }
+      if (relevante) { resumo.relevantes++; if (tipo === 'sobra') resumo.sobrasRelevantes++; }
+      quebras.unshift({
+        id: 'av:' + a.id, data: (a.data || '').slice(0, 10), valor: vSigned, tipo, acobrar: false, relevante, origem: 'avulso',
+        operador: (a.operador || '—').trim(), login: a.operador_login || null, operadorId: null,
+        lojaId: a.loja_id || null, loja: nomeLojas[a.loja_id] || a.loja_id || '—',
+        observacao: a.obs || '', erpStatus: null, cobranca: { status: 'avulso' }, avulso: true,
+      });
+    }
+  } catch (e) { /* sem tabela/erro: segue só com as do ERP */ }
   resumo.valorFalta = round(resumo.valorFalta); resumo.valorSobra = round(resumo.valorSobra); resumo.valorAcobrar = round(resumo.valorAcobrar);
   return { ok: true, quebras, resumo, limiar: cfg.limiar };
+}
+// Diferença avulsa (falta/sobra) lançada pela gestão.
+function addDiferencaAvulsa(empresaId, { loja_id, data, operador, operador_login, valor, tipo, obs, usuario } = {}) {
+  if (!operador) throw new Error('Informe o operador.');
+  if (valor == null || isNaN(Number(valor)) || Number(valor) === 0) throw new Error('Informe o valor da diferença.');
+  const id = require('crypto').randomUUID();
+  db.prepare(`INSERT INTO tesouraria_diferenca_avulsa (id, empresa_id, loja_id, data, operador, operador_login, valor, tipo, obs, por) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+    .run(id, empresaId, loja_id || null, (data || new Date().toISOString().slice(0, 10)).slice(0, 10), String(operador).trim(), operador_login || null, Math.abs(Number(valor)), tipo === 'sobra' ? 'sobra' : 'falta', obs || null, (usuario && (usuario.nome || usuario.id)) || null);
+  return { ok: true, id };
+}
+function removerDiferencaAvulsa(empresaId, id) {
+  const real = String(id || '').replace(/^av:/, '');
+  db.prepare('DELETE FROM tesouraria_diferenca_avulsa WHERE empresa_id=? AND id=?').run(empresaId, real);
+  return { ok: true };
 }
 function vazioResumo() { return { total: 0, faltas: 0, sobras: 0, valorFalta: 0, valorSobra: 0, relevantes: 0, sobrasRelevantes: 0, acobrar: 0, valorAcobrar: 0, pendentes: 0 }; }
 const round = n => Math.round((Number(n) || 0) * 100) / 100;
@@ -234,7 +267,9 @@ async function cancelamentos(empresaId, { ini, fim, lojaId } = {}) {
   const batIdx = new Map(); let pontoOk = false;
   if (tang.habilitado()) {
     try {
-      const bat = await tang.todasBatidas({ startDate: ini, endDate: fim });
+      // endpoint novo da Sólides é POR colaborador — passa os tangerino_id dos colaboradores.
+      const empIds = db.prepare(`SELECT DISTINCT tangerino_id FROM colaboradores WHERE empresa_id=? AND tangerino_id IS NOT NULL AND tangerino_id<>''`).all(empresaId).map(r => String(r.tangerino_id));
+      const bat = await tang.todasBatidas({ startDate: ini, endDate: fim, employeeIds: empIds });
       for (const b of bat) {
         const tid = String(b.employeeId); if (!b.dateIn) continue;
         if (!batIdx.has(tid)) batIdx.set(tid, []);
@@ -385,6 +420,30 @@ async function acertosCaixa(empresaId, { ini, fim, lojaId } = {}) {
   return { ok: true, porOperador };
 }
 
+// Dias trabalhados por operador no caixa (fechamentos) + se o dia teve ERRO (quebracaixa != null).
+// Base dos STREAKS (semanas consecutivas sem erro) e dos dias de erro consecutivos. Mesmo operador/fonte
+// do acertosCaixa (sessaocaixa.usuarioid → pessoa.nome; fechamentocaixa.quebracaixaid IS NOT NULL = errou).
+async function diasOperadorCaixa(empresaId, { ini, fim, lojaId, limiar = 0 } = {}) {
+  const unis = unisEmpresa(empresaId, lojaId);
+  if (!unis.length || !habilitado()) return [];
+  // errou = a quebra VINCULADA ao fechamento é RELEVANTE: |valor| acima do limiar (micro-diferença de
+  // centavos NÃO conta como erro). tipo 'A' e não é correção de cartão (mesma base do quebras()).
+  const lim = Math.max(0, Number(limiar) || 0);
+  const rows = await erpQuery(`
+    SELECT COALESCE(p.nome, u.login, '—') operador,
+      to_char(s.datahorainicial::date,'YYYY-MM-DD') dia,
+      bool_or(qc.id IS NOT NULL AND abs(COALESCE(qc.valor,0)) > $4 AND COALESCE(qc.tipo,'A')='A' AND qc.origemcorrecaocartaoreceberid IS NULL) errou
+    FROM fechamentocaixa f
+    JOIN sessaocaixa s ON s.id=f.sessaocaixaid
+    LEFT JOIN quebracaixa qc ON qc.id=f.quebracaixaid
+    LEFT JOIN usuario u ON u.id=s.usuarioid LEFT JOIN pessoa p ON p.id=u.pessoaid
+    WHERE s.unidadenegocioid = ANY($1::bigint[])
+      AND s.datahorainicial >= $2::date AND s.datahorainicial < ($3::date + 1)
+    GROUP BY COALESCE(p.nome, u.login, '—'), s.datahorainicial::date
+    ORDER BY 1, 2`, [unis, ini, fim, lim]).catch(() => []);
+  return rows.map(r => ({ operador: (r.operador || '—').trim() || '—', dia: r.dia, errou: r.errou === true || r.errou === 't' }));
+}
+
 // Lista de estornos do período (p/ o drill-down do painel da loja).
 async function estornosLista(empresaId, { ini, fim, lojaId } = {}) {
   const unis = unisEmpresa(empresaId, lojaId);
@@ -399,4 +458,126 @@ async function estornosLista(empresaId, { ini, fim, lojaId } = {}) {
   return { ok: true, itens: rows.map(r => ({ data: r.data, operador: (r.operador || r.login || '—').trim(), valor: round(r.valor), motivo: r.motivo || '' })) };
 }
 
-module.exports = { getConfig, setConfig, quebras, marcarCobranca, indicadoresSetor, sessoesDia, cancelamentos, mapaUsuarioColaborador, cuponsPorOperador, premiarTopOperador, aplicarPontosQuebra, debitosOperador, marcarPagoCobranca, conferenciaCaixa, estornosLista, acertosCaixa };
+// ── Venda/entrega deixada na tela sem baixar ────────────────────────────────
+// Orçamento status 'A' (aberto na tela) cuja data JÁ passou (virou o dia) = não foi baixado.
+// Atribuído ao usuário que criou (orcamento.usuarioid). Conta por operador no período.
+async function vendasNaTela(empresaId, { ini, fim, lojaId } = {}) {
+  const unis = unisEmpresa(empresaId, lojaId);
+  if (!unis.length || !habilitado()) return { ok: true, porOperador: {}, itens: [] };
+  const rows = await erpQuery(`
+    SELECT o.id::text id, o.datahora::date::text data, o.tipo,
+           o.unidadenegocioid::int unidade, COALESCE(p.nome, u.login, '—') operador, u.id::text operador_id
+    FROM orcamento o
+    LEFT JOIN usuario u ON u.id=o.usuarioid
+    LEFT JOIN pessoa p ON p.id=u.pessoaid
+    WHERE o.status='A'
+      AND o.unidadenegocioid = ANY($1::bigint[])
+      AND o.datahora >= $2::date AND o.datahora < ($3::date + 1)
+      AND o.datahora::date < current_date
+    ORDER BY o.datahora DESC`, [unis, ini, fim]);
+  const mapLoja = mapaUnidadeLoja(empresaId);
+  const porOperador = {};
+  const itens = rows.map(r => {
+    const nome = (r.operador || '—').trim();
+    porOperador[nome] = (porOperador[nome] || 0) + 1;
+    return { id: r.id, data: r.data, tipo: r.tipo === 'E' ? 'entrega' : 'venda', operador: nome, operadorId: r.operador_id, loja: (mapLoja.get(Number(r.unidade)) || {}).nome || null };
+  });
+  return { ok: true, porOperador, itens };
+}
+
+// ── A pagar / Desconto do operador (ciclo configurável + contato p/ a Agilidade) ──
+function cfgDesconto(emp) {
+  const g = k => { try { const r = db.prepare('SELECT valor FROM tesouraria_config WHERE empresa_id=? AND chave=?').get(emp, k); return r ? r.valor : null; } catch (e) { return null; } };
+  return { diaCorte: Number(g('desconto_dia_corte')) || 25, slaHoras: Number(g('agilidade_sla_horas')) || 4 };
+}
+function setCfgDesconto(emp, { diaCorte, slaHoras } = {}) {
+  const up = (k, v) => { const ex = db.prepare('SELECT 1 FROM tesouraria_config WHERE empresa_id=? AND chave=?').get(emp, k); if (ex) db.prepare('UPDATE tesouraria_config SET valor=? WHERE empresa_id=? AND chave=?').run(String(v), emp, k); else db.prepare('INSERT INTO tesouraria_config (empresa_id, chave, valor) VALUES (?,?,?)').run(emp, k, String(v)); };
+  if (diaCorte != null) up('desconto_dia_corte', Math.min(28, Math.max(1, Number(diaCorte) || 25)));
+  if (slaHoras != null) up('agilidade_sla_horas', Math.max(1, Number(slaHoras) || 4));
+  return { ok: true };
+}
+const horasEntre = (a, b) => (new Date(b).getTime() - new Date(a).getTime()) / 3600000;
+function calcNoPrazo(emp, contato_em, retorno_em) {
+  if (!contato_em || !retorno_em) return { no_prazo: null, sla: cfgDesconto(emp).slaHoras };
+  const sla = cfgDesconto(emp).slaHoras; const h = horasEntre(contato_em, retorno_em);
+  return { no_prazo: (h >= 0 && h <= sla) ? 1 : 0, sla, horas: Math.round(h * 10) / 10 };
+}
+function addApagar(emp, { operador, colaborador_id, loja_id, de, ate, valor, obs, contato_em, retorno_em, usuario } = {}) {
+  if (!operador) throw new Error('Informe o operador.');
+  if (!(Number(valor) > 0)) throw new Error('Valor inválido.');
+  const { no_prazo, sla } = calcNoPrazo(emp, contato_em, retorno_em);
+  const id = require('crypto').randomUUID();
+  db.prepare(`INSERT INTO tesouraria_apagar (id, empresa_id, operador, loja_id, de, ate, valor, obs, contato_em, retorno_em, sla_horas, no_prazo, status, por)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'aberto', ?)`)
+    .run(id, emp, String(operador).trim(), loja_id || null, de || null, ate || null, round(valor), obs || null, contato_em || null, retorno_em || null, sla, no_prazo, (usuario && (usuario.nome || usuario.id)) || null);
+  return { ok: true, id, no_prazo };
+}
+function registrarContatoApagar(emp, id, { contato_em, retorno_em } = {}) {
+  const { no_prazo, sla } = calcNoPrazo(emp, contato_em, retorno_em);
+  db.prepare('UPDATE tesouraria_apagar SET contato_em=?, retorno_em=?, sla_horas=?, no_prazo=? WHERE empresa_id=? AND id=?')
+    .run(contato_em || null, retorno_em || null, sla, no_prazo, emp, id);
+  return { ok: true, no_prazo };
+}
+function listApagar(emp, { status } = {}) {
+  let sql = 'SELECT a.*, l.nome loja_nome FROM tesouraria_apagar a LEFT JOIN lojas l ON l.id=a.loja_id WHERE a.empresa_id=?'; const p = [emp];
+  if (status && status !== 'todos') { sql += ' AND a.status=?'; p.push(status); }
+  sql += " ORDER BY (a.status='aberto') DESC, a.criado_em DESC";
+  const itens = db.prepare(sql).all(...p);
+  const { diaCorte, slaHoras } = cfgDesconto(emp);
+  const abertoTotal = round(itens.filter(r => r.status === 'aberto').reduce((a, r) => a + (Number(r.valor) || 0), 0));
+  return { ok: true, itens, diaCorte, slaHoras, abertoTotal };
+}
+function quitarApagar(emp, id, { usuario, origem } = {}) {
+  db.prepare("UPDATE tesouraria_apagar SET status='pago', pago_em=date('now'), origem_quitacao=?, por=COALESCE(por,?) WHERE empresa_id=? AND id=? AND status='aberto'")
+    .run(origem || 'manual', (usuario && (usuario.nome || usuario.id)) || null, emp, id);
+  return { ok: true };
+}
+function quitarTodosApagar(emp, { usuario, origem } = {}) {
+  const r = db.prepare("UPDATE tesouraria_apagar SET status='pago', pago_em=date('now'), origem_quitacao=?, por=COALESCE(por,?) WHERE empresa_id=? AND status='aberto'")
+    .run(origem || 'manual', (usuario && (usuario.nome || usuario.id)) || null, emp);
+  return { ok: true, quitados: r.changes };
+}
+function removerApagar(emp, id) { db.prepare('DELETE FROM tesouraria_apagar WHERE empresa_id=? AND id=?').run(emp, id); return { ok: true }; }
+
+// ── Controle de saldo bancário (substitui a planilha) ───────────────────────
+// Lista as contas de banco do ERP + a data da última conciliação e o saldo que o financeiro anotou,
+// mais a referência do sistema (até quando o extrato já foi conciliado) p/ comparar.
+async function saldosBanco(empresaId) {
+  const mapLoja = mapaUnidadeLoja(empresaId);
+  let contas = [];
+  if (habilitado()) {
+    contas = await erpQuery(`
+      SELECT cc.id::text conta_id, cc.nome conta_nome, cc.unidadenegocioid::int loja_erp,
+        to_char(MAX(eb.datahora) FILTER (WHERE ec.id IS NOT NULL),'YYYY-MM-DD') conciliado_ate_sistema,
+        to_char(MAX(eb.datahora),'YYYY-MM-DD') ultima_linha,
+        COUNT(eb.id) FILTER (WHERE ec.id IS NULL) pendentes
+      FROM contabancaria cb
+      JOIN contacorrente cc ON cc.id=cb.contacorrenteid AND cc.status='A'
+      LEFT JOIN extratobancario eb ON eb.contabancariaid=cb.id
+      LEFT JOIN extratobancarioconciliacao ec ON ec.extratobancarioid=eb.id
+      GROUP BY cc.id, cc.nome, cc.unidadenegocioid
+      ORDER BY cc.nome`, []);
+  }
+  const salvos = {};
+  db.prepare('SELECT * FROM tesouraria_saldo_banco WHERE empresa_id=?').all(empresaId).forEach(r => { salvos[r.conta_id] = r; });
+  return contas.map(c => {
+    const s = salvos[c.conta_id] || {};
+    const loja = mapLoja.get(Number(c.loja_erp));
+    return {
+      conta_id: c.conta_id, conta_nome: c.conta_nome, loja_erp: c.loja_erp, loja: loja ? loja.nome : null,
+      conciliado_ate_sistema: c.conciliado_ate_sistema || null, ultima_linha: c.ultima_linha || null, pendentes: Number(c.pendentes) || 0,
+      data_conciliacao: s.data_conciliacao || null, saldo: s.saldo != null ? s.saldo : null, obs: s.obs || null, por: s.por || null, atualizado_em: s.atualizado_em || null,
+    };
+  });
+}
+function setSaldoBanco(empresaId, { conta_id, conta_nome, loja_erp, data_conciliacao, saldo, obs, usuario } = {}) {
+  if (!conta_id) throw new Error('Conta não informada.');
+  db.prepare(`INSERT INTO tesouraria_saldo_banco (empresa_id, conta_id, conta_nome, loja_erp, data_conciliacao, saldo, obs, por, atualizado_em)
+    VALUES (?,?,?,?,?,?,?,?, datetime('now'))
+    ON CONFLICT(empresa_id,conta_id) DO UPDATE SET conta_nome=excluded.conta_nome, loja_erp=excluded.loja_erp, data_conciliacao=excluded.data_conciliacao, saldo=excluded.saldo, obs=excluded.obs, por=excluded.por, atualizado_em=excluded.atualizado_em`)
+    .run(empresaId, String(conta_id), conta_nome || null, loja_erp != null ? Number(loja_erp) : null,
+      data_conciliacao || null, (saldo != null && saldo !== '') ? Number(saldo) : null, obs || null, (usuario && (usuario.nome || usuario.id)) || null);
+  return { ok: true };
+}
+
+module.exports = { getConfig, setConfig, quebras, marcarCobranca, indicadoresSetor, sessoesDia, cancelamentos, mapaUsuarioColaborador, cuponsPorOperador, premiarTopOperador, aplicarPontosQuebra, debitosOperador, marcarPagoCobranca, conferenciaCaixa, estornosLista, acertosCaixa, diasOperadorCaixa, addDiferencaAvulsa, removerDiferencaAvulsa, vendasNaTela, cfgDesconto, setCfgDesconto, addApagar, registrarContatoApagar, listApagar, quitarApagar, quitarTodosApagar, removerApagar, saldosBanco, setSaldoBanco };

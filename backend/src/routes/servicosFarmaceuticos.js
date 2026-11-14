@@ -33,6 +33,10 @@ router.post('/public/atendimento/:id/avaliar', (req, res) => {
 });
 
 router.use(auth);
+// Cache serve-stale do ERP (Joe 2026-11-14): só os lookups de ERP (/erp/*), que são por empresa. O resto é CRUD do app.
+const { cacheMiddleware: _erpCache, invalidarMiddleware: _erpInval } = require('../lib/erpCache');
+router.use(_erpCache('servfarma', { skip: req => !req.path.startsWith('/erp/') }));
+router.use(_erpInval('servfarma'));
 
 // ── ERP: busca de produto (identificar o item) e de venda pelo COO do cupom ───
 router.get('/erp/produtos', async (req, res) => {

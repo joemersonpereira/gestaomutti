@@ -1,0 +1,185 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Portal do Colaborador — Mutti</title>
+<style>
+  :root{--bg:#f5f3ef;--surface:#fff;--line:#ddd8cf;--fg:#1c2a2e;--soft:#5d6b6e;--accent:#0E7C5A;--falta:#c0392b;--sobra:#B7791F}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.5}
+  .wrap{max-width:640px;margin:0 auto;padding:20px 14px 60px}
+  h1{font-size:21px;text-align:center;margin:8px 0 2px}
+  .sub{text-align:center;color:var(--soft);font-size:13px;margin-bottom:6px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:14px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+  label{display:block;font-size:13px;color:var(--soft);margin-bottom:12px}
+  label b{display:block;color:var(--fg);font-weight:600;margin-bottom:3px}
+  input,select{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:16px}
+  .btn{width:100%;background:var(--accent);color:#fff;border:0;border-radius:10px;padding:14px;font-size:16px;font-weight:700;cursor:pointer;margin-top:4px}
+  .btn.sec{background:#fff;color:var(--accent);border:1px solid var(--accent)}
+  .msg{margin-top:10px;color:#b45309;font-size:14px;min-height:18px}
+  .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .top .nome{font-weight:800;font-size:17px}
+  .chip{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#eef6f3;color:var(--accent)}
+  .sair{margin-left:auto;background:none;border:0;color:var(--soft);font-size:13px;cursor:pointer;text-decoration:underline}
+  .saldo{font-size:40px;font-weight:800;color:var(--accent);line-height:1.1}
+  .ttl{font-weight:700;font-size:14px;margin-bottom:8px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 6px;border-bottom:1px solid #f0ece4}
+  th{color:var(--soft);font-weight:600;font-size:11.5px}
+  .r{text-align:right}.falta{color:var(--falta);font-weight:700}.sobra{color:var(--sobra);font-weight:700}
+  .pts.pos{color:var(--accent);font-weight:700}.pts.neg{color:var(--falta);font-weight:700}
+  .resumo{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  .box{flex:1;min-width:120px;background:#faf8f4;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .box .v{font-size:19px;font-weight:800}.box .l{font-size:11px;color:var(--soft)}
+  .vazio{color:var(--soft);font-size:13px;padding:10px 2px}
+  .status{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
+  .st-ok{background:#e7f6ee;color:#15803d}.st-nao{background:#fdeee0;color:#b45309}.st-sem{background:#f1f1f1;color:#777}
+  .up{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 2px}
+  .up .tbtn{flex:1;min-width:110px;background:#fff;border:1px solid var(--accent);color:var(--accent);border-radius:9px;padding:11px;font-weight:700;font-size:13.5px;cursor:pointer;text-align:center}
+  .anx{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f0ece4;font-size:13px}
+  .anx .del{margin-left:auto;background:none;border:0;color:var(--falta);cursor:pointer;font-size:14px}
+  .tg{font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:#eef6f3;color:var(--accent)}
+  @media(max-width:480px){.saldo{font-size:34px}}
+</style></head><body>
+<div class="wrap">
+  <h1>🏥 Portal do Colaborador</h1>
+  <div class="sub">Grupo Mutti</div>
+  <div id="app"></div>
+</div>
+<script>
+(function(){
+  "use strict";
+  var app=document.getElementById('app'); var SES=null; var dataSel=hoje();
+  function hoje(){return new Date().toISOString().slice(0,10);}
+  function h(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function brl(v){v=Number(v)||0;return v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});}
+  function dbr(d){return d?String(d).slice(0,10).split('-').reverse().join('/'):'';}
+  function api(path,opts){opts=opts||{};opts.headers=opts.headers||{};if(SES)opts.headers['x-portal']=SES.token;if(opts.body){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(opts.body);}return fetch('/api/portal'+path,opts).then(function(r){return r.json().then(function(j){if(!r.ok)throw (j&&j.erro)||'Erro';return j;});});}
+
+  // ---- tela de entrada (CPF) ----
+  function telaLogin(erro){
+    app.innerHTML='<div class="card">'
+      +'<p style="margin-top:0">Entre com o seu <b>CPF</b> para ver seus pontos e suas diferenças de caixa. Gerente: acompanhe os caixas e anexe depósitos/despesas da loja.</p>'
+      +'<label><b>CPF</b><input id="cpf" inputmode="numeric" placeholder="000.000.000-00" autocomplete="off"></label>'
+      +'<button class="btn" id="ent">Entrar</button>'
+      +'<div class="msg" id="msg">'+h(erro||'')+'</div></div>';
+    var inp=document.getElementById('cpf');
+    inp.oninput=function(){var d=inp.value.replace(/\D/g,'').slice(0,11);inp.value=d.replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})\.(\d{3})(\d)/,'$1.$2.$3').replace(/(\d{3})\.(\d{3})\.(\d{3})(\d)/,'$1.$2.$3-$4');};
+    inp.onkeydown=function(e){if(e.key==='Enter')entrar();};
+    document.getElementById('ent').onclick=entrar;
+    inp.focus();
+  }
+  function entrar(){
+    var cpf=(document.getElementById('cpf').value||'').replace(/\D/g,'');
+    var msg=document.getElementById('msg'); var btn=document.getElementById('ent');
+    if(cpf.length!==11){msg.textContent='Digite os 11 dígitos do CPF.';return;}
+    btn.disabled=true;msg.textContent='Entrando…';
+    api('/acesso',{method:'POST',body:{cpf:cpf}}).then(function(s){
+      SES=s; try{sessionStorage.setItem('portal_ses',JSON.stringify(s));}catch(e){}
+      s.papel==='gerente'?telaGerente():telaCaixa();
+    }).catch(function(e){btn.disabled=false;msg.textContent=e;});
+  }
+  function sair(){SES=null;try{sessionStorage.removeItem('portal_ses');}catch(e){}telaLogin();}
+  function topo(extra){
+    return '<div class="card"><div class="top"><span class="nome">'+h(SES.apelido||SES.nome)+'</span>'
+      +'<span class="chip">'+(SES.papel==='gerente'?'Gerente':'Caixa')+'</span>'
+      +(SES.loja?'<span style="color:var(--soft);font-size:13px">'+h(SES.loja)+'</span>':'')
+      +'<button class="sair" id="sair">sair</button></div>'+(extra||'')+'</div>';
+  }
+
+  // ---- CAIXA: pontos + diferenças ----
+  function telaCaixa(){
+    app.innerHTML=topo('<div class="vazio">Carregando…</div>');
+    document.getElementById('sair').onclick=sair;
+    api('/meu-resumo').then(function(d){renderCaixa(d);}).catch(function(e){app.innerHTML=topo('<div class="msg">'+h(e)+'</div>');document.getElementById('sair').onclick=sair;});
+  }
+  function renderCaixa(d){
+    var p=d.pontos||{saldo:0,lancamentos:[]};
+    var ptsRows=(p.lancamentos||[]).map(function(l){return '<tr><td>'+dbr(l.criado_em)+'</td><td>'+h(l.descricao||l.tipo)+'</td>'
+      +'<td class="r pts '+(l.pontos>=0?'pos':'neg')+'">'+(l.pontos>=0?'+':'')+l.pontos+'</td></tr>';}).join('');
+    var dif=d.diferencas||[]; var rd=d.resumoDif||{};
+    var difRows=dif.map(function(x){return '<tr><td>'+dbr(x.data)+'</td><td class="'+(x.tipo==='falta'?'falta':'sobra')+'">'+(x.tipo==='falta'?'Falta':'Sobra')+'</td>'
+      +'<td class="r '+(x.tipo==='falta'?'falta':'sobra')+'">'+brl(x.valor)+'</td><td>'+h(x.observacao||'')+'</td></tr>';}).join('');
+    app.innerHTML=topo('')
+      +'<div class="card"><div class="ttl">⭐ Meus pontos</div>'
+        +'<div class="saldo">'+(Number(p.saldo)||0).toLocaleString('pt-BR')+' <span style="font-size:15px;color:var(--soft);font-weight:600">pts</span></div>'
+        +(ptsRows?'<table style="margin-top:10px"><thead><tr><th>Data</th><th>Lançamento</th><th class="r">Pontos</th></tr></thead><tbody>'+ptsRows+'</tbody></table>':'<div class="vazio">Sem lançamentos de pontos ainda.</div>')
+      +'</div>'
+      +'<div class="card"><div class="ttl">💵 Minhas diferenças de caixa <span style="font-weight:400;color:var(--soft);font-size:12px">(últimos 90 dias)</span></div>'
+        +(d.erpVinculado? (dif.length?
+          '<div class="resumo"><div class="box"><div class="v falta">'+brl(rd.valorFalta)+'</div><div class="l">'+rd.faltas+' falta(s)</div></div>'
+          +'<div class="box"><div class="v sobra">'+brl(rd.valorSobra)+'</div><div class="l">'+rd.sobras+' sobra(s)</div></div></div>'
+          +'<table><thead><tr><th>Data</th><th>Tipo</th><th class="r">Valor</th><th>Obs.</th></tr></thead><tbody>'+difRows+'</tbody></table>'
+          :'<div class="vazio">🎉 Nenhuma diferença de caixa no período. Mandou bem!</div>')
+          :'<div class="vazio">Não consegui vincular seu usuário no sistema de caixa agora. Fale com o RH se isso persistir.</div>')
+      +'</div>';
+    document.getElementById('sair').onclick=sair;
+  }
+
+  // ---- GERENTE: caixas da loja + anexos ----
+  function telaGerente(){
+    app.innerHTML=topo('<label style="margin:8px 0 0"><b>Dia</b><input type="date" id="data" value="'+dataSel+'"></label>')+'<div id="g"><div class="card vazio">Carregando…</div></div>';
+    document.getElementById('sair').onclick=sair;
+    document.getElementById('data').onchange=function(e){dataSel=e.target.value||hoje();carregarGerente();};
+    carregarGerente();
+  }
+  function carregarGerente(){
+    var g=document.getElementById('g'); g.innerHTML='<div class="card vazio">Carregando…</div>';
+    api('/caixas?data='+encodeURIComponent(dataSel)).then(function(d){renderGerente(d);}).catch(function(e){g.innerHTML='<div class="card msg">'+h(e)+'</div>';});
+  }
+  function renderGerente(d){
+    var g=document.getElementById('g');
+    var ses=d.sessoes||[];
+    var sesRows=ses.map(function(s){
+      var cls=s.status==='ok'?'st-ok':s.status==='nao_informado'?'st-nao':'st-sem';
+      var rot=s.status==='ok'?'conferido':s.status==='nao_informado'?'não informado':'sem vínculo';
+      var hora=s.inicio?new Date(s.inicio).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
+      var fech=s.fechado?'<span class="status st-ok" style="background:#eef1f4;color:#555">fechado</span>':'<span class="status st-nao">aberto</span>';
+      return '<tr><td>'+h(s.operador||s.colaboradorNome||'—')+'</td><td>'+hora+' '+fech+'</td>'
+        +'<td><span class="status '+cls+'">'+rot+'</span></td></tr>';
+    }).join('');
+    var anx=d.anexos||[];
+    var anxRows=anx.map(function(a){return '<div class="anx"><span class="tg">'+({deposito:'depósito',despesa:'despesa',recarga:'recarga'}[a.tipo]||a.tipo)+'</span>'
+      +'<span>'+h(a.descricao||a.nome||'')+(a.valor!=null?' · '+brl(a.valor):'')+'</span>'
+      +(a.tem_foto?'<a href="/api/portal/anexo/'+a.id+'/arquivo?portal='+SES.token+'" target="_blank" style="color:var(--accent);font-size:12px">ver</a>':'')
+      +'<button class="del" data-id="'+a.id+'">🗑</button></div>';}).join('');
+    var r=d.resumo||{};
+    g.innerHTML='<div class="card"><div class="ttl">🧾 Caixas do dia '+dbr(d.data)+'</div>'
+      +(ses.length?'<table><thead><tr><th>Operador</th><th>Abertura</th><th>Situação</th></tr></thead><tbody>'+sesRows+'</tbody></table>'
+        :'<div class="vazio">Nenhuma sessão de caixa encontrada nesse dia.</div>')
+      +(r&&r.sessoes!=null?'<div style="font-size:12px;color:var(--soft);margin-top:8px">'+r.sessoes+' sessão(ões) · '+r.ok+' conferidas · '+r.naoInformado+' não informadas</div>':'')
+      +'</div>'
+      +'<div class="card"><div class="ttl">📎 Depósitos e despesas da loja — '+dbr(d.data)+'</div>'
+      +'<div class="up">'
+        +'<div class="tbtn" data-tp="deposito">+ Depósito</div>'
+        +'<div class="tbtn" data-tp="despesa">+ Despesa</div>'
+        +'<div class="tbtn" data-tp="recarga">+ Recarga</div>'
+      +'</div>'
+      +(anx.length?anxRows:'<div class="vazio">Nada anexado nesse dia ainda.</div>')
+      +'<div class="msg" id="gmsg"></div></div>';
+    document.querySelectorAll('.tbtn').forEach(function(b){b.onclick=function(){anexar(b.getAttribute('data-tp'));};});
+    document.querySelectorAll('.anx .del').forEach(function(b){b.onclick=function(){delAnexo(b.getAttribute('data-id'));};});
+  }
+  function anexar(tipo){
+    var inp=document.createElement('input'); inp.type='file'; inp.accept='image/*,application/pdf';
+    inp.onchange=function(){
+      var f=inp.files[0]; if(!f)return;
+      var gmsg=document.getElementById('gmsg'); gmsg.style.color='var(--soft)'; gmsg.textContent='Enviando '+tipo+'…';
+      var rd=new FileReader();
+      rd.onload=function(){
+        var valor=null, desc=null;
+        if(tipo!=='deposito'){var v=prompt('Valor do '+tipo+' (opcional, só números):','');if(v!=null&&v!==''){valor=Number(v.replace(',','.'))||null;}}
+        desc=prompt('Descrição (opcional):','')||null;
+        api('/anexo',{method:'POST',body:{tipo:tipo,data:dataSel,dados:rd.result,tipo_mime:f.type,nome:f.name,valor:valor,descricao:desc}})
+          .then(function(){carregarGerente();}).catch(function(e){gmsg.style.color='#b45309';gmsg.textContent=e;});
+      };
+      rd.readAsDataURL(f);
+    };
+    inp.click();
+  }
+  function delAnexo(id){
+    if(!confirm('Excluir este anexo?'))return;
+    api('/anexo/'+id,{method:'DELETE'}).then(function(){carregarGerente();}).catch(function(e){alert(e);});
+  }
+
+  // retoma sessão se já entrou neste navegador
+  try{var sv=sessionStorage.getItem('portal_ses');if(sv){SES=JSON.parse(sv);SES.papel==='gerente'?telaGerente():telaCaixa();}else telaLogin();}catch(e){telaLogin();}
+})();
+</script>
+</body></html>

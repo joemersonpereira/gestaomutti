@@ -38,10 +38,13 @@ import Desligamentos from './pages/Desligamentos';
 import PainelRH from './pages/PainelRH';
 import Clima from './pages/Clima';
 import PainelCompras from './pages/PainelCompras';
+import Faturamento, { FaturamentoOnline } from './pages/Faturamento';
+import Precificacao from './pages/Precificacao';
 import Financeiro from './pages/Financeiro';
 import ValidacaoFinanceira from './pages/ValidacaoFinanceira';
 import ContasReceber from './pages/ContasReceber';
 import Convenio from './pages/Convenio';
+import FechamentoSetor from './pages/FechamentoSetor';
 import ConciliacaoCartoes from './pages/ConciliacaoCartoes';
 import Entrega from './pages/Entrega';
 import Etiquetas from './pages/Etiquetas';
@@ -72,6 +75,7 @@ import EstagiosFaturas from './pages/EstagiosFaturas';
 import EstagioRH from './pages/EstagioRH';
 import Contabilidade from './pages/Contabilidade';
 import Fiscal from './pages/Fiscal';
+import SuporteLoja from './pages/SuporteLoja';
 import BancoTalentos from './pages/BancoTalentos';
 import Fornecedores from './pages/Fornecedores';
 import AuditoriaContabil from './pages/AuditoriaContabil';
@@ -115,13 +119,17 @@ const MODULOS = [
   { id: 'avaliacao-admin', label: '⭐ Avaliações do setor', C: AvaliacaoAdmin, perfis: ['Suporte', 'Tesouraria', ...GESTAO] },
   { id: 'marketing', label: '📣 Marketing', C: Marketing, perfis: ['Marketing', 'Gestor Geral', 'Diretor Geral', 'Gerente', 'Vendedor', 'Caixa'] },
   { id: 'faltas', label: '📝 Lista de faltas', C: Faltas, perfis: ['Vendedor', 'Gerente', 'Subgerente', 'Supervisor', 'Comprador Beleza', 'Comprador Bem-estar', 'Suporte', 'Gestor Geral', 'Diretor Geral', 'Operador de Loja'] },
-  { id: 'painel-compras', label: '🧮 Painel de Compras', C: PainelCompras, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Gerente', 'Subgerente'] },
+  { id: 'painel-compras', label: '🧮 Compras', C: PainelCompras, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Gerente', 'Subgerente'] },
+  { id: 'faturamento', label: '📊 Faturamento', C: Faturamento, perfis: ['Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Financeiro', 'Gerente', 'Subgerente'] },
+  { id: 'online', label: '🛒 Online', C: FaturamentoOnline, perfis: ['Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Financeiro', 'Gerente', 'Subgerente', 'Marketing'] },
+  { id: 'precificacao', label: '🏷️ Precificação', C: Precificacao, perfis: ['Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Comprador Beleza', 'Comprador Bem-estar'] },
   { id: 'acordos', label: '🤝 Acordos e Negociações', C: Acordos, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Marketing'] },
   { id: 'trademkt', label: '📐 Retail & Ads', C: TradeMarketing, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Marketing'] },
   { id: 'cobranca-trade', label: '💰 Cobrança (Trade)', C: CobrancaTrade, perfis: ['Financeiro', 'Controladoria', 'Diretor Geral', 'Gestor Geral', 'Supervisor', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing', 'Tesouraria'] },
   { id: 'financeiro', label: '💼 Financeiro', C: Financeiro, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
   { id: 'contas-receber', label: '📥 Contas a Receber', C: ContasReceber, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro'] },
   { id: 'convenio', label: '🏢 Convênio', C: Convenio, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro'] },
+  { id: 'fechamento-setor', label: '🏁 Fechamento do setor', C: FechamentoSetor, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
   { id: 'validacao-financeira', label: '💰 Validação Financeira', C: ValidacaoFinanceira, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Tesouraria', 'Contabilidade', 'Comercial', 'Marketing', 'Supervisor', 'Comprador Beleza', 'Comprador Bem-estar'] },
   { id: 'conciliacao-cartao', label: '💳 Conciliação de Cartões', C: ConciliacaoCartoes, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro', 'Contabilidade'] },
   { id: 'estagios', label: '🧾 Faturas', C: EstagiosFaturas, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'RH'] },
@@ -136,7 +144,7 @@ const MODULOS = [
   { id: 'rhia', label: '🤖 Rhia (IA do grupo)', C: Rhia, perfis: '*' },
   { id: 'pedemeia', label: '🐷 Pé de Meia', C: PeDeMeia, perfis: '*' },
   { id: 'etiquetas', label: '🏷️ Etiquetas de Preço', C: Etiquetas, perfis: ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Marketing', 'Gerente', 'Subgerente', 'Balconista', 'Farmacêutico'] },
-  { id: 'mkt-calendario', label: '🗓️ Calendário de Ações', C: MarketingCalendario, perfis: ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Marketing'] },
+  { id: 'mkt-calendario', label: '📣 Marketing', C: MarketingCalendario, perfis: ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Marketing'] },
   { id: 'supervisor', label: '🌐 Supervisor', C: PainelSupervisor, perfis: ['Supervisor', 'Gestor Geral', 'Diretor Geral'] },
   { id: 'diretoria', label: '🎯 Painel da Gestão', C: PainelDiretoria, perfis: ['Diretor Geral', 'Gestor Geral'] },
   { id: 'premiacao-equipe', label: '💵 Premiação da equipe', C: PremiacaoEquipe, perfis: ['Gerente', 'Supervisor', 'Gestor Geral', 'Diretor Geral'] },
@@ -146,9 +154,10 @@ const MODULOS = [
   { id: 'controladoria', label: '🔍 Controladoria', C: Controladoria, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
   { id: 'contabilidade', label: '🧮 Contabilidade', C: Contabilidade, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'] },
   { id: 'fiscal', label: '📋 Fiscal', C: Fiscal, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Suporte'] },
+  { id: 'suporte-loja', label: '🛟 Suporte Loja', C: SuporteLoja, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Suporte'] },
   { id: 'fornecedores', label: '🏭 Fornecedores', C: Fornecedores, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Financeiro'] },
   { id: 'auditoria-contabil', label: '🔎 Auditoria', C: AuditoriaContabil, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'] },
-  { id: 'tesouraria', label: '🏦 Tesouraria', C: TesourariaHub, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Gerente', 'Subgerente'] },
+  { id: 'tesouraria', label: '💰 Caixa', C: TesourariaHub, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Gerente', 'Subgerente'] },
   { id: 'integracoes', label: '🔌 Status de Integrações', C: Integracoes, perfis: ['Diretor Geral', 'Gestor Geral', 'Suporte', 'Controladoria'] },
   { id: 'email-tarefas', label: '📧 E-mail → Tarefa', C: EmailTarefas, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro'] },
 ];
@@ -160,14 +169,14 @@ const REMOVIDOS = new Set([
   'comunidade', 'tarefas', 'minhasmetas', 'meu-setor', 'meurh', 'folgas', 'loja-pontos', 'pedemeia', 'rhia',
   // Operacional (inteiro)
   'gerente', 'checklist-gerente', 'checklist', 'satisfacao', 'calendario', 'formulas', 'servicos-farmaceuticos', 'etiquetas', 'faltas', 'mercado', 'patrimonio',
-  // Marketing (inteiro)
-  'marketing', 'mkt-calendario',
+  // Marketing: a tela de campanhas ('marketing') segue fora; o SUITE ('mkt-calendario') voltou ao menu (2026-11-14).
+  'marketing',
   // Administrativo (mantém só Conciliação de Cartões)
-  'financeiro', 'contas-receber', 'controladoria',
+  'contas-receber', 'controladoria',
   // Gente & Gestão (RH) — subconjunto
   'visao360', 'capacitacao', 'documentos-rh', 'ocorrencias', 'beneficios', 'clima', 'desligamentos', 'canal-escuta', 'painel-rh',
   // Gestão
-  'relatorios', 'avaliacao-admin', 'diretoria', 'ranking',
+  'relatorios', 'avaliacao-admin', 'ranking',
   // Supervisão (inteira) + Atendimento Online
   'supervisor', 'auditoria', 'premiacao-equipe', 'metas', 'entrega',
   // Comercial — Trade & Fornecedores (Trade Marketing voltou ao menu 2026-10-16 — pedido do Joe)
@@ -178,8 +187,10 @@ const REMOVIDOS = new Set([
   'indicadores-colab', 'afastamentos',
   // Ponto antigo — a aba "🔗 Vínculos" (casar colaborador↔Tangerino por CPF) foi incorporada ao menu Ponto (ponto-repp) 2026-11-11.
   'ponto',
-  // Removidos a pedido (2026-10-04): Painel de Compras + Logística (Devoluções)
-  'painel-compras', 'devolucoes',
+  // Logística (Devoluções) removida a pedido (2026-10-04).
+  // Painel de Compras VOLTOU ao menu (Joe 2026-11-12): abriga a config comprador↔classificação e os
+  // indicadores por comprador (eficiência/sem-pedido) que são a base do Meu Setor de Compras.
+  'devolucoes',
   // Cobrança (Trade) foi absorvida pela Validação Financeira (Joe 2026-11-11)
   'cobranca-trade',
 ]);
@@ -208,16 +219,15 @@ const NAV = [
   ] },
   { camada: 'Departamentos', grupos: [
     { nome: 'Operacional', itens: ['gerente', 'checklist-gerente', 'checklist', 'satisfacao', 'calendario', 'formulas', 'servicos-farmaceuticos', 'etiquetas', 'faltas', 'mercado', 'patrimonio'] },
-    { nome: 'Comercial', itens: ['painel-compras'], subs: [
-      { nome: 'Retail & Ads', itens: ['acordos', 'trademkt'] },
-    ] },
+    { nome: 'Comercial', itens: ['painel-compras', 'precificacao', 'faturamento', 'online', 'acordos', 'trademkt'] },
     { nome: 'Marketing', itens: ['marketing', 'mkt-calendario'] },
     { nome: 'Gente & Gestão', itens: ['cadastros', 'visao360', 'capacitacao', 'indicadores-colab', 'afastamentos', 'ponto', 'ponto-repp', 'ocorrencias', 'documentos-rh', 'beneficios', 'clima', 'desligamentos', 'canal-escuta', 'painel-rh', 'estagio-rh', 'banco-talentos'] },
-    { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'tesouraria', 'conciliacao-cartao', 'contas-receber', 'convenio', 'estagios'], subs: [
+    { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'contas-receber'], subs: [
       { nome: 'Controladoria', itens: ['controladoria'] },
     ] },
+    { nome: 'Tesouraria', itens: ['tesouraria', 'conciliacao-cartao', 'estagios', 'convenio'] },
     { nome: 'Contabilidade', itens: ['contabilidade', 'fornecedores', 'auditoria-contabil'] },
-    { nome: 'Suporte', itens: ['suporte', 'fiscal'] },
+    { nome: 'Suporte', itens: ['suporte', 'fiscal', 'suporte-loja'] },
     { nome: 'Logística', itens: ['conferentes', 'devolucoes', 'almoxarifado'] },
   ] },
   { camada: 'Gestão', grupos: [
@@ -225,6 +235,7 @@ const NAV = [
       { nome: 'Atendimento Online', itens: ['entrega'] },
     ] },
     { nome: 'Resultado', itens: ['premiacao-fechamento', 'premiacao-equipe'] },
+    { nome: 'Diretoria', itens: ['fechamento-setor'] },
     { nome: 'Direção', itens: ['diretoria', 'auditoria', 'avaliacao-admin', 'ranking'] },
     { nome: 'Relatórios', itens: ['relatorios'] },
     { nome: 'Configurações', itens: ['parametros', 'integracoes', 'email-tarefas'] },

@@ -9,6 +9,10 @@ const { auth } = require('../middleware/auth');
 const { erpQuery, habilitado } = require('../db/erp');
 
 router.use(auth);
+// Cache serve-stale do ERP (Joe 2026-11-14): só os GET por empresa/loja. Pula /pedidos e /meus-gastos (por usuário).
+const { cacheMiddleware: _erpCache, invalidarMiddleware: _erpInval } = require('../lib/erpCache');
+router.use(_erpCache('mercado', { skip: req => req.path === '/pedidos' || req.path === '/meus-gastos' }));
+router.use(_erpInval('mercado'));
 
 const CATEGORIAS = ['limpeza', 'escritorio', 'fardamento', 'brinde'];
 const ADMIN = ['Suporte', 'Gestor Geral', 'Diretor Geral', 'Controladoria'];

@@ -31,11 +31,18 @@ async function token(force = false) {
   return _tok;
 }
 
-// GET autenticado com JSON; renova token 1x no 401.
-async function getJson(url, tentou = false) {
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// GET autenticado com JSON; renova token 1x no 401; espera e repete no 429 (rate limit).
+async function getJson(url, tentou = false, tentativa429 = 0) {
   const t = await token();
   const r = await fetch(url, { headers: { Authorization: 'Bearer ' + t, accept: 'application/json' } });
-  if (r.status === 401 && !tentou) { await token(true); return getJson(url, true); }
+  if (r.status === 401 && !tentou) { await token(true); return getJson(url, true, tentativa429); }
+  if (r.status === 429 && tentativa429 < 5) {
+    const ra = Number(r.headers.get('retry-after'));
+    await sleep((ra > 0 ? ra * 1000 : 0) || Math.min(15000, 1500 * (tentativa429 + 1))); // backoff progressivo
+    return getJson(url, tentou, tentativa429 + 1);
+  }
   if (!r.ok) throw new Error('BotVendas ' + r.status + ' em ' + url.replace(base(), ''));
   return r.json();
 }
@@ -62,6 +69,33 @@ async function listarAtendimentos({ sectorIds = [], statuses = [], pageSize = 50
   return paginarTudo(base() + '/api/v2/attendance/paginated?' + qs.toString(), maxPaginas);
 }
 
+// Respostas de satisfação (CSAT) — /api/v2/satisfaction-answers/list. O endpoint IGNORA page_size
+// (volta 15/página) e ordena da mais nova p/ a mais antiga; paginamos por next_page_url.
+// `pararSe(item)` → true interrompe (p/ sync incremental: parar ao chegar em answer já salvo).
+// `onPagina(itens)` (opcional) recebe cada página e permite GRAVAR incremental (1ª carga não perde
+// progresso); sem ele, acumula tudo. `delayMs` = throttle proativo entre páginas (evita 429).
+async function listarSatisfacao({ fromDate, toDate, shopId, maxPaginas = 400, pararSe = null, onPagina = null, delayMs = 350 } = {}) {
+  const qs = new URLSearchParams();
+  if (fromDate) qs.set('from_date', fromDate);
+  if (toDate) qs.set('to_date', toDate);
+  if (shopId) qs.set('shop_id', String(shopId));
+  let url = base() + '/api/v2/satisfaction-answers/list?' + qs.toString();
+  let itens = [], n = 0;
+  while (url && n < maxPaginas) {
+    const j = await getJson(url);
+    let data = Array.isArray(j.data) ? j.data : [];
+    let parar = false;
+    if (pararSe) { const corte = data.findIndex(it => pararSe(it)); if (corte >= 0) { data = data.slice(0, corte); parar = true; } }
+    if (data.length) { if (onPagina) { try { await onPagina(data); } catch (e) { } } else itens = itens.concat(data); }
+    if (parar) break;
+    const nx = j.next_page_url;
+    url = nx && nx !== 'null' && String(nx).startsWith('http') ? nx : null;
+    n++;
+    if (url && delayMs) await sleep(delayMs);
+  }
+  return itens;
+}
+
 // Histórico completo de mensagens de um atendimento, juntando todas as páginas.
 // OBS: o next_page_url do get-messages vem SEM o order_id (dá 422); então paginamos por `page`
 // mantendo order_id em toda requisição.
@@ -78,10 +112,41 @@ async function mensagensAtendimento(orderId, pageSize = 150) {
   return itens;
 }
 
+// Vendas por vendedor (Resumo de Vendas → Atendentes): /api/v2/sales-summary/sellers.
+// Retorna [{id, name, attendance_count, closed_count, closed_total, total, ticket_avg, tma}].
+// origins: canais de entrada (1=WhatsApp…). Sem range → mês atual (default da API).
+// IMPORTANTE: sem origins/use_final_customer o resultado bate com a tela "Detalhamento" (todos os canais).
+// Com origins=[1]+use_final_customer=1 o total despenca (cortou pra ~5% — bug corrigido 2026-11-13).
+async function vendasPorVendedor({ iniDate = '', endDate = '', shopId = '', origins = [], useFinalCustomer = null } = {}) {
+  const qs = new URLSearchParams();
+  if (iniDate) qs.set('ini_date', String(iniDate).slice(0, 10));
+  if (endDate) qs.set('end_date', String(endDate).slice(0, 10));
+  if (shopId) qs.set('shop_id', String(shopId));
+  if (useFinalCustomer != null) qs.set('use_final_customer', String(useFinalCustomer));
+  (origins || []).forEach(o => qs.append('origins[]', String(o)));
+  const j = await getJson(base() + '/api/v2/sales-summary/sellers?' + qs.toString());
+  return Array.isArray(j) ? j : (j.dados || j.data || j.sellers || []);
+}
+
+// Monitoria — questionários de qualidade (a IA avalia a conversa). Lista os questionários e, por
+// questionário, o resumo por vendedor (nota de qualidade). getJson renova o token no 401.
+async function monitoriaQuestionarios() {
+  const j = await getJson(base() + '/api/v2/monitoring/questionary/paginated');
+  return Array.isArray(j) ? j : (j.data || j.dados || []);
+}
+async function monitoriaDetalhesVendedor(questionaryId, { iniDate = '', endDate = '' } = {}) {
+  const qs = new URLSearchParams();
+  if (iniDate) qs.set('ini_date', String(iniDate).slice(0, 10));
+  if (endDate) qs.set('end_date', String(endDate).slice(0, 10));
+  const q = qs.toString();
+  const j = await getJson(base() + '/api/v2/monitoring/questionary/' + questionaryId + '/details' + (q ? '?' + q : ''));
+  return j;
+}
+
 // Testa a conexão (login) sem baixar dados.
 async function testar() {
   try { await token(true); return { ok: true, host: CFG.host, usuario: CFG.email }; }
   catch (e) { return { ok: false, erro: e.message }; }
 }
 
-module.exports = { habilitado, testar, listarAtendimentos, mensagensAtendimento, CFG };
+module.exports = { habilitado, testar, listarAtendimentos, listarSatisfacao, vendasPorVendedor, monitoriaQuestionarios, monitoriaDetalhesVendedor, mensagensAtendimento, CFG };

@@ -4,10 +4,10 @@ const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db/connection');
 const { auth, exigePerfil } = require('../middleware/auth');
-const { listarGruposCompra, listarClassificacoes, transferenciasPendentes, itensTransferencia } = require('../lib/comprasErp');
+const { listarGruposCompra, listarClassificacoes, transferenciasPendentes, itensTransferencia, pedidosTransferenciaPendentes, itensPedidoTransferencia } = require('../lib/comprasErp');
 const { termometroFornecedores, compraAnoCorrente, FAIXA_VISITA, divergenciasFornecedor } = require('../lib/fornecedorErp');
-const { eficienciaCompradores, capturarSnapshot } = require('../lib/eficienciaCompradorErp');
-const { orcamentoCompra, getConfig, salvarConfig } = require('../lib/orcamentoErp');
+const { eficienciaCompradores, capturarSnapshot, conciliacaoComprador, pedidosPendentesDetalhe } = require('../lib/eficienciaCompradorErp');
+const { orcamentoCompra, getConfig } = require('../lib/orcamentoCompraErp'); // restaurado do git (27e1724)
 const { sincronizarAlertas, itensAlerta } = require('../lib/alertasCompra');
 const { getMetas, setMeta, metaVals } = require('../lib/metasCompra');
 const { indicadoresEstoque } = require('../lib/indicadoresCompraErp');
@@ -15,6 +15,13 @@ const { evolucaoEstoque } = require('../lib/estoqueEvolucaoErp');
 const { lojasEmpresa, unisEmpresa } = require('../lib/escopoCompras');
 const { faltasComprador } = require('../lib/faltasCompra');
 const { analiseVencidos, clientesProduto } = require('../lib/vencidosErp');
+const meuSetor = require('../lib/comprasMeuSetor');
+const regime = require('../lib/fornecedorRegime');
+const acordos = require('../lib/comprasAcordos');
+const cmvGrupo = require('../lib/cmvGrupoErp');
+const { cacheMiddleware: _ccMw, invalidarMiddleware: _ccInv } = require('../lib/erpCache');
+const compCache = _ccMw('comp');   // serve-stale: a tela carrega na hora do cache e recalcula em 2º plano
+const compInval = _ccInv('comp:'); // invalida o cache quando muda algo que os relatórios do ERP mostram
 const _ultimoSync = {}; // empresa_id -> timestamp (throttle do sync de alertas)
 
 const GESTAO_COMPRAS = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria'];
@@ -31,7 +38,7 @@ router.get('/grupos-erp', async (req, res) => {
 });
 
 // Classificações do ERP (árvore PRINCIPAL) — vínculo por classificação (principal/individual).
-router.get('/classificacoes-erp', async (req, res) => {
+router.get('/classificacoes-erp', compCache, async (req, res) => {
   try { res.json({ classificacoes: await listarClassificacoes() }); }
   catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
 });
@@ -46,7 +53,7 @@ router.get('/compradores', (req, res) => {
 });
 
 // Define os grupos de um comprador (substitui a lista inteira). Só gestão de compras.
-router.put('/compradores/:id/grupos', exigePerfil(...GESTAO_COMPRAS), (req, res) => {
+router.put('/compradores/:id/grupos', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => {
   const emp = req.usuario.empresa_id;
   const c = db.prepare('SELECT id FROM colaboradores WHERE id=? AND empresa_id=?').get(req.params.id, emp);
   if (!c) return res.status(404).json({ erro: 'Comprador não encontrado.' });
@@ -59,6 +66,78 @@ router.put('/compradores/:id/grupos', exigePerfil(...GESTAO_COMPRAS), (req, res)
   tx();
   res.json({ ok: true });
 });
+
+// ── Meu Setor de Compras: premiação ponderada por comprador ──
+router.get('/meu-setor', compCache, async (req, res) => {
+  try { res.json(await meuSetor.apurar(req.usuario.empresa_id, req.query.comprador, { ano: req.query.ano, mes: req.query.mes })); }
+  catch (e) { res.status(502).json({ erro: e.message }); }
+});
+router.get('/meu-setor/config', (req, res) => res.json({ indicadores: meuSetor.config(req.usuario.empresa_id, req.query.comprador || null) }));
+router.put('/meu-setor/config', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => { try { res.json(meuSetor.setConfig(req.usuario.empresa_id, req.body)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.put('/meu-setor/realizado', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => { try { res.json(meuSetor.setRealizado(req.usuario.empresa_id, req.body, req.usuario)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+// Pilares (nome + teto R$) + bônus de superação
+router.get('/meu-setor/pilares', (req, res) => res.json({ pilares: meuSetor.pilaresConfig(req.usuario.empresa_id), bonus: meuSetor.premioConfig(req.usuario.empresa_id).bonus_pct }));
+router.put('/meu-setor/pilar', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => { try { res.json(meuSetor.setPilar(req.usuario.empresa_id, req.body)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.delete('/meu-setor/pilar', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => res.json(meuSetor.removerPilar(req.usuario.empresa_id, req.query.pilar)));
+router.put('/meu-setor/premio-config', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => { try { res.json(meuSetor.setPremioConfig(req.usuario.empresa_id, req.body)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+// Pessoas vinculadas à premiação de um comprador (por fator)
+router.get('/meu-setor/pessoas', (req, res) => res.json({ pessoas: meuSetor.listPremioPessoas(req.usuario.empresa_id, req.query.comprador || null) }));
+router.put('/meu-setor/pessoa', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => { try { res.json(meuSetor.setPremioPessoa(req.usuario.empresa_id, req.body)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.delete('/meu-setor/pessoa', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => res.json(meuSetor.removePremioPessoa(req.usuario.empresa_id, req.query.comprador, req.query.colaborador)));
+
+// ── Meta de CMV por GRUPO PRINCIPAL (global ou por loja) + gerar pela média histórica ──
+router.get('/cmv-metas', compCache, async (req, res) => {
+  try { res.json(await cmvGrupo.painelCmv(req.usuario.empresa_id, { lojaId: req.query.loja || '', meses: req.query.meses, base: req.query.base })); }
+  catch (e) { res.status(500).json({ erro: e.message }); }
+});
+router.get('/cmv-metas/sugerir', compCache, async (req, res) => {
+  try { res.json(await cmvGrupo.cmvPorGrupo(req.usuario.empresa_id, { lojaId: req.query.loja || '', meses: req.query.meses })); }
+  catch (e) { res.status(500).json({ erro: e.message }); }
+});
+router.put('/cmv-metas', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => { try { res.json(cmvGrupo.setMeta(req.usuario.empresa_id, req.body, req.usuario)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.delete('/cmv-metas', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => res.json(cmvGrupo.removerMeta(req.usuario.empresa_id, req.query.loja || '', req.query.grupo)));
+
+// ── Observações do Meu Setor / Minha área de Compras ──
+const obsCompras = require('../lib/setorObservacoes');
+router.get('/observacoes', (req, res) => res.json(obsCompras.list(req.usuario.empresa_id, 'compras')));
+router.post('/observacoes', (req, res) => { try { res.json(obsCompras.add(req.usuario.empresa_id, 'compras', { texto: req.body.texto, usuario: req.usuario })); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.delete('/observacoes/:id', (req, res) => { try { res.json(obsCompras.remover(req.usuario.empresa_id, 'compras', req.params.id, { usuario: req.usuario })); } catch (e) { res.status(400).json({ erro: e.message }); } });
+
+// ── Acordos comerciais (evidência + validação da diretoria) ──
+const DIRETORIA = ['Diretor Geral', 'Gestor Geral', 'Controladoria'];
+router.get('/acordos', (req, res) => res.json(acordos.list(req.usuario.empresa_id, { comprador_id: req.query.comprador, ano: req.query.ano, mes: req.query.mes, status: req.query.status })));
+router.post('/acordos', (req, res) => { try { res.json(acordos.add(req.usuario.empresa_id, req.body, req.usuario)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.get('/acordos/:id/evidencia', (req, res) => {
+  const r = acordos.evidencia(req.usuario.empresa_id, req.params.id);
+  const m = r && r.evidencia_b64 && /^data:([^;]+);base64,(.+)$/.exec(r.evidencia_b64);
+  if (!m) return res.status(404).json({ erro: 'Sem evidência.' });
+  res.set('Content-Type', m[1]); res.send(Buffer.from(m[2], 'base64'));
+});
+router.put('/acordos/:id/validar', exigePerfil(...DIRETORIA), compInval, (req, res) => { try { res.json(acordos.validar(req.usuario.empresa_id, req.params.id, req.body, req.usuario)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.delete('/acordos/:id', compInval, (req, res) => res.json(acordos.remover(req.usuario.empresa_id, req.params.id, req.usuario)));
+
+// ── Regime tributário dos fornecedores (BrasilAPI) ──
+router.get('/regime', (req, res) => res.json(regime.listar(req.usuario.empresa_id)));
+router.post('/regime/consultar', exigePerfil(...GESTAO_COMPRAS), async (req, res) => { try { res.json(await regime.consultar(req.usuario.empresa_id, req.body.cnpj, { forcar: req.body.forcar })); } catch (e) { res.status(502).json({ erro: e.message }); } });
+router.post('/regime/consultar-lote', exigePerfil(...GESTAO_COMPRAS), async (req, res) => { try { res.json(await regime.consultarLote(req.usuario.empresa_id, req.body.cnpjs || [], { forcar: req.body.forcar })); } catch (e) { res.status(502).json({ erro: e.message }); } });
+// Puxa os fornecedores do ERP (por volume) e consulta o regime de cada (com fallback de matriz p/ filiais).
+router.post('/regime/puxar-erp', exigePerfil(...GESTAO_COMPRAS), async (req, res) => {
+  try {
+    const forn = await regime.fornecedoresDoErp(req.usuario.empresa_id, { limite: Number(req.body.limite) || 100 });
+    if (!forn.length) return res.json({ ok: true, total: 0, consultados: 0, falhas: 0, resultados: [], aviso: 'Nenhum fornecedor do ERP (conexão pode estar indisponível).' });
+    const r = await regime.consultarLote(req.usuario.empresa_id, forn.map(f => f.cnpj), {});
+    res.json({ ...r, fornecedores: forn.length });
+  } catch (e) { res.status(502).json({ erro: e.message }); }
+});
+// Override manual do regime (pros que a API nunca resolve).
+router.post('/regime/manual', exigePerfil(...GESTAO_COMPRAS), (req, res) => { try { res.json(regime.definirManual(req.usuario.empresa_id, req.body.cnpj, req.body.regime, req.usuario)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+// Validar TODOS os fornecedores do ERP em background + progresso.
+router.post('/regime/validar-todos', exigePerfil(...GESTAO_COMPRAS), async (req, res) => { try { res.json(await regime.validarTodos(req.usuario.empresa_id, { forcar: !!req.body.forcar })); } catch (e) { res.status(502).json({ erro: e.message }); } });
+router.get('/regime/progresso', (req, res) => res.json(regime.progresso()));
+// Herdar da matriz: filiais Desconhecidas recebem o regime de um CNPJ já classificado da mesma raiz.
+router.post('/regime/propagar-matriz', exigePerfil(...GESTAO_COMPRAS), (req, res) => { try { res.json(regime.propagarMatriz(req.usuario.empresa_id)); } catch (e) { res.status(500).json({ erro: e.message }); } });
+router.post('/regime/parar', exigePerfil(...GESTAO_COMPRAS), (req, res) => res.json(regime.pararValidacao()));
+router.delete('/regime/:cnpj', exigePerfil(...GESTAO_COMPRAS), (req, res) => res.json(regime.remover(req.usuario.empresa_id, req.params.cnpj)));
 
 // ── Termômetro do Fornecedor ────────────────────────────────────────────
 router.get('/fornecedores/termometro', async (req, res) => {
@@ -84,6 +163,40 @@ router.get('/fornecedores/:id/divergencias', async (req, res) => {
 router.get('/eficiencia-compradores', async (req, res) => {
   try { res.json(await eficienciaCompradores(req.usuario.empresa_id, { dias: Number(req.query.dias) || 90, de: req.query.de || undefined, ate: req.query.ate || undefined, mes: req.query.mes || undefined })); }
   catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
+
+// Conciliação Pedido × NF por comprador (sem pedido, fornecedor mais caro, sobra/falta, pedidos atrasados).
+// Roda por MÊS (as junções de recebimento × NF são pesadas; janelas longas estouram o timeout do ERP).
+router.get('/conciliacao', compCache, async (req, res) => {
+  try {
+    const now = new Date();
+    const ano = Number(req.query.ano) || now.getFullYear(), mes = Number(req.query.mes) || (now.getMonth() + 1);
+    res.json(await conciliacaoComprador(req.usuario.empresa_id, { compradorId: req.query.comprador || null, ano, mes }));
+  } catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
+// Lista dos pedidos pendentes (acompanhamento) — atrasados em destaque.
+router.get('/conciliacao/pendentes', compCache, async (req, res) => {
+  try { res.json(await pedidosPendentesDetalhe(req.usuario.empresa_id, { compradorId: req.query.comprador || null, dias: Number(req.query.dias) || 45, de: req.query.de || undefined, ate: req.query.ate || undefined })); }
+  catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
+
+// Compra do Simples Nacional por comprador (Lucro Real comprando do Simples = tributação maior).
+const simples = require('../lib/comprasSimplesErp');
+router.get('/simples', compCache, async (req, res) => {
+  try {
+    const now = new Date();
+    const ano = Number(req.query.ano) || now.getFullYear(), mes = Number(req.query.mes) || (now.getMonth() + 1);
+    res.json(await simples.comprasSimplesComprador(req.usuario.empresa_id, { compradorId: req.query.comprador || null, ano, mes }));
+  } catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
+router.post('/simples/perdao', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => {
+  try { res.json(simples.definirPerdao(req.usuario.empresa_id, { ...req.body, usuario: req.usuario })); }
+  catch (e) { res.status(400).json({ erro: e.message }); }
+});
+// Alíquota de crédito perdido (%) p/ estimar o imposto pago a mais — calibrada pelo contador/gestão.
+router.put('/simples/aliquota', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => {
+  try { res.json(simples.setAliquota(req.usuario.empresa_id, req.body.aliquota, req.usuario)); }
+  catch (e) { res.status(400).json({ erro: e.message }); }
 });
 
 // Captura manual da FOTO dos indicadores do mês corrente (gestão) — p/ montar o histórico agora.
@@ -149,7 +262,8 @@ router.get('/faltas', async (req, res) => {
 });
 
 // ── Orçamento de compra ─────────────────────────────────────────────────
-router.get('/orcamento', async (req, res) => {
+// Orçamento de compra (restaurado): projeção de venda × orçamento × fluxo de caixa, feira e carry.
+router.get('/orcamento', compCache, async (req, res) => {
   try {
     const r = await orcamentoCompra(req.usuario.empresa_id, {
       ano: Number(req.query.ano) || undefined, mes: Number(req.query.mes) || undefined,
@@ -160,6 +274,17 @@ router.get('/orcamento', async (req, res) => {
 });
 
 router.get('/orcamento/config', (req, res) => res.json({ config: getConfig(req.usuario.empresa_id) }));
+
+// Arrastos (carry) PENDENTES de aprovação — p/ a tela da Diretoria aprovar num lugar só.
+router.get('/orcamento/carry-pendentes', async (req, res) => {
+  try {
+    const r = await orcamentoCompra(req.usuario.empresa_id, {});
+    const ano = r.ano;
+    const pendentes = (r.fluxo || []).filter(f => f.carrySaida > 0 && !f.carryAprovado)
+      .map(f => ({ ano: f.ano || ano, mes: f.mes, mesNum: f.mesNum, valor: f.carrySaida, comprometido: f.comprometido, orcamento: f.orcamentoAjustado }));
+    res.json({ ok: true, ano, pendentes });
+  } catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
 
 // Aprovação do Diretor para o carry (excedente que empurra p/ o mês seguinte). Só Diretor/Gestor.
 router.post('/orcamento/carry', exigePerfil('Diretor Geral', 'Gestor Geral'), (req, res) => {
@@ -193,19 +318,19 @@ router.put('/metas', exigePerfil(...GESTAO_COMPRAS), (req, res) => {
 });
 
 // ── Indicadores de estoque (ruptura, cobertura, curva ABC, orçamento de estoque) ──
-router.get('/estoque-indicadores', async (req, res) => {
+router.get('/estoque-indicadores', compCache, async (req, res) => {
   try { res.json(await indicadoresEstoque(req.usuario.empresa_id, { lojaId: req.query.loja || undefined, compradorId: req.query.comprador || undefined })); }
   catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
 });
 
 // ── Evolução do estoque: cresceu/diminuiu + qual linha impacta (gráfico) ──
-router.get('/estoque-evolucao', async (req, res) => {
+router.get('/estoque-evolucao', compCache, async (req, res) => {
   try { res.json(await evolucaoEstoque(req.usuario.empresa_id, { lojaId: req.query.loja || undefined, compradorId: req.query.comprador || undefined, meses: Number(req.query.meses) || 6 })); }
   catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
 });
 
 // ── Análise de vencidos (comprador + gerente): validade × demanda + clientes p/ ligar ──
-router.get('/vencidos', async (req, res) => {
+router.get('/vencidos', compCache, async (req, res) => {
   try { res.json(await analiseVencidos(req.usuario.empresa_id, { lojaId: req.query.loja || undefined, dias: Number(req.query.dias) || 90 })); }
   catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
 });
@@ -217,14 +342,26 @@ router.get('/vencidos/clientes', async (req, res) => {
 });
 
 // ── Estoque & Remanejamento ─────────────────────────────────────────────
-router.get('/transferencias-pendentes', async (req, res) => {
+router.get('/transferencias-pendentes', compCache, async (req, res) => {
   try {
     const dias = Number(req.query.dias) || 7;
     const unis = req.query.loja ? unisEmpresa(req.usuario.empresa_id, req.query.loja) : null;
-    res.json(await transferenciasPendentes(dias, unis));
+    res.json(await transferenciasPendentes(dias, unis, { empresaId: req.usuario.empresa_id, compradorId: req.query.comprador || null }));
   } catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
 });
-// Produtos de uma transferência (drill ao clicar na linha do remanejamento).
+// PEDIDO de transferência (o que o comprador solicita) — visão principal em Compras.
+router.get('/pedidos-transferencia-pendentes', compCache, async (req, res) => {
+  try {
+    const dias = Number(req.query.dias) || 7;
+    const unis = req.query.loja ? unisEmpresa(req.usuario.empresa_id, req.query.loja) : null;
+    res.json(await pedidosTransferenciaPendentes(dias, unis, { empresaId: req.usuario.empresa_id, compradorId: req.query.comprador || null }));
+  } catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
+router.get('/pedidos-transferencia/:id/itens', async (req, res) => {
+  try { res.json(await itensPedidoTransferencia(req.params.id)); }
+  catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
+// Produtos de uma transferência (drill ao clicar na linha da execução).
 router.get('/transferencias/:id/itens', async (req, res) => {
   try { res.json(await itensTransferencia(req.params.id)); }
   catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }

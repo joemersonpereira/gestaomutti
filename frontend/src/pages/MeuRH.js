@@ -4,6 +4,55 @@ import Banner from '../components/Banner';
 
 const TIPO_CERT = { conquista: '🏆', reconhecimento: '⭐', desenvolvimento: '📚' };
 
+// Atalhos que aparecem na visão geral conforme o cargo da pessoa (leva direto à tela que ela usa).
+const _cardAtalho = { display: 'flex', gap: 10, alignItems: 'center', textAlign: 'left', background: 'linear-gradient(95deg,#ecfdf5,#f0fdfa)', border: '1px solid #bbf7d0', borderRadius: 12, padding: '12px 16px', cursor: 'pointer', minWidth: 240 };
+// Minhas diferenças de caixa — aparece só p/ quem é operador (tem vínculo de usuário no ERP).
+function MinhasDiferencasCaixa({ API, funcao }) {
+  const [d, setD] = useState(undefined);
+  useEffect(() => { API.get('/meu-rh/minhas-diferencas').then(r => setD(r.data)).catch(() => setD(null)); }, [API]);
+  const ehCaixa = /caixa|atendente|operador|vendedor|balc/i.test(funcao || '');
+  // operador de caixa/vendedor vê sempre (mesmo zerado, como reforço); escritório só se houver diferença.
+  if (!d || !d.erpVinculado || (!ehCaixa && !(d.diferencas || []).length)) return null;
+  const r = d.resumo || {};
+  const brl = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  const fmtD = x => x ? String(x).slice(0, 10).split('-').reverse().join('/') : '—';
+  return (
+    <div style={{ ...s.card, marginBottom: 12 }}>
+      <div style={{ fontWeight: 700, marginBottom: 8 }}>💸 Minhas diferenças de caixa <span style={{ fontWeight: 400, color: '#999', fontSize: 12 }}>— últimos 90 dias</span></div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: (d.diferencas || []).length ? 10 : 0 }}>
+        <span style={{ fontSize: 13 }}>Faltas: <b style={{ color: '#C0392B' }}>{r.faltas}</b> <span style={{ color: '#888' }}>({brl(r.valorFalta)})</span></span>
+        <span style={{ fontSize: 13 }}>Sobras: <b style={{ color: '#B7791F' }}>{r.sobras}</b> <span style={{ color: '#888' }}>({brl(r.valorSobra)})</span></span>
+      </div>
+      {(d.diferencas || []).length === 0 && <div style={{ color: '#3B6D11', fontSize: 13 }}>✅ Sem diferenças nos seus fechamentos nos últimos 90 dias. Parabéns!</div>}
+      {(d.diferencas || []).length > 0 && <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead><tr>{['Data', 'Tipo', 'Valor', 'Loja'].map(h => <th key={h} style={{ textAlign: 'left', padding: '6px 8px', color: '#888', borderBottom: '1px solid #eee', fontWeight: 600 }}>{h}</th>)}</tr></thead>
+          <tbody>{d.diferencas.slice(0, 30).map((x, i) => <tr key={i}>
+            <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>{fmtD(x.data)}</td>
+            <td style={{ padding: '6px 8px', color: x.tipo === 'falta' ? '#C0392B' : '#B7791F', fontWeight: 600 }}>{x.tipo === 'falta' ? 'Falta' : 'Sobra'}</td>
+            <td style={{ padding: '6px 8px' }}>{brl(x.valor)}</td>
+            <td style={{ padding: '6px 8px', color: '#666' }}>{x.loja || '—'}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>}
+    </div>
+  );
+}
+function AtalhosDoCargo({ funcao, loja }) {
+  const go = (pagina) => window.dispatchEvent(new CustomEvent('mutti-nav', { detail: pagina }));
+  const f = (funcao || '').toLowerCase();
+  const ehGerente = /gerente|subgerente/.test(f);
+  if (!ehGerente) return null;
+  return (
+    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+      <button onClick={() => go('tesouraria')} style={_cardAtalho}>
+        <div style={{ fontSize: 22 }}>🏦</div>
+        <div><div style={{ fontWeight: 700 }}>Fechamento do dia</div><div style={{ fontSize: 11.5, color: '#64748b' }}>Anexe os depósitos, despesas, recargas e gastos do orçamento da {loja || 'sua loja'} — e veja os caixas e diferenças do dia.</div></div>
+      </button>
+    </div>
+  );
+}
+
 export default function MeuRH() {
   const { API } = useAuth();
   const [d, setD] = useState(null);
@@ -39,6 +88,8 @@ export default function MeuRH() {
       {aba === 'ponto' && <MeuPontoInline API={API} />}
 
       {aba === 'geral' && (<>
+      <AtalhosDoCargo funcao={colaborador.funcao_nome} loja={colaborador.loja_nome} />
+      <MinhasDiferencasCaixa API={API} funcao={colaborador.funcao_nome} />
       <div style={s.card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: 13, color: '#666' }}>Pontuação atual</span>
