@@ -42,6 +42,13 @@ router.get('/envios', async (req, res) => {
   catch (e) { res.status(502).json({ erro: e.message }); }
 });
 
+// Detalhe de um envio: mensagem + cupom + respostas do cliente (texto).
+router.get('/envios/detalhe', async (req, res) => {
+  if (!crm.habilitado()) return off(res);
+  try { res.json(await crm.envioDetalhe({ customerId: req.query.cliente, campaignDigitalId: req.query.campanha, campaignDigitalEventId: req.query.evento, messageConsolidationId: req.query.consolidacao })); }
+  catch (e) { res.status(502).json({ erro: e.message }); }
+});
+
 // Retenção (retenção %, churn, receita, ticket, frequência).
 router.get('/retencao', async (req, res) => {
   if (!crm.habilitado()) return off(res);

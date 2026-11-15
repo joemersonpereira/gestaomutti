@@ -101,6 +101,17 @@ async function auditoriaEnvios({ de, ate, busca, campaignDigitalId, onlyFailed, 
   return { erp: true, ...j };
 }
 
+// ── Detalhe de 1 envio: mensagem enviada + cupom + RESPOSTAS do cliente (texto) ──
+async function envioDetalhe({ customerId, campaignDigitalId, campaignDigitalEventId, messageConsolidationId } = {}) {
+  if (!habilitado()) return { erp: false };
+  const qs = new URLSearchParams({
+    customerId: customerId || '', campaignDigitalId: campaignDigitalId || '',
+    campaignDigitalEventId: campaignDigitalEventId || '', messageConsolidationId: messageConsolidationId || '',
+  }).toString();
+  const j = await trivioGet('/api/v1/campaign/lead/message/details', qs);
+  return { erp: true, message: j.message || '', discountCoupon: j.discountCoupon || null, answers: j.answers || [] };
+}
+
 // ── Lista de campanhas (para o seletor) ──
 async function listarCampanhas({ nome, from = 0, size = 100 } = {}) {
   if (!habilitado()) return { erp: false };
@@ -117,4 +128,4 @@ async function retencao({ periodType = 0, windowType = 2, merchantIds = '', merc
   return { erp: true, ...j };
 }
 
-module.exports = { habilitado, campanhasOverview, campanhaVendas, auditoriaEnvios, listarCampanhas, retencao, fidelizacao, sugestao, filipetas };
+module.exports = { habilitado, campanhasOverview, campanhaVendas, auditoriaEnvios, envioDetalhe, listarCampanhas, retencao, fidelizacao, sugestao, filipetas };

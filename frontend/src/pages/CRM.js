@@ -170,7 +170,7 @@ function Envios() {
   const { de, setDe, ate, setAte } = usePeriodo();
   const [busca, setBusca] = useState(''); const [falhas, setFalhas] = useState(false); const [respondidas, setRespondidas] = useState(false);
   const [campanhas, setCampanhas] = useState([]); const [campSel, setCampSel] = useState('');
-  const [d, setD] = useState(null); const [est, setEst] = useState('idle');
+  const [d, setD] = useState(null); const [est, setEst] = useState('idle'); const [detalhe, setDetalhe] = useState(null);
   useEffect(() => { API.get('/crm/campanhas/lista').then(r => setCampanhas(r.data.campanhas || [])).catch(() => {}); }, [API]);
   const carregar = useCallback(() => {
     setEst('carregando');
@@ -202,8 +202,8 @@ function Envios() {
           <thead><tr style={{ textAlign: 'left', color: '#64748b', background: '#f8fafc' }}>{['Cliente', 'CPF/CNPJ', 'Celular', 'Campanha', 'Enviado em', 'Canal', 'Status'].map(h => <th key={h} style={{ padding: '8px 10px', fontWeight: 700 }}>{h}</th>)}</tr></thead>
           <tbody>{rows.length === 0 && <tr><td colSpan={7} style={{ padding: 14, color: '#94a3b8' }}>Nenhum envio no período.</td></tr>}
             {rows.map((r, i) => { const c = stCor(r.messageStatus); return (
-            <tr key={r.messageConsolidationId || i} style={{ borderTop: '1px solid #f1f3f5' }}>
-              <td style={{ padding: '7px 10px', fontWeight: 600 }}>{r.name}</td>
+            <tr key={r.messageConsolidationId || i} onClick={() => setDetalhe(r)} title="ver mensagem e resposta" style={{ borderTop: '1px solid #f1f3f5', cursor: 'pointer' }}>
+              <td style={{ padding: '7px 10px', fontWeight: 600, color: '#0d6b5e' }}>{r.name}</td>
               <td style={{ padding: '7px 10px', color: '#64748b' }}>{r.document || '—'}</td>
               <td style={{ padding: '7px 10px', color: '#64748b' }}>{r.cellphone || r.email || '—'}</td>
               <td style={{ padding: '7px 10px', color: '#475569' }}>{r.campaign}</td>
@@ -213,6 +213,46 @@ function Envios() {
             </tr>); })}</tbody>
         </table></div>
       </div>}
+      {detalhe && <EnvioDetalhe item={detalhe} onFechar={() => setDetalhe(null)} />}
+    </div>
+  );
+}
+
+// ── Detalhe de um envio: mensagem enviada + cupom + resposta(s) do cliente ──
+function EnvioDetalhe({ item, onFechar }) {
+  const { API } = useAuth();
+  const [d, setD] = useState(null); const [est, setEst] = useState('carregando');
+  useEffect(() => {
+    API.get('/crm/envios/detalhe', { params: { cliente: item.customerId, campanha: item.campaignId, evento: item.campaignDigitalEventId, consolidacao: item.messageConsolidationId } })
+      .then(r => { setD(r.data); setEst('ok'); }).catch(() => setEst('erro'));
+  }, [API, item]);
+  const cup = d && d.discountCoupon; const answers = (d && d.answers) || [];
+  return (
+    <div onClick={onFechar} style={{ position: 'fixed', inset: 0, background: 'rgba(15,30,25,.45)', zIndex: 60, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 12px', overflow: 'auto' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, maxWidth: 620, width: '100%', boxShadow: '0 12px 40px rgba(0,0,0,.25)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid #eef1f4' }}>
+          <div><div style={{ fontWeight: 800, fontSize: 15 }}>💬 {item.name}</div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>{item.campaign} · {item.cellphone || item.email || ''} · enviado {dataBr(item.sentDate)}</div></div>
+          <button onClick={onFechar} style={{ marginLeft: 'auto', border: 'none', background: '#f1f5f9', borderRadius: 8, padding: '6px 12px', fontWeight: 700, cursor: 'pointer' }}>Fechar ✕</button>
+        </div>
+        <div style={{ padding: 16 }}>
+          {est === 'carregando' && <div style={{ color: '#94a3b8' }}>carregando…</div>}
+          {est === 'erro' && erroBox}
+          {est === 'ok' && <>
+            {cup && <div style={{ background: '#fff8ef', border: '1px solid #f0e2c9', borderRadius: 10, padding: '8px 12px', fontSize: 12.5, marginBottom: 12 }}>🎟️ <b>Cupom</b>: {cup.discountType === 2 ? cup.value + '%' : brl(cup.value)} · código <b>{cup.voucherCode}</b> · venc. {soData(cup.expirateDate)} {cup.status === 3 ? <span style={{ color: '#C0392B', fontWeight: 700 }}>(expirado)</span> : ''}</div>}
+            <div style={{ fontSize: 12, color: '#64748b', fontWeight: 700, marginBottom: 4 }}>Mensagem enviada</div>
+            <div style={{ background: '#185FA5', color: '#fff', borderRadius: 10, padding: '10px 14px', fontSize: 13, lineHeight: 1.45, marginBottom: 14 }}>📱 {d.message}</div>
+            <div style={{ fontSize: 12, color: '#64748b', fontWeight: 700, marginBottom: 4 }}>Resposta{answers.length !== 1 ? 's' : ''} do cliente ({answers.length})</div>
+            {answers.length === 0 ? <div style={{ fontSize: 12.5, color: '#94a3b8' }}>O cliente não respondeu.</div> :
+              answers.map((a, i) => (
+                <div key={i} style={{ background: '#eafaf0', border: '1px solid #cdeadd', borderRadius: 10, padding: '9px 13px', marginBottom: 7 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d' }}>“{a.answer}”</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>em {dataBr(a.answeredAt)}</div>
+                </div>
+              ))}
+          </>}
+        </div>
+      </div>
     </div>
   );
 }
