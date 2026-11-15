@@ -254,4 +254,32 @@ async function vencidoComprador(empresaId, { lojaId = '', compradorId, ano, mes 
   return { erp: true, ano: y, mes: m, custo: Number(r.custo) || 0 };
 }
 
-module.exports = { indicadoresEstoque, retornoFalteiro, produtosDoComprador, cmvComprador, vencidoComprador };
+// Sugestão de META de CMV do comprador = CMV dos produtos dos grupos dele nos últimos `meses`, calculado
+// POR LOJA e tirando a MÉDIA DAS LOJAS (cada loja pesa igual, não deixa a loja grande esconder a pequena).
+// É o que o Joe quer trazer pra meta (2026-11-15). Também devolve a ponderada p/ comparar.
+async function cmvCompradorSugestao(empresaId, { compradorId, meses = 3 } = {}) {
+  if (!habilitado()) return { erp: false };
+  const unis = unisEmpresa(empresaId, '');
+  if (!unis.length) return { erp: true, erro: 'Nenhuma loja vinculada ao ERP.' };
+  const prodIds = await produtosDoComprador(empresaId, compradorId);
+  if (!prodIds || !prodIds.length) return { erp: true, semComprador: true };
+  const m = Math.max(1, Math.min(12, Number(meses) || 3));
+  const r = (await erpQuery(`
+    WITH base AS (
+      SELECT v.unidadenegocioid uni,
+        sum(me.custo*abs(me.quantidade)) custo, sum(iv.valortotal) venda
+      FROM itemvenda iv JOIN venda v ON v.id=iv.vendaid JOIN movimentacaoestoque me ON me.id=iv.movimentacaoestoqueid
+        JOIN embalagem em ON em.id=iv.embalagemid
+      WHERE v.status IN ('F','D') AND iv.status='F' AND v.unidadenegocioid = ANY($1::bigint[])
+        AND v.datahorafechamento >= date_trunc('month', now()) - (($2-1) || ' months')::interval
+        AND em.produtoid = ANY($3::bigint[])
+      GROUP BY v.unidadenegocioid)
+    SELECT avg(CASE WHEN venda>0 THEN custo/venda*100 END)::float8 cmv_lojas,
+           (sum(custo)/NULLIF(sum(venda),0)*100)::float8 cmv_pond,
+           count(*) FILTER (WHERE venda>0) lojas_n
+    FROM base`, [unis, m, prodIds]).catch(() => [{}]))[0] || {};
+  const r1 = v => v == null ? null : Math.round(Number(v) * 10) / 10;
+  return { erp: true, meses: m, cmvLojas: r1(r.cmv_lojas), cmvPond: r1(r.cmv_pond), lojas: Number(r.lojas_n) || 0 };
+}
+
+module.exports = { indicadoresEstoque, retornoFalteiro, produtosDoComprador, cmvComprador, cmvCompradorSugestao, vencidoComprador };

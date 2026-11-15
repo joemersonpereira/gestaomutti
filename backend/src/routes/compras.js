@@ -10,7 +10,7 @@ const { eficienciaCompradores, capturarSnapshot, conciliacaoComprador, pedidosPe
 const { orcamentoCompra, getConfig } = require('../lib/orcamentoCompraErp'); // restaurado do git (27e1724)
 const { sincronizarAlertas, itensAlerta } = require('../lib/alertasCompra');
 const { getMetas, setMeta, metaVals } = require('../lib/metasCompra');
-const { indicadoresEstoque } = require('../lib/indicadoresCompraErp');
+const { indicadoresEstoque, cmvCompradorSugestao } = require('../lib/indicadoresCompraErp');
 const { evolucaoEstoque } = require('../lib/estoqueEvolucaoErp');
 const { lojasEmpresa, unisEmpresa } = require('../lib/escopoCompras');
 const { faltasComprador } = require('../lib/faltasCompra');
@@ -94,6 +94,11 @@ router.get('/cmv-metas', compCache, async (req, res) => {
 });
 router.get('/cmv-metas/sugerir', compCache, async (req, res) => {
   try { res.json(await cmvGrupo.cmvPorGrupo(req.usuario.empresa_id, { lojaId: req.query.loja || '', meses: req.query.meses })); }
+  catch (e) { res.status(500).json({ erro: e.message }); }
+});
+// Sugestão de meta de CMV do COMPRADOR = média das lojas dos produtos dos grupos dele (Joe 2026-11-15).
+router.get('/cmv-sugestao', compCache, async (req, res) => {
+  try { res.json(await cmvCompradorSugestao(req.usuario.empresa_id, { compradorId: req.query.comprador, meses: req.query.meses })); }
   catch (e) { res.status(500).json({ erro: e.message }); }
 });
 router.put('/cmv-metas', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => { try { res.json(cmvGrupo.setMeta(req.usuario.empresa_id, req.body, req.usuario)); } catch (e) { res.status(400).json({ erro: e.message }); } });

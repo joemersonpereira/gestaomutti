@@ -1913,6 +1913,8 @@ function MetasCompras({ API, gestao }) {
     API.get('/compras/meu-setor', { params: { comprador: comp, ano, mes } }).then(r => setD(r.data)).catch(() => setD(null));
   }, [API, comp, sel]);
   useEffect(() => { carregar(); }, [carregar]);
+  // Trocar de comprador/mês limpa a análise anterior (senão "volta o resultado da análise de novo", Joe).
+  useEffect(() => { setSugPrev(null); setSugMsg(''); }, [comp, sel]);
   const carregarPil = useCallback(() => API.get('/compras/meu-setor/pilares').then(r => setPilCfg({ pilares: r.data.pilares || [], bonus: r.data.bonus ?? 50 })).catch(() => {}), [API]);
   useEffect(() => { carregarPil(); }, [carregarPil]);
   const salvarCfg = (chave, patch) => API.put('/compras/meu-setor/config', { chave, comprador_id: comp, ...patch }).then(carregar).catch(() => {});
@@ -1942,6 +1944,17 @@ function MetasCompras({ API, gestao }) {
         const sug = media == null ? null : (i.direcao === 'maior' ? Math.max(1, Math.round(media)) : (Math.abs(media) >= 100 ? Math.round(media) : Math.round(media * 100) / 100));
         return { chave: k, nome: i.nome, unidade: i.unidade, direcao: i.direcao, alvoAtual: i.alvoAtual, media: media == null ? null : Math.round(media * 100) / 100, sugerido: sug };
       }).filter(r => r.media != null);
+      // CMV: a sugestão NÃO vem do realizado médio, e sim da MÉDIA DAS LOJAS dos produtos dos grupos do
+      // comprador (cada loja pesa igual) — é o que o Joe cadastra por grupo e quer trazer pra meta.
+      try {
+        const cs = await API.get('/compras/cmv-sugestao', { params: { comprador: comp, meses: sugMeses } }).then(r => r.data);
+        if (cs && cs.erp !== false && cs.cmvLojas != null) {
+          const novo = { media: cs.cmvLojas, sugerido: cs.cmvLojas, fonteCmv: `média das ${cs.lojas} lojas · ponderada ${cs.cmvPond}%` };
+          const i = rows.findIndex(r => r.chave === 'cmv');
+          if (i >= 0) rows[i] = { ...rows[i], ...novo };
+          else rows.unshift({ chave: 'cmv', nome: 'CMV (%)', unidade: '%', direcao: 'menor', alvoAtual: null, ...novo });
+        }
+      } catch (e) { /* mantém o realizado médio se a média das lojas falhar */ }
       if (!rows.length) { setSugMsg('Sem base no período — comprador sem movimento.'); setTimeout(() => setSugMsg(''), 3500); return; }
       setSugPrev(rows); setSugMsg('');
     } catch { setSugMsg('Erro ao analisar.'); setTimeout(() => setSugMsg(''), 3500); }
@@ -2034,7 +2047,7 @@ function MetasCompras({ API, gestao }) {
             <thead><tr style={{ textAlign: 'left', color: '#7a8a8c' }}>{['Indicador', 'Média histórica', 'Alvo atual', 'Sugerido'].map(h => <th key={h} style={{ padding: '6px 8px' }}>{h}</th>)}</tr></thead>
             <tbody>{sugPrev.map(r => (
               <tr key={r.chave} style={{ borderTop: '1px solid #eef1f4' }}>
-                <td style={{ padding: '6px 8px', fontWeight: 600 }}>{r.nome}</td>
+                <td style={{ padding: '6px 8px', fontWeight: 600 }}>{r.nome}{r.fonteCmv && <span style={{ display: 'block', fontSize: 10, fontWeight: 400, color: '#2563eb' }}>🏬 {r.fonteCmv}</span>}</td>
                 <td style={{ padding: '6px 8px', color: '#64748b' }}>{fmtU(r.media, r.unidade)}</td>
                 <td style={{ padding: '6px 8px', color: '#94a3b8' }}>{r.alvoAtual == null ? '—' : (r.direcao === 'menor' ? '≤ ' : '≥ ') + fmtU(r.alvoAtual, r.unidade)}</td>
                 <td style={{ padding: '6px 8px' }}>
@@ -2071,7 +2084,7 @@ function MetasCompras({ API, gestao }) {
               <td style={{ padding: '9px 10px' }}><input type="checkbox" defaultChecked={m.ativo !== false} onChange={e => salvarCfg(m.chave, { ativo: e.target.checked })} /></td>
             </tr>))}</tbody>
         </table></div>
-        <p style={{ fontSize: 11.5, color: '#64748b', marginTop: 8 }}>💡 Indicadores <b>⚙️ auto</b> vêm do sistema (cobertura, curva D, saldo, acordos validados, conversão de itens novos, retorno do falteiro). Os <b>✍️ manuais</b> o gestor lança por mês em 🏆 Meu Setor (CMV, vencidos, orçamento). "Sugerir" usa o realizado do comprador — <b>o mês selecionado</b> ou a <b>média dos últimos 3/6/12 meses</b> — como alvo inicial.</p>
+        <p style={{ fontSize: 11.5, color: '#64748b', marginTop: 8 }}>💡 Indicadores <b>⚙️ auto</b> vêm do sistema (cobertura, curva D, saldo, acordos validados, conversão de itens novos, retorno do falteiro). Os <b>✍️ manuais</b> o gestor lança por mês em 🏆 Meu Setor (CMV, vencidos, orçamento). "Sugerir" usa o realizado do comprador (mês selecionado ou média de 3/6/12 meses). <b>Exceção: o CMV</b> é sugerido pela <b>média das lojas</b> dos produtos dos grupos do comprador (cada loja pesa igual) — o mesmo cálculo da tabela de CMV por grupo abaixo.</p>
       </div>
       {d && <FaixasPremioCompras d={d} gestao={false} />}
       {d && <PessoasPremioCompras API={API} comp={comp} d={d} gestao={gestao} />}
@@ -2084,8 +2097,9 @@ function MetasCompras({ API, gestao }) {
 const CMV_COR = { verde: '#15803d', amarelo: '#B7791F', vermelho: '#C0392B', cinza: '#94a3b8' };
 function CmvPorGrupo({ API }) {
   const [lojas, setLojas] = useState([]); const [loja, setLoja] = useState('');
-  const [meses, setMeses] = useState(3); const [base, setBase] = useState('pond'); const [d, setD] = useState(null);
+  const [meses, setMeses] = useState(3); const [base, setBase] = useState('lojas'); const [d, setD] = useState(null);
   const [msg, setMsg] = useState(''); const [busy, setBusy] = useState(false);
+  const salvarTudoCmv = () => { try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) {} setTimeout(() => { setMsg('✓ Metas de CMV salvas'); setTimeout(() => setMsg(''), 2800); }, 120); };
   useEffect(() => { API.get('/compras/lojas').then(r => setLojas(r.data.lojas || [])).catch(() => {}); }, [API]);
   const carregar = useCallback(() => { API.get('/compras/cmv-metas', { params: { loja, meses, base } }).then(r => setD(r.data)).catch(() => setD(null)); }, [API, loja, meses, base]);
   useEffect(() => { carregar(); }, [carregar]);
@@ -2115,6 +2129,7 @@ function CmvPorGrupo({ API }) {
           {[1, 2, 3, 6, 12].map(n => <option key={n} value={n}>últimos {n} {n === 1 ? 'mês' : 'meses'}</option>)}
         </select></label>
         <button onClick={gerar} disabled={busy} style={{ background: '#0d6b5e', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-end' }}>{busy ? '⏳' : '⚙️ Gerar pela média'}</button>
+        <button onClick={salvarTudoCmv} style={{ background: '#185FA5', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-end' }}>💾 Salvar</button>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
         <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>Meta pela média:</span>
@@ -2123,7 +2138,7 @@ function CmvPorGrupo({ API }) {
         {loja === '' && tabBtn('lojas', '🏬 Média das lojas')}
         <span style={{ fontSize: 11.5, color: '#94a3b8' }}>{base === 'pond' ? 'Σcusto ÷ Σvenda do período (loja/mês de mais venda pesa mais).' : base === 'lojas' ? 'média do CMV de cada loja (cada loja conta igual, independe do tamanho).' : 'média dos CMV de cada mês (cada mês conta igual).'}</span>
       </div>
-      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>Definindo para <b>{escopo}</b>. Cada grupo (PERFUMARIA, GENÉRICO, PROPAGADO…) tem seu CMV próprio. A meta já vem <b>pré-preenchida</b> com a média <b>{base === 'pond' ? 'ponderada' : base === 'lojas' ? 'das lojas' : 'simples'}</b> dos últimos {meses} {meses === 1 ? 'mês' : 'meses'} — é só ajustar e sair do campo pra fixar. As médias ficam todas à mostra pra você comparar. Uma meta por loja <b>sobrepõe</b> a de "Todas".</div>
+      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>Definindo para <b>{escopo}</b>. Cada grupo (PERFUMARIA, GENÉRICO, PROPAGADO…) tem seu CMV próprio. A meta já vem <b>pré-preenchida</b> com a média <b>{base === 'pond' ? 'ponderada' : base === 'lojas' ? 'das lojas' : 'simples'}</b> dos últimos {meses} {meses === 1 ? 'mês' : 'meses'} — é só ajustar e <b>💾 Salvar</b> (ou sair do campo). As médias ficam todas à mostra pra você comparar. Uma meta por loja <b>sobrepõe</b> a de "Todas".</div>
       {msg && <div style={{ fontSize: 12.5, fontWeight: 600, color: msg.startsWith('⚠️') || msg.startsWith('Sem') ? '#b45309' : '#15803d', marginBottom: 8 }}>{msg}</div>}
       <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
         <thead><tr style={{ textAlign: 'left', color: '#64748b', background: '#f8fafc', borderBottom: '2px solid #eef1f4' }}>{['Grupo principal', '⚖️ CMV ponderado', '➗ CMV simples', ...(loja === '' ? ['🏬 CMV lojas'] : []), 'Venda (período)', 'Meta (%)', ''].map(h => <th key={h} style={{ padding: '9px 10px' }}>{h}</th>)}</tr></thead>
