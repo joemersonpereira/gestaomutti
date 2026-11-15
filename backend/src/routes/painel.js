@@ -10,45 +10,48 @@ const indErp = require('../lib/indicadoresErp');
 const fv = require('../lib/fotoVendedor');
 const trivioPdv = require('../lib/trivioPdv');
 const encomendasSync = require('../lib/encomendasSync');
+const { erpQuery, habilitado } = require('../db/erp');
+const { unisEmpresa } = require('../lib/escopoCompras');
 
 // Setores da gestão = departamentos. `funcoes` = quem "é dono" do setor (vê o Meu Setor).
 // expPad = expectativas padrão (a direção edita em setor_config). Compartilhado por /diretoria e /meu-setor.
+// Setores REAIS do grupo (os que têm pilares/Meu Setor próprio). Cada área do painel cai num destes.
 const SETORES_BASE = [
-  { key: 'operacional', nome: 'Operacional', emoji: '🏪', donoPad: 'Gerentes / Supervisão', funcoes: ['Gerente', 'Subgerente', 'Supervisor'], expPad: [
+  { key: 'operacao', nome: 'Retail & Ads', emoji: '🏪', donoPad: 'Gerentes / Supervisão', funcoes: ['Gerente', 'Subgerente', 'Supervisor'], expPad: [
     'Nota de loja ≥ 90 (checklist diário, limpeza e satisfação em dia)',
     'Ruptura ≤ 4% e reposição feita todo dia',
     'Todos os vendedores acompanhados; quem está abaixo da meta tem plano de ação',
     'Escala publicada e faltas/atrasos tratados na hora',
   ] },
-  { key: 'comercial', nome: 'Comercial', emoji: '🛒', donoPad: 'Compradores', funcoes: ['Comprador Beleza', 'Comprador Bem-estar'], expPad: [
+  { key: 'compras', nome: 'Compras', emoji: '📦', donoPad: 'Compradores', funcoes: ['Comprador Beleza', 'Comprador Bem-estar'], expPad: [
     'CMV dentro da meta e cobertura de estoque entre 45 e 60 dias',
     'Ruptura ≤ 4% nos grupos sob sua responsabilidade',
-    'Acordos e trade fechados, com sell-out acompanhado',
+    'Orçamento de compra do mês sem estourar; acordos/trade com sell-out acompanhado',
     'Lista de faltas das lojas comprada em até 48h',
   ] },
   { key: 'marketing', nome: 'Marketing', emoji: '📣', donoPad: 'Marketing', funcoes: ['Marketing'], expPad: [
     '≥ 80% das ações do calendário executadas no prazo',
-    'Calendário do mês publicado até o dia 25 do mês anterior',
-    'Verba dentro do orçamento e ROI das campanhas medido',
-    'Material de loja (etiquetas/placas) e redes sociais alinhados',
+    'Material no prazo (2 dias antes) e comprovação da execução anexada',
+    'Calendário do mês publicado com antecedência; custo das ações × sell-out medido',
+    'Redes sociais e material de loja (etiquetas/placas) alinhados',
+  ] },
+  { key: 'tesouraria', nome: 'Tesouraria', emoji: '🏦', donoPad: 'Tesouraria', funcoes: ['Tesouraria'], expPad: [
+    'Quebras de caixa conferidas e cobradas dos operadores',
+    'Depósitos, despesas e recargas anexados no fechamento do dia',
+    'Conciliação de cartões em dia',
+    'Saldo em caixa e tesouraria batendo com o banco',
+  ] },
+  { key: 'gerencial', nome: 'Financeiro', emoji: '📊', donoPad: 'Controladoria', funcoes: ['Controladoria', 'Financeiro'], expPad: [
+    'DRE fechada e resultado/margem acompanhados; despesas sob controle',
+    'Todo lançamento com plano de contas (nada sem classificação)',
+    'Contas a pagar baixadas no prazo — sem título parado em aberto',
+    'Devoluções em aberto e lançamentos retroativos tratados',
   ] },
   { key: 'gente', nome: 'Gente & Gestão', emoji: '👥', donoPad: 'RH', funcoes: ['RH'], expPad: [
     'Turnover e absenteísmo dentro da meta',
     'eNPS acompanhado e pesquisa de clima respondida',
     'Ponto: 100% vinculados e pendências tratadas no prazo',
     'Admissões, desligamentos e documentos (holerite) em dia',
-  ] },
-  { key: 'administrativo', nome: 'Administrativo', emoji: '🏛️', donoPad: 'Controladoria', funcoes: ['Controladoria', 'Financeiro', 'Tesouraria'], expPad: [
-    'DRE fechada e checklist de fechamento validado no prazo',
-    'Inadimplência/aging em queda e conciliação em dia',
-    'Orçado × realizado revisado, com desvios justificados',
-    'Quebras de caixa conferidas e cobradas',
-  ] },
-  { key: 'logistica', nome: 'Logística & Suporte', emoji: '📦', donoPad: 'Suporte', funcoes: ['Suporte'], expPad: [
-    'Recebimento/conferência sem divergência e devoluções tratadas',
-    'Tempo de atendimento online/entrega dentro da meta',
-    'Almoxarifado: estoque e custos por loja sob controle',
-    'Chamados de suporte resolvidos dentro do prazo',
   ] },
 ];
 
@@ -578,19 +581,6 @@ router.get('/diretoria', async (req, res) => {
       cobrar: (R.acobrar || 0) > 0 ? `Cobrar ${brl(R.valorAcobrar || 0)} em faltas de caixa dos operadores.` : 'Sem faltas relevantes a cobrar.' });
   } catch (e) { add({ area: 'Tesouraria', emoji: '🏦', erro: true }); }
 
-  // 💳 CONTAS A RECEBER — em aberto e vencido
-  try {
-    const cr = require('../lib/contasReceberErp');
-    const r = await cr.resumo(emp, {});
-    add({ area: 'Contas a Receber', emoji: '💳', link: 'contas-receber',
-      kpis: [
-        { label: 'Em aberto (rede)', valor: brl(r.total), status: 'neutro' },
-        { label: 'Vencido', valor: brl(r.vencidoTotal), status: (r.vencidoTotal || 0) > 0 ? 'vermelho' : 'verde' },
-      ],
-      valorRef: Number(r.vencidoTotal || 0), melhorQuando: 'baixo', mensal: false,
-      cobrar: (r.vencidoTotal || 0) > 0 ? `Cobrar ${brl(r.vencidoTotal)} vencidos (crediário/cartão/PBM).` : 'Nada vencido.' });
-  } catch (e) { add({ area: 'Contas a Receber', emoji: '💳', erro: true }); }
-
   // 📦 COMPRAS — CMV e ruptura
   try {
     const { indicadoresEstoque } = require('../lib/indicadoresCompraErp');
@@ -609,35 +599,6 @@ router.get('/diretoria', async (req, res) => {
       cobrar: (i.ruptura?.semaforo === 'vermelho' || rup > (i.ruptura?.meta || 5)) ? 'Ruptura acima da meta — cobrar reposição do comprador.' : 'Estoque saudável.' });
   } catch (e) { add({ area: 'Compras / Estoque', emoji: '📦', erro: true }); }
 
-  // ↩️ DEVOLUÇÕES — Suporte fechar o ciclo (recolher/reembolsar/concluir), não deixar parar
-  try {
-    const d = new Date(); const M = String(d.getMonth() + 1).padStart(2, '0'), A = String(d.getFullYear());
-    const AT = "('andamento','analise_fornecedor','coleta','reembolso')";
-    const par = db.prepare(`SELECT COUNT(*) c, COALESCE(SUM(valor_total),0) v FROM devolucoes WHERE empresa_id=? AND status IN ${AT}`).get(emp);
-    const concl = db.prepare(`SELECT COUNT(*) c FROM devolucoes WHERE empresa_id=? AND status='concluido' AND strftime('%m',status_desde)=? AND strftime('%Y',status_desde)=?`).get(emp, M, A).c;
-    const atras = db.prepare(`SELECT COUNT(*) c FROM devolucoes WHERE empresa_id=? AND status IN ${AT} AND (julianday('now') - julianday(status_desde)) > 7`).get(emp).c;
-    add({ area: 'Devoluções', emoji: '↩️', link: 'devolucoes',
-      kpis: [
-        { label: 'Valor parado', valor: brl(par.v), status: (par.c || 0) > 0 ? 'amarelo' : 'verde' },
-        { label: 'Em aberto', valor: String(par.c), status: atras > 0 ? 'vermelho' : (par.c > 0 ? 'amarelo' : 'verde') },
-        { label: 'Fechadas no mês', valor: String(concl), status: 'neutro' },
-      ],
-      valorRef: Number(par.c || 0), melhorQuando: 'baixo', mensal: false,
-      cobrar: atras > 0 ? `${atras} devolução(ões) parada(s) há +7 dias — cobrar o Suporte a recolher/reembolsar/concluir.` : (par.c > 0 ? `${par.c} em aberto — acompanhar o fechamento.` : 'Devoluções em dia.') });
-  } catch (e) { add({ area: 'Devoluções', emoji: '↩️', erro: true }); }
-
-  // 🛵 ENTREGA
-  try {
-    const en = require('../lib/entregaErp');
-    const r = await en.resumo(emp, { ini, fim });
-    add({ area: 'Atendimento Online', emoji: '📱', link: 'entrega',
-      kpis: [
-        { label: 'Entregas no mês', valor: String(r.total || 0), status: 'neutro', sub: `${r.finalizadas || 0} finalizadas` },
-        { label: 'Tempo médio de rota', valor: (r.tempoMedio || 0) + ' min', status: (r.tempoMedio || 0) <= 45 ? 'verde' : (r.tempoMedio || 0) <= 75 ? 'amarelo' : 'vermelho' },
-      ],
-      valorRef: Number(r.tempoMedio || 0), melhorQuando: 'baixo', mensal: true,
-      cobrar: (r.tempoMedio || 0) > 75 ? 'Tempo de rota alto — cobrar logística/entregadores.' : 'Delivery no ritmo.' });
-  } catch (e) { add({ area: 'Atendimento Online', emoji: '📱', erro: true }); }
 
   // 👥 GENTE & GESTÃO — tarefas atrasadas + satisfação do cliente
   try {
@@ -714,14 +675,14 @@ router.get('/diretoria', async (req, res) => {
 
   // Setores = departamentos do menu (mesmo vocabulário). Cada área do painel cai num setor.
   const SETOR_DE_AREA = {
-    'Operação (lojas)': 'operacional', 'Comercial / Vendas': 'operacional',
-    'Compras / Estoque': 'comercial', 'Compras — Orçamento': 'comercial',
+    'Operação (lojas)': 'operacao', 'Comercial / Vendas': 'operacao',
+    'Compras / Estoque': 'compras', 'Compras — Orçamento': 'compras',
     'Marketing': 'marketing',
+    'Tesouraria': 'tesouraria',
+    'Financeiro (DRE)': 'gerencial',
     'Gente & Gestão / Cliente': 'gente', 'Ponto (Tangerino)': 'gente',
-    'Tesouraria': 'administrativo', 'Contas a Receber': 'administrativo', 'Financeiro (DRE)': 'administrativo',
-    'Atendimento Online': 'operacional', 'Devoluções': 'logistica',
   };
-  areas.forEach(a => { a.setor = SETOR_DE_AREA[a.area] || 'operacional'; });
+  areas.forEach(a => { a.setor = SETOR_DE_AREA[a.area] || 'gerencial'; });
   const SETORES = SETORES_BASE;
   let cfg = {};
   try { db.prepare('SELECT setor_key, dono, meta, expectativas FROM setor_config WHERE empresa_id=?').all(emp).forEach(r => { cfg[r.setor_key] = r; }); } catch { /* migração pendente */ }
@@ -732,6 +693,72 @@ router.get('/diretoria', async (req, res) => {
     expectativas: (cfg[sx.key]?.expectativas != null && cfg[sx.key].expectativas !== '') ? cfg[sx.key].expectativas : sx.expPad.join('\n'),
     expectativas_sugerida: !(cfg[sx.key]?.expectativas), // true = ainda é a sugestão padrão (não editada)
   }));
+
+  // PILARES de cada setor — puxa da apuração do Meu Setor respectivo (a Diretoria bate o olho por pilar).
+  const farolN = n => n == null ? null : (n >= 90 ? 'verde' : n >= 75 ? 'amarelo' : 'vermelho');
+  const aggPil = (lista) => {
+    const a = {};
+    lista.forEach(p => {
+      const nome = p.pilar || p.nome; if (!nome) return;
+      const bp = (a[nome] = a[nome] || { notas: [], inds: {} });
+      if (p.nota != null) bp.notas.push(Number(p.nota));
+      (p.indicadores || []).forEach(i => {
+        // Aceita tanto o formato ERP (realizado/meta/direcao) quanto o do gerente (nota/min = score 0–100).
+        const val = i.realizado != null ? i.realizado : i.nota;
+        if (val == null || Number.isNaN(Number(val))) return;
+        const meta = i.meta != null ? i.meta : i.min;
+        const direcao = i.direcao || (i.min != null ? 'maior' : undefined);
+        // Mantém os metadados do indicador (desc/calc/acesso/mercado/meta/direção) p/ a explicação detalhada no Painel.
+        const bi = (bp.inds[i.nome] = bp.inds[i.nome] || { nome: i.nome, pilar: nome, unidade: i.unidade, meta, direcao, desc: i.desc || i.acao, calc: i.calc, acesso: i.acesso, mercado: i.mercado, vals: [], far: {} });
+        bi.vals.push(Number(val)); if (i.farol) bi.far[i.farol] = (bi.far[i.farol] || 0) + 1;
+      });
+    });
+    return Object.entries(a).map(([pilar, bp]) => {
+      const nota = bp.notas.length ? Math.round(bp.notas.reduce((x, y) => x + y, 0) / bp.notas.length) : null;
+      const indicadores = Object.values(bp.inds).map(bi => {
+        const realizado = Math.round(bi.vals.reduce((x, y) => x + y, 0) / bi.vals.length * 10) / 10;
+        const hit = bi.meta != null ? (bi.direcao === 'menor' ? realizado <= Number(bi.meta) : realizado >= Number(bi.meta)) : null;
+        const farol = Object.entries(bi.far).sort((x, y) => y[1] - x[1])[0]?.[0] || (hit == null ? null : (hit ? 'verde' : 'vermelho'));
+        return { nome: bi.nome, pilar: bi.pilar, unidade: bi.unidade, meta: bi.meta, direcao: bi.direcao,
+          desc: bi.desc, calc: bi.calc, acesso: bi.acesso, mercado: bi.mercado,
+          realizado, farol, hit, semMeta: bi.meta == null, semDados: false };
+      });
+      return { pilar, nota, farol: farolN(nota), indicadores };
+    });
+  };
+  for (const sx of setores) {
+    sx.pilares = [];
+    try {
+      if (['marketing', 'gerencial', 'online', 'suporte'].includes(sx.key)) {
+        const msa = require('../lib/meuSetorArea');
+        const r = await msa.apurar(emp, sx.key, { dias: 30 });
+        sx.pilares = (r.pilares || []).map(p => ({ pilar: p.pilar, nota: p.nota, farol: p.farol,
+          indicadores: (p.indicadores || []).map(i => ({ nome: i.nome, pilar: i.pilar, realizado: i.realizado, farol: i.farol, unidade: i.unidade, meta: i.meta, direcao: i.direcao, desc: i.desc, calc: i.calc, acesso: i.acesso, mercado: i.mercado, hit: i.hit, semMeta: i.semMeta, semDados: i.semDados, tol: i.tol })) }));
+      } else if (sx.key === 'compras') {
+        // Visão REDE (1 apuração) — a Diretoria bate o olho no agregado, não por comprador.
+        // 50× mais leve que apurar por comprador (que roda ~8 indicadores pesados do ERP cada).
+        const cms = require('../lib/comprasMeuSetor');
+        const r = await cms.apurar(emp, null, { ano, mes });
+        sx.pilares = (r.pilares || []).map(p => ({ pilar: p.pilar, nota: p.nota, farol: p.farol,
+          indicadores: (p.indicadores || []).map(i => ({ nome: i.nome, pilar: i.pilar, realizado: i.realizado, farol: i.farol, unidade: i.unidade, meta: i.meta, direcao: i.direcao, desc: i.desc, calc: i.calc, acesso: i.acesso, mercado: i.mercado, hit: i.hit, semMeta: i.semMeta, semDados: i.semDados, tol: i.tol })) }));
+      } else if (sx.key === 'operacao') {
+        let all = [];
+        for (const l of lojas) { try { const r = calcularGerente(emp, l.id, mes, ano); all = all.concat(r.pilares || []); } catch (e) { } }
+        sx.pilares = aggPil(all);
+      } else if (sx.key === 'tesouraria') {
+        // Pilares da Tesouraria (Caixa Destaque + Conciliação): da apuração das metas do setor.
+        const tm = require('../lib/tesourariaMetas');
+        const r = await tm.apurar(emp, {});
+        const indsByGrupo = {};
+        (r.metas || []).forEach(x => { (indsByGrupo[x.grupo] = indsByGrupo[x.grupo] || []).push({ nome: x.label, pilar: x.grupo, realizado: x.realizado, farol: x.farol, unidade: x.unidade, meta: x.meta, direcao: x.direcao, desc: x.desc, calc: x.calc, acesso: x.acesso, mercado: x.mercado, hit: x.hit, tol: x.tol, semMeta: x.semMeta, semDados: x.semDados }); });
+        sx.pilares = (r.pilares || []).map(p => ({ pilar: p.pilar, nota: p.nota, farol: p.farol, indicadores: indsByGrupo[p.pilar] || [] }));
+      } else if (sx.key === 'gente') {
+        // Sem metas por ora: o Painel mostra o quadro (funcionários × estágio) via /painel/quadro-pessoal.
+        // Marcador p/ não ser filtrado como setor vazio.
+        sx.pilares = [{ pilar: 'Quadro de pessoal', nota: null, farol: null, indicadores: [] }];
+      }
+    } catch (e) { sx.pilares = []; }
+  }
 
   // Tendência ▲▼ mês-a-mês via snapshot mensal (guarda valorRef por competência e compara).
   try {
@@ -889,6 +916,69 @@ router.post('/chat', soEscritorio, (req, res) => {
   db.prepare(`INSERT INTO gestao_chat (id,empresa_id,autor_id,autor_nome,autor_funcao,texto,criado_em) VALUES (?,?,?,?,?,?,datetime('now'))`)
     .run(id, req.usuario.empresa_id, req.usuario.id, req.usuario.nome, req.usuario.funcao_nome || null, texto);
   res.status(201).json({ ok: true, id });
+});
+
+// Números do dia (rede): venda hoje/mês + cupons hoje — p/ o card do Painel da Gestão.
+// Quadro de pessoal por loja: funcionários ativos × estagiários ativos (p/ o gráfico visual do Painel).
+router.get('/quadro-pessoal', (req, res) => {
+  try {
+    const emp = req.usuario.empresa_id;
+    const nomeLoja = {}; db.prepare('SELECT id, nome FROM lojas WHERE empresa_id=?').all(emp).forEach(l => { nomeLoja[l.id] = l.nome; });
+    const func = db.prepare("SELECT loja_id, COUNT(*) n FROM colaboradores WHERE empresa_id=? AND ativo=1 AND COALESCE(is_estagiario,0)=0 GROUP BY loja_id").all(emp);
+    let estag = [];
+    try { estag = db.prepare("SELECT loja, COUNT(*) n FROM estagio_ficha WHERE empresa_id=? AND status='ativo' GROUP BY loja").all(emp); } catch (e) { /* sem estágios */ }
+    const mapa = {};
+    func.forEach(f => { const k = f.loja_id || 'sem'; (mapa[k] = mapa[k] || { loja: nomeLoja[f.loja_id] || f.loja_id || '(sem loja)', func: 0, estag: 0 }).func = f.n; });
+    estag.forEach(e => { const k = e.loja || 'sem'; (mapa[k] = mapa[k] || { loja: nomeLoja[e.loja] || e.loja || '(sem loja)', func: 0, estag: 0 }).estag = e.n; });
+    const lojas = Object.values(mapa).sort((a, b) => (b.func + b.estag) - (a.func + a.estag));
+    res.json({ lojas, totalFunc: func.reduce((a, f) => a + f.n, 0), totalEstag: estag.reduce((a, e) => a + e.n, 0) });
+  } catch (e) { res.status(500).json({ erro: e.message }); }
+});
+
+router.get('/resumo-dia', async (req, res) => {
+  try {
+    const unis = unisEmpresa(req.usuario.empresa_id);
+    if (!unis.length || !habilitado()) return res.json({ erp: false });
+    const r = (await erpQuery(`SELECT
+        COALESCE(sum(valortotal) FILTER (WHERE datahorafechamento::date = CURRENT_DATE),0)::float8 venda_hoje,
+        COALESCE(count(*) FILTER (WHERE datahorafechamento::date = CURRENT_DATE),0) cup_hoje,
+        COALESCE(sum(valortotal) FILTER (WHERE datahorafechamento >= date_trunc('month',CURRENT_DATE)),0)::float8 venda_mes,
+        COALESCE(count(*) FILTER (WHERE datahorafechamento >= date_trunc('month',CURRENT_DATE)),0) cup_mes,
+        COALESCE(count(*) FILTER (WHERE datahorafechamento >= date_trunc('month',CURRENT_DATE) AND pessoaid IS NOT NULL),0) ident_mes
+      FROM venda WHERE status='F' AND unidadenegocioid = ANY($1::bigint[]) AND datahorafechamento >= date_trunc('month',CURRENT_DATE)`, [unis]))[0] || {};
+    const cupMes = Number(r.cup_mes) || 0;
+    // Entregas do mês (delivery): finalizadas no ERP.
+    let entregas_mes = null;
+    try {
+      const en = require('../lib/entregaErp');
+      const ini = new Date(); ini.setDate(1);
+      const er = await en.resumo(req.usuario.empresa_id, { ini: ini.toISOString().slice(0, 10), fim: new Date().toISOString().slice(0, 10) });
+      if (er && er.ok !== false) entregas_mes = Number(er.finalizadas) || 0;
+    } catch (e) { /* entrega indisponível */ }
+    res.json({ erp: true, venda_hoje: Math.round(r.venda_hoje || 0), cup_hoje: Number(r.cup_hoje) || 0, venda_mes: Math.round(r.venda_mes || 0), cup_mes: cupMes,
+      ticket_mes: cupMes ? Math.round(r.venda_mes / cupMes * 100) / 100 : 0,
+      ident_mes: cupMes ? Math.round(Number(r.ident_mes) / cupMes * 1000) / 10 : null,
+      entregas_mes });
+  } catch (e) { res.status(502).json({ erro: e.message }); }
+});
+
+// Resumo mensal de vendas × CMV × resultado do ano (rede) — card do Painel da Gestão.
+router.get('/vendas-cmv-ano', async (req, res) => {
+  try {
+    const ano = Number(req.query.ano) || new Date().getFullYear();
+    const { dre } = require('../lib/financeiroErp');
+    const d = await dre(req.usuario.empresa_id, { ano });
+    if (!d || d.ok === false) return res.json({ erp: false });
+    const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+    const meses = MES.map((m, i) => {
+      const venda = Math.round((d.receitaBruta || [])[i] || 0);
+      const cmv = Math.round((d.cmv || [])[i] || 0);
+      const resultado = Math.round((d.resultado || [])[i] || 0);
+      return { mes: m, venda, cmv, cmv_pct: venda ? Math.round(cmv / venda * 1000) / 10 : null, resultado };
+    }).filter(x => x.venda > 0);
+    const tot = meses.reduce((a, m) => ({ venda: a.venda + m.venda, cmv: a.cmv + m.cmv, resultado: a.resultado + m.resultado }), { venda: 0, cmv: 0, resultado: 0 });
+    res.json({ erp: true, ano, meses, total: { ...tot, cmv_pct: tot.venda ? Math.round(tot.cmv / tot.venda * 1000) / 10 : null } });
+  } catch (e) { res.status(502).json({ erro: e.message }); }
 });
 
 module.exports = router;

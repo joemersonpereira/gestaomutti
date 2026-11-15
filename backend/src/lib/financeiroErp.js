@@ -193,6 +193,20 @@ async function fluxoCaixa(empresaId, { lojaId, granularidade = 'mes', nHist = 6,
     SELECT ${trunc('cr.datavencimento')} p, sum(cr.valor) v FROM cartaoreceber cr
     WHERE cr.unidadenegocioid = ANY($1::bigint[]) AND cr.status<>'C'
       AND cr.datavencimento >= $2::date AND cr.datavencimento < $3::date GROUP BY 1`, [unis, ini, fim]);
+  // CARTÃO — REALIZADO conciliado (Joe 2026-11-14): em vez do valor do PDV (pagamentovenda), usa a
+  // CONCILIAÇÃO DE CARTÕES que o ERP já importa sozinho (conciliacaocartaoitem = fonte A, sem upload):
+  // é a venda de cartão que a credenciadora/EDI confirmou, por data da transação. Exclui Pix e Crediário
+  // (que têm linha própria) e valores negativos (chargeback/ajuste). Onde ainda não chegou conciliação no
+  // período, o fluxo cai de volta pro valor do PDV (fallback), pra não zerar.
+  const cartaoConc = await erpQuery(`
+    SELECT ${trunc('i.datahoratransacao')} p, sum(i.valor) v
+    FROM conciliacaocartaoitem i
+    LEFT JOIN conciliacaocartaotipoautorizacao t ON t.id = i.conciliacaocartaotipoautorizacaoid
+    WHERE i.unidadenegocioid = ANY($1::bigint[]) AND i.valor > 0
+      AND i.datahoratransacao >= $2::date AND i.datahoratransacao < $3::date
+      AND COALESCE(t.codigoagrupamentobaixa,'') NOT ILIKE 'pix'
+      AND COALESCE(t.codigoagrupamentobaixa,'') NOT ILIKE 'credi%'
+    GROUP BY 1`, [unis, ini, fim]);
   // DESPESAS por grupo (nível 2) + plano de contas (folha), separando CMV.
   // DESPESAS — PREVISÃO = lançado a pagar (por VENCIMENTO, status A+B); REALIZADO = pago (por DATA DO PAGAMENTO, status B).
   const despPrev = await erpQuery(`
@@ -245,10 +259,28 @@ async function fluxoCaixa(empresaId, { lojaId, granularidade = 'mes', nHist = 6,
   const crediP = fillArr(crediPrev).map(Math.round), crediR = fillArr(crediReal).map(Math.round);
   if (crediP.some(v => v) || crediR.some(v => v)) receitasL.push({ categoria: 'Crediário (recebido)', previsto: crediP, valores: crediR, total: crediR.reduce((a, v) => a + v, 0) });
 
-  // CARTÃO: previsão = a receber da semana (sistema). Sobrescreve a média e fica FORA do rateio do arquivo.
+  // CARTÃO: previsão = a receber da semana (cartaoreceber); realizado = CONCILIADO (conciliacaocartaoitem).
   const cartaoPArr = fillArr(cartaoPrev).map(Math.round);
-  const lCartao = receitasL.find(l => /cart/i.test(l.categoria));
-  if (lCartao && cartaoPArr.some(v => v)) lCartao.previsto = cartaoPArr;
+  const cartaoConcArr = fillArr(cartaoConc).map(Math.round);
+  const cartLines = receitasL.filter(l => /cart/i.test(l.categoria));
+  if (cartLines.length) {
+    const base = cartLines[0];
+    // Consolida várias formas de cartão (crédito/débito/voucher…) numa única linha.
+    for (let i = 1; i < cartLines.length; i++) {
+      cartLines[i].valores.forEach((v, bi) => { base.valores[bi] += v; });
+      (cartLines[i].previsto || []).forEach((v, bi) => { base.previsto[bi] += v; });
+      base.total += cartLines[i].total;
+      const idx = receitasL.indexOf(cartLines[i]); if (idx >= 0) receitasL.splice(idx, 1);
+    }
+    if (cartaoPArr.some(v => v)) base.previsto = cartaoPArr;
+    // Realizado conciliado onde houver; onde a conciliação ainda não chegou no período, mantém o do PDV.
+    if (cartaoConcArr.some(v => v)) {
+      base.valores = base.valores.map((v, bi) => cartaoConcArr[bi] > 0 ? cartaoConcArr[bi] : v);
+      base.total = base.valores.reduce((a, v) => a + v, 0);
+      base.categoria = 'Cartão (conciliado)';
+      base.fonteRealizado = 'conciliacao';
+    }
+  }
 
   // PREVISÃO de vendas do ANO ANTERIOR (arquivo "Previsão vendas big"): substitui a projeção (média)
   // das linhas de caixa (cartão/dinheiro/pix/...). Deslocada 1 ano (~364 dias) e rateada pela fatia
@@ -704,4 +736,52 @@ async function lancamentosManuais(empresaId, { ini, fim, lojaId, tipo, busca, ex
   return { ok: true, lancamentos, entradas: Math.round(entradas), saidas: Math.round(saidas), saldo: Math.round(entradas + saidas), n: lancamentos.length };
 }
 
-module.exports = { dfcDespesas, lancamentosPlano, reajusteDespesas, fluxoCaixa, lancamentosGrupo, lancamentosLinha, lancamentosManuais, dre, confrontoDreDfc, representatividade, getBenchmark, setBenchmark, vendaPorColaborador };
+// ── Contas a pagar / devoluções (aba "Contas a pagar" do Gerencial) ──────────────────
+// 1) Contas a pagar VENCIDAS e em aberto (status A, vencimento < hoje) — o que não foi baixado.
+async function contasPagarAberto(empresaId, { lojaId, limite = 300 } = {}) {
+  if (!habilitado()) return { erp: false };
+  const unis = unisEmpresa(empresaId, lojaId); if (!unis.length) return { erp: true, itens: [], total: 0, qtd: 0 };
+  const rows = await erpQuery(`
+    SELECT cp.descricao, cp.numerodocumento, to_char(cp.datavencimento,'YYYY-MM-DD') vencimento,
+      COALESCE(cp.valor,cp.valordocumento,0)::float8 valor, p.nome fornecedor, (CURRENT_DATE - cp.datavencimento) dias,
+      COALESCE(up.nome, u.login) usuario
+    FROM contapagar cp LEFT JOIN pessoa p ON p.id=cp.pessoaid
+      LEFT JOIN usuario u ON u.id=cp.usuarioid LEFT JOIN pessoa up ON up.id=u.pessoaid
+    WHERE cp.unidadenegocioid = ANY($1::bigint[]) AND cp.status='A' AND cp.datavencimento < CURRENT_DATE
+    ORDER BY cp.datavencimento LIMIT $2`, [unis, limite]);
+  const total = rows.reduce((a, r) => a + (Number(r.valor) || 0), 0);
+  return { erp: true, itens: rows.map(r => ({ ...r, valor: Number(r.valor) || 0, dias: Number(r.dias) || 0 })), total, qtd: rows.length };
+}
+// 2) Lançamentos SEM plano de contas (no período) — precisam ser classificados.
+async function lancamentosSemPlano(empresaId, { lojaId, ini, fim, limite = 300 } = {}) {
+  if (!habilitado()) return { erp: false };
+  const unis = unisEmpresa(empresaId, lojaId); if (!unis.length) return { erp: true, itens: [], total: 0, qtd: 0 };
+  const rows = await erpQuery(`
+    SELECT cp.descricao, cp.numerodocumento, to_char(cp.datavencimento,'YYYY-MM-DD') vencimento,
+      COALESCE(cp.valor,cp.valordocumento,0)::float8 valor, p.nome fornecedor, cp.status, COALESCE(up.nome, u.login) usuario
+    FROM contapagar cp LEFT JOIN pessoa p ON p.id=cp.pessoaid
+      LEFT JOIN usuario u ON u.id=cp.usuarioid LEFT JOIN pessoa up ON up.id=u.pessoaid
+    WHERE cp.unidadenegocioid = ANY($1::bigint[]) AND cp.planocontasid IS NULL AND cp.status <> 'C'
+      AND cp.datavencimento >= $2::date AND cp.datavencimento < $3::date
+    ORDER BY cp.datavencimento DESC LIMIT $4`, [unis, ini, fim, limite]);
+  const total = rows.reduce((a, r) => a + (Number(r.valor) || 0), 0);
+  return { erp: true, itens: rows.map(r => ({ ...r, valor: Number(r.valor) || 0 })), total, qtd: rows.length };
+}
+// 3) Créditos de DEVOLUÇÃO a recuperar — SALDO de crédito de fornecedor em aberto (creditofornecedor).
+// Mesma fonte da Contabilidade (bate com a tela do Alpha 7): saldo = valor − valorutilizado > 0.
+async function creditosDevolucao(empresaId, { lojaId, limite = 600 } = {}) {
+  if (!habilitado()) return { erp: false };
+  const unis = unisEmpresa(empresaId, lojaId); if (!unis.length) return { erp: true, itens: [], total: 0, qtd: 0 };
+  const contab = require('./contabilidadeErp');
+  // status 'A' = Pendente (a recuperar) — bate com a tela "Crédito com Fornecedor" do Alpha 7.
+  const rows = (await contab.creditos(unis, { saldo: 'aberto' })).filter(r => r.status === 'A');
+  const total = rows.reduce((a, r) => a + (Number(r.saldo) || 0), 0);
+  const itens = rows.slice(0, limite).map(r => ({
+    codigo: r.codigo, status: r.status, status_rot: r.status_label, data: r.data_emissao,
+    fornecedor: r.fornecedor || '—', valor: Number(r.saldo) || 0, utilizado: Number(r.valor_utilizado) || 0,
+    nf: r.nf_dev_numero ? (r.nf_dev_numero + (r.nf_dev_serie ? '/' + r.nf_dev_serie : '')) : null,
+  }));
+  return { erp: true, itens, total, qtd: rows.length };
+}
+
+module.exports = { dfcDespesas, lancamentosPlano, reajusteDespesas, fluxoCaixa, lancamentosGrupo, lancamentosLinha, lancamentosManuais, dre, confrontoDreDfc, representatividade, getBenchmark, setBenchmark, vendaPorColaborador, contasPagarAberto, lancamentosSemPlano, creditosDevolucao };

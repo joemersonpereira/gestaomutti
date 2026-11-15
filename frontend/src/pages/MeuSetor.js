@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
+import { CalendarioEmpresa } from './TradeMarketing';
 
 // Meu Setor — o responsável vê (só leitura) o que a direção espera dele + as cobranças
 // que a direção direcionou a ele. O cadastro (dono/meta/expectativas) fica na Direção.
@@ -105,6 +106,12 @@ export default function MeuSetor() {
           {feitas.length > 0 && <div style={{ fontSize: 11.5, color: '#3B6D11', marginTop: 8 }}>✓ {feitas.length} já concluída{feitas.length > 1 ? 's' : ''}</div>}
         </div>
       )}
+
+      <div style={{ ...s.card, borderLeft: '4px solid #0E7C5A' }}>
+        <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 2 }}>📅 Minha agenda</div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>Marque seus compromissos (só você vê) e acompanhe os eventos da empresa e os que você está envolvido. Use <b>+ Agendar</b> para um compromisso seu.</div>
+        <CalendarioEmpresa API={API} gestao={false} />
+      </div>
     </div>
   );
 }

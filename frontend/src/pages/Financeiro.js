@@ -12,35 +12,507 @@ const COR = { verde: '#1E874B', amarelo: '#B7791F', vermelho: '#C0392B' };
 const hojeISO = () => new Date().toISOString().slice(0, 10);
 const inicioMes = () => { const h = new Date(); return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}-01`; };
 const proxMes = () => { const h = new Date(); const d = new Date(h.getFullYear(), h.getMonth() + 1, 1); return d.toISOString().slice(0, 10); };
+// Gráfico de linhas em SVG (sem lib). series = [{ nome, cor, valores:[12] }]. Mostra eixo, meses e legenda.
+function GraficoLinhas({ series, meses, altura = 190 }) {
+  const M = meses || ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  const W = 820, H = altura, padL = 58, padR = 14, padT = 12, padB = 24;
+  const vals = (series || []).flatMap(s => s.valores).filter(v => typeof v === 'number' && !Number.isNaN(v));
+  if (!vals.length) return <div style={{ color: '#94a3b8', fontSize: 12, padding: 10 }}>Sem dados pra plotar.</div>;
+  let min = Math.min(0, ...vals), max = Math.max(0, ...vals); if (min === max) max = min + 1;
+  const n = M.length;
+  const x = i => padL + (W - padL - padR) * (n <= 1 ? 0.5 : i / (n - 1));
+  const y = v => padT + (H - padT - padB) * (1 - (v - min) / (max - min));
+  const fmtK = v => { const a = Math.abs(v); return a >= 1000000 ? (Math.round(v / 100000) / 10) + 'M' : a >= 1000 ? Math.round(v / 1000) + 'k' : Math.round(v * 10) / 10; };
+  const ticks = [max, (max + min) / 2, min];
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', minWidth: 560, height: 'auto', display: 'block' }}>
+        {ticks.map((t, i) => <g key={i}><line x1={padL} y1={y(t)} x2={W - padR} y2={y(t)} stroke="#eef1f4" /><text x={padL - 6} y={y(t) + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{fmtK(t)}</text></g>)}
+        {min < 0 && max > 0 && <line x1={padL} y1={y(0)} x2={W - padR} y2={y(0)} stroke="#cbd5e1" strokeDasharray="3 3" />}
+        {M.map((m, i) => <text key={i} x={x(i)} y={H - 7} textAnchor="middle" fontSize="9" fill="#94a3b8">{m}</text>)}
+        {(series || []).map((s, si) => {
+          const pts = s.valores.map((v, i) => (typeof v === 'number' && !Number.isNaN(v)) ? `${x(i)},${y(v)}` : null).filter(Boolean).join(' ');
+          const dy = si % 2 === 0 ? -7 : 13; // alterna rótulo acima/abaixo quando há 2+ linhas
+          return <g key={si}>
+            <polyline points={pts} fill="none" stroke={s.cor} strokeWidth="2.2" />
+            {s.valores.map((v, i) => (typeof v === 'number' && !Number.isNaN(v)) ? <g key={i}>
+              <circle cx={x(i)} cy={y(v)} r="2.6" fill={s.cor} />
+              <text x={x(i)} y={y(v) + dy} textAnchor="middle" fontSize="8.5" fontWeight="700" fill={s.cor}>{fmtK(v)}</text>
+            </g> : null)}
+          </g>;
+        })}
+      </svg>
+      {(series || []).length > 1 && <div style={{ display: 'flex', gap: 16, marginTop: 4, fontSize: 11.5, flexWrap: 'wrap' }}>{series.map((s, i) => <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 14, height: 3, background: s.cor, display: 'inline-block', borderRadius: 2 }} />{s.nome}</span>)}</div>}
+    </div>
+  );
+}
 
 export default function Financeiro() {
   const { API } = useAuth();
-  const [aba, setAba] = useState('fluxo');
+  const [aba, setAba] = useState('meusetor');
   const [lojas, setLojas] = useState([]);
   const [loja, setLoja] = useState('');
   useEffect(() => { API.get('/financeiro/lojas').then(r => setLojas(r.data.lojas || [])).catch(() => {}); }, [API]);
   return (
     <div style={s.wrap}>
-      <Banner emoji="💼" titulo="Financeiro" cor="verde" sub="DFC / DRE, orçamento projetado × realizado e análise de despesas — geral e por loja." />
+      <Banner emoji="💳" titulo="Contas a pagar" cor="verde" sub="Meu Setor do financeiro, contas a pagar, créditos de devolução e análise de despesas." />
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
         <MultiLojaSelect lojas={lojas} value={loja} onChange={setLoja} compact />
-        <span style={{ fontSize: 11, fontWeight: 700, color: '#0E7C5A', background: '#E6F4EC', border: '1px solid #c7ead6', borderRadius: 999, padding: '4px 10px' }}>📊 Gerencial</span>
-        {[['meusetor', '🏆 Meu Setor'], ['metas', '⚙️ Metas'], ['fluxo', '💵 Fluxo de caixa'], ['dre', '📄 DRE (fiscal)'], ['confronto', '⚖️ DRE × DFC'], ['orcamento', '🎯 Orçamento × realizado'], ['reajustes', '📈 Análise de despesas']].map(([v, l]) =>
-          <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
-        <span style={{ width: 1, height: 20, background: '#e2e8f0', margin: '0 2px' }} />
-        {[['repr', '🏪 Eficiência de loja'], ['manuais', '🧾 Lançamentos manuais']].map(([v, l]) =>
+        {[['meusetor', '🏆 Meu Setor'], ['metas', '⚙️ Metas'], ['contaspagar', '💳 Contas a pagar'], ['creditos', '↩️ Créditos devolução'], ['semplano', '🧾 Sem plano'], ['reajustes', '📈 Análise de despesas']].map(([v, l]) =>
           <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
       </div>
-      {aba === 'repr' && <EficienciaLoja API={API} loja={loja} setLoja={setLoja} lojas={lojas} />}
-      {aba === 'fluxo' && <FluxoCaixa API={API} loja={loja} />}
-      {aba === 'manuais' && <LancamentosManuais API={API} loja={loja} />}
-      {aba === 'dre' && <DRE API={API} loja={loja} />}
-      {aba === 'confronto' && <Confronto API={API} loja={loja} />}
-      {aba === 'orcamento' && <OrcamentoFin API={API} loja={loja} lojas={lojas} setLoja={setLoja} />}
       {aba === 'reajustes' && <Reajustes API={API} loja={loja} />}
+      {aba === 'contaspagar' && <ContasPagarSecao API={API} loja={loja} tipo="aberto" />}
+      {aba === 'creditos' && <ContasPagarSecao API={API} loja={loja} tipo="credito" />}
+      {aba === 'semplano' && <ContasPagarSecao API={API} loja={loja} tipo="semplano" />}
       {aba === 'meusetor' && <MeuSetorArea area="gerencial" embutido abaFixa="setor" />}
       {aba === 'metas' && <MeuSetorArea area="gerencial" embutido abaFixa="metas" />}
       <MinhaAreaLateral area="gerencial" titulo="Minha área" />
+    </div>
+  );
+}
+
+// Planejamento — menu próprio (Financeiro): Fluxo de caixa + Orçamento × realizado.
+export function PlanejamentoPage() {
+  const { API } = useAuth();
+  const [lojas, setLojas] = useState([]);
+  const [loja, setLoja] = useState('');
+  const [aba, setAba] = useState('fluxo');
+  useEffect(() => { API.get('/financeiro/lojas').then(r => setLojas(r.data.lojas || [])).catch(() => {}); }, [API]);
+  return (
+    <div style={s.wrap}>
+      <Banner emoji="🗺️" titulo="Planejamento" cor="verde" sub="Fluxo de caixa e orçamento projetado × realizado — geral e por loja." />
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+        <MultiLojaSelect lojas={lojas} value={loja} onChange={setLoja} compact />
+        {[['fluxo', '💵 Fluxo de caixa'], ['acomp', '📉 Acompanhamento'], ['orcamento', '🎯 Orçamento × realizado']].map(([v, l]) =>
+          <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
+      </div>
+      {aba === 'fluxo' && <FluxoCaixa API={API} loja={loja} />}
+      {aba === 'acomp' && <AcompanhamentoOrcamento API={API} loja={loja} lojas={lojas} setLoja={setLoja} />}
+      {aba === 'orcamento' && <OrcamentoFin API={API} loja={loja} lojas={lojas} setLoja={setLoja} />}
+    </div>
+  );
+}
+
+// Resultado — menu próprio (Diretoria): DRE (fiscal) + DRE × DFC.
+export function ResultadoPage() {
+  const { API } = useAuth();
+  const [lojas, setLojas] = useState([]);
+  const [loja, setLoja] = useState('');
+  const [aba, setAba] = useState('dre');
+  useEffect(() => { API.get('/financeiro/lojas').then(r => setLojas(r.data.lojas || [])).catch(() => {}); }, [API]);
+  return (
+    <div style={s.wrap}>
+      <Banner emoji="📄" titulo="Resultado" cor="verde" sub="DRE (fiscal) e confronto DRE × DFC — geral e por loja." />
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+        <MultiLojaSelect lojas={lojas} value={loja} onChange={setLoja} compact />
+        {[['dre', '📄 DRE (fiscal)'], ['confronto', '⚖️ DRE × DFC']].map(([v, l]) =>
+          <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
+      </div>
+      {aba === 'dre' && <DRE API={API} loja={loja} />}
+      {aba === 'confronto' && <Confronto API={API} loja={loja} />}
+    </div>
+  );
+}
+
+// Indicadores mercado: tabela TRANSPOSTA (indicadores nas linhas, lojas nas colunas) + Mercado ideal
+// editável (semáforo) + gráfico por indicador. Joe 2026-11-14 noite.
+const k0 = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+// defs das linhas: key, label, fmt, dir (maior|menor|null), mercado (chave editável), neg (cor por sinal)
+const IND_COMP = [
+  { key: 'faturamento', label: 'Faturamento', fmt: 'money', dir: 'maior' },
+  { key: 'colaboradores', label: 'Colaboradores', fmt: 'int' },
+  { key: 'estagiarios', label: 'Estagiários', fmt: 'int' },
+  { key: 'fat_colab', label: 'Produtividade / funcionário (ano)', fmt: 'money', dir: 'maior' },
+  { key: 'produtividade_func', label: 'Produtividade / funcionário (R$/mês)', fmt: 'money', dir: 'maior' },
+  { key: 'custo_medio_func', label: 'Custo médio / funcionário (R$/mês)', fmt: 'money', dir: 'menor' },
+  { key: 'rentabilidade_func', label: 'Rentabilidade / funcionário (R$/mês)', fmt: 'money', dir: 'maior', neg: true },
+  { key: 'vendas_m2', label: 'Vendas por m² (R$/mês)', fmt: 'money', dir: 'maior' },
+  { key: 'capital_giro', label: 'Capital de giro (R$/mês)', fmt: 'money' },
+  { key: 'pmr', label: 'PMR — prazo recebimento (dias)', fmt: 'int', dir: 'menor' },
+  { key: 'pmp', label: 'PMP — prazo pagamento (dias)', fmt: 'int', dir: 'maior' },
+  { key: 'posicionamento', label: 'Posicionamento (PMR÷PMP · <1 bom)', fmt: 'int', dir: 'menor' },
+  { key: 'cmv_pct', label: 'CMV %', fmt: 'pct', dir: 'menor', mercado: 'cmv_pct' },
+  { key: 'desp_pct', label: 'Despesas %', fmt: 'pct', dir: 'menor', mercado: 'desp_pct' },
+  { key: 'desconto_pct', label: 'Desconto % (s/ tabela)', fmt: 'pct', dir: 'menor', mercado: 'desconto_pct' },
+  { key: 'imposto_pct', label: 'Imposto %', fmt: 'pct', dir: 'menor', mercado: 'imposto_pct' },
+  { key: 'margem_pct', label: 'Margem %', fmt: 'pct', dir: 'maior', mercado: 'margem_pct', neg: true },
+  { key: 'ponto_equilibrio', label: 'Ponto de equilíbrio (R$/mês)', fmt: 'money', dir: 'menor' },
+  { key: 'ticket', label: 'Ticket médio', fmt: 'ticket', dir: 'maior' },
+  { key: 'cupons', label: 'Cupons', fmt: 'int', dir: 'maior' },
+  { key: 'clientes', label: 'Clientes', fmt: 'int', dir: 'maior' },
+  { key: 'erros_caixa', label: 'Erros de caixa', fmt: 'int', dir: 'menor' },
+  { key: 'entregas', label: 'Entregas', fmt: 'int', dir: 'maior' },
+  { key: 'resultado', label: 'Resultado líquido', fmt: 'money', dir: 'maior', neg: true },
+];
+const fmtVal = (fmt, v) => {
+  if (v == null) return '—';
+  if (fmt === 'money') return k0(v);
+  if (fmt === 'ticket') return 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  if (fmt === 'pct') return (Math.round(Number(v) * 10) / 10) + '%';
+  return Number(v).toLocaleString('pt-BR');
+};
+// compacto p/ caber na tabela: 11,0M · 501k · 1.251 · 55,2%
+const fmtComp = (fmt, v) => {
+  if (v == null) return '—';
+  if (fmt === 'money') { const a = Math.abs(v); const s = v < 0 ? '-' : ''; if (a >= 1e6) return s + (a / 1e6).toFixed(1).replace('.', ',') + 'M'; if (a >= 1e3) return s + Math.round(a / 1e3) + 'k'; return s + Math.round(a); }
+  if (fmt === 'ticket') return 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+  if (fmt === 'pct') return (Math.round(Number(v) * 10) / 10) + '%';
+  return Number(v).toLocaleString('pt-BR');
+};
+// Donut SVG (sem lib): fatias [{label, valor, cor}]. Mostra % na legenda; hover no arco mostra o valor.
+function Donut({ fatias, titulo }) {
+  const tot = fatias.reduce((a, f) => a + Math.max(0, f.valor), 0) || 1;
+  const R = 70, r = 42, cx = 80, cy = 80; let ang = -Math.PI / 2;
+  const arco = (frac) => {
+    const a0 = ang, a1 = ang + frac * 2 * Math.PI; ang = a1;
+    const x0 = cx + R * Math.cos(a0), y0 = cy + R * Math.sin(a0), x1 = cx + R * Math.cos(a1), y1 = cy + R * Math.sin(a1);
+    const xi1 = cx + r * Math.cos(a1), yi1 = cy + r * Math.sin(a1), xi0 = cx + r * Math.cos(a0), yi0 = cy + r * Math.sin(a0);
+    const big = frac > 0.5 ? 1 : 0;
+    return `M${x0},${y0} A${R},${R} 0 ${big} 1 ${x1},${y1} L${xi1},${yi1} A${r},${r} 0 ${big} 0 ${xi0},${yi0} Z`;
+  };
+  return (
+    <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+      <svg width="160" height="160" viewBox="0 0 160 160">
+        {fatias.filter(f => f.valor > 0).map((f, i) => <path key={i} d={arco(f.valor / tot)} fill={f.cor}><title>{f.label}: {'R$ ' + Math.round(f.valor).toLocaleString('pt-BR')} ({Math.round(f.valor / tot * 100)}%)</title></path>)}
+        <text x={cx} y={cy - 2} textAnchor="middle" fontSize="12" fontWeight="700" fill="#334">{titulo}</text>
+        <text x={cx} y={cy + 14} textAnchor="middle" fontSize="10" fill="#94a3b8">tabela 100%</text>
+      </svg>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {fatias.map((f, i) => <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+          <span style={{ width: 11, height: 11, borderRadius: 3, background: f.cor, flexShrink: 0 }} />
+          <span style={{ color: '#475569' }}>{f.label}</span>
+          <b style={{ marginLeft: 'auto', color: '#334' }}>{Math.round(f.valor / tot * 100)}%</b>
+        </div>)}
+      </div>
+    </div>
+  );
+}
+function ComparativoLojas({ API }) {
+  const anoAtual = new Date().getFullYear();
+  const [ano, setAno] = useState(anoAtual);
+  const [d, setD] = useState(null);
+  const [mercado, setMercado] = useState({});
+  const [graf, setGraf] = useState('resultado'); // indicador selecionado p/ o gráfico
+  const [tipoGraf, setTipoGraf] = useState('barra'); // barra | linha
+  const [lojaPie, setLojaPie] = useState(''); // '' = rede
+  const [lucroAlvo, setLucroAlvo] = useState(6); // Bulla: lucro líquido alvo → calcula CMV ideal
+  const [msg, setMsg] = useState('');
+  const [recalc, setRecalc] = useState(false); // true durante um recálculo forçado (carga pesada)
+  const carregar = React.useCallback((forcar) => {
+    if (forcar) setRecalc(true); else setD(null);
+    API.get('/financeiro/comparativo-lojas', { params: forcar ? { ano, forcar: 1 } : { ano } })
+      .then(r => { setD(r.data); setMercado(r.data.mercado || {}); })
+      .catch(() => setD({ erro: 1 }))
+      .finally(() => setRecalc(false));
+  }, [API, ano]);
+  useEffect(() => { carregar(false); }, [carregar]);
+  const ls = d?.lojas || [];
+  const cacheInfo = d?.cache; // { atualizado_em, deCache, stale }
+  const quandoCache = iso => { if (!iso) return ''; const dt = new Date(String(iso).replace(' ', 'T') + 'Z'); return dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
+  const salvarMercado = () => API.put('/financeiro/eficiencia-mercado', { mercado }).then(r => { setMercado(r.data.mercado || {}); setMsg('✅ Metas de mercado salvas.'); setTimeout(() => setMsg(''), 2000); }).catch(() => setMsg('⚠️ Erro ao salvar.'));
+  const nomeCurto = n => (n || '').replace(/^Mutti\s*-\s*/i, '').replace(/^Ultra\s*-\s*/i, 'U.').replace(/Entre Rios/i, 'E.Rios').replace(/Posto de Medicamentos/i, 'Posto').replace(/Farma Rocha/i, 'F.Rocha');
+  const tdR = { padding: '4px 6px', borderBottom: '1px solid #f1f5f9', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontSize: 11.5 };
+  const thC = (al) => ({ textAlign: al, padding: '5px 6px', background: '#f8fafc', color: '#475569', fontWeight: 700, fontSize: 10.5, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap', position: 'sticky', top: 0 });
+  // semáforo de uma célula vs mercado
+  const corCel = (ind, v) => {
+    if (ind.neg) return (v || 0) < 0 ? COR.vermelho : COR.verde;
+    const m = ind.mercado != null ? Number(mercado[ind.mercado]) : NaN;
+    if (!ind.dir || !Number.isFinite(m) || v == null) return '#334';
+    const bom = ind.dir === 'maior' ? v >= m : v <= m;
+    return bom ? COR.verde : COR.vermelho;
+  };
+  const gi = IND_COMP.find(x => x.key === graf) || IND_COMP[IND_COMP.length - 1];
+  const vals = ls.map(l => ({ loja: l.loja, v: Number(l[gi.key]) || 0, raw: l[gi.key] }));
+  const maxAbs = Math.max(1, ...vals.map(x => Math.abs(x.v)));
+  // Composição de custo (donut) sobre a TABELA (faturamento + desconto). Reconstrói R$ dos %.
+  const compDe = (arr) => arr.reduce((ac, l) => {
+    const fat = Number(l.faturamento) || 0;
+    ac.fat += fat; ac.desconto += Number(l.desconto) || 0;
+    ac.cmv += (Number(l.cmv_pct) || 0) / 100 * fat; ac.despesas += (Number(l.desp_pct) || 0) / 100 * fat;
+    ac.imposto += (Number(l.imposto_pct) || 0) / 100 * fat; ac.resultado += Number(l.resultado) || 0;
+    return ac;
+  }, { fat: 0, desconto: 0, cmv: 0, despesas: 0, imposto: 0, resultado: 0 });
+  const comp = compDe(lojaPie ? ls.filter(l => l.loja_id === lojaPie) : ls);
+  const fatiasPie = [
+    { label: 'Desconto', valor: comp.desconto, cor: '#B23A48' },
+    { label: 'CMV', valor: comp.cmv, cor: '#C77D3A' },
+    { label: 'Despesas', valor: comp.despesas, cor: '#6D4AA8' },
+    { label: 'Imposto', valor: comp.imposto, cor: '#2E5C9E' },
+    { label: 'Margem (resultado)', valor: Math.max(0, comp.resultado), cor: '#0E7C5A' },
+  ];
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+        <select value={ano} onChange={e => setAno(Number(e.target.value))} style={{ ...s.inp, padding: '6px 8px' }}>{[anoAtual - 1, anoAtual, anoAtual + 1].map(a => <option key={a} value={a}>{a}</option>)}</select>
+        <button onClick={() => carregar(true)} disabled={recalc} title="Recalcula tudo do ERP (demora ~1min). Normalmente não precisa: a tela fica salva e abre na hora." style={{ ...s.inp, padding: '6px 10px', cursor: recalc ? 'wait' : 'pointer', background: recalc ? '#eef2f0' : '#fff', fontWeight: 700, color: COR.verde }}>{recalc ? '⏳ Recalculando…' : '🔄 Atualizar'}</button>
+        {cacheInfo && cacheInfo.atualizado_em && <span style={{ fontSize: 11, color: cacheInfo.stale ? '#B7791F' : '#94a3b8' }}>{cacheInfo.stale ? '⚠️ ' : '🕒 '}calculado {quandoCache(cacheInfo.atualizado_em)}{cacheInfo.stale ? ' (pode estar desatualizado — clique Atualizar)' : ''}</span>}
+        <span style={{ fontSize: 12, color: '#888', flexBasis: '100%' }}>Indicadores por loja no ano · <b style={{ color: COR.verde }}>verde = melhor que o mercado</b> · <b style={{ color: COR.vermelho }}>vermelho = pior</b>. Clique num indicador para ver o gráfico. <b>Fica salvo</b> — só recalcula no botão Atualizar.</span>
+      </div>
+      {!d && <div style={s.card}>Carregando…</div>}
+      {d && d.erro && <div style={{ ...s.card, color: COR.vermelho }}>ERP indisponível.</div>}
+      {d && !d.erro && <>
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 14, alignItems: 'stretch' }}>
+        <div style={{ ...s.card, flex: '1 1 400px', marginBottom: 0 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 14, fontWeight: 700 }}>📊 {gi.label} por loja</span>
+            <select value={graf} onChange={e => setGraf(e.target.value)} style={{ ...s.inp, padding: '4px 8px', fontSize: 12 }}>{IND_COMP.map(i => <option key={i.key} value={i.key}>{i.label}</option>)}</select>
+            <div style={{ display: 'flex', gap: 2, marginLeft: 'auto' }}>
+              {[['barra', '▭ Barras'], ['linha', '📈 Linha']].map(([v, l]) => <button key={v} onClick={() => setTipoGraf(v)} style={{ fontSize: 11.5, padding: '4px 9px', borderRadius: 7, border: '1px solid ' + (tipoGraf === v ? '#0E7C5A' : '#ddd'), background: tipoGraf === v ? '#0E7C5A' : '#fff', color: tipoGraf === v ? '#fff' : '#555', cursor: 'pointer' }}>{l}</button>)}
+            </div>
+          </div>
+          {tipoGraf === 'linha'
+            ? <GraficoLinhas meses={ls.map(l => nomeCurto(l.loja))} series={[{ cor: gi.neg ? '#0E7C5A' : '#2E5C9E', valores: ls.map(l => Number(l[gi.key]) || 0) }, ...(gi.mercado && Number.isFinite(Number(mercado[gi.mercado])) ? [{ cor: '#C77D3A', valores: ls.map(() => Number(mercado[gi.mercado])) }] : [])]} />
+            : [...vals].sort((a, b) => b.v - a.v).map((x, i) => { const pos = x.v >= 0; const w = Math.abs(x.v) / maxAbs * 100; const cor = gi.neg ? (pos ? COR.verde : COR.vermelho) : '#0E7C5A'; return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }} title={`${x.loja}: ${fmtVal(gi.fmt, x.raw)}`}>
+              <span style={{ width: 150, fontSize: 12, color: '#444', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.loja}</span>
+              <div style={{ flex: 1, background: '#f1f5f9', borderRadius: 6, height: 22, position: 'relative', minWidth: 160 }}>
+                <div style={{ width: Math.max(w, 1) + '%', height: '100%', background: cor, borderRadius: 6 }} />
+                <span style={{ position: 'absolute', left: 8, top: 3, fontSize: 11.5, fontWeight: 800, color: w > 30 ? '#fff' : '#333' }}>{fmtVal(gi.fmt, x.raw)}</span>
+              </div>
+            </div>
+          ); })}
+          {tipoGraf === 'linha' && gi.mercado && Number.isFinite(Number(mercado[gi.mercado])) && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}><span style={{ color: '#C77D3A', fontWeight: 700 }}>— linha laranja</span> = meta de mercado ({mercado[gi.mercado]}%).</div>}
+        </div>
+        <div style={{ ...s.card, flex: '1 1 320px', marginBottom: 0 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 14, fontWeight: 700 }}>🧩 DDC — Desconto · Despesa · Custo</span>
+            <select value={lojaPie} onChange={e => setLojaPie(e.target.value)} style={{ ...s.inp, padding: '4px 8px', fontSize: 12 }}>
+              <option value="">Rede (todas)</option>
+              {ls.map(l => <option key={l.loja_id} value={l.loja_id}>{l.loja}</option>)}
+            </select>
+          </div>
+          <Donut fatias={fatiasPie} titulo={lojaPie ? (ls.find(l => l.loja_id === lojaPie)?.loja || '').split(' ')[0] : 'Rede'} />
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>Método Bulla: de cada R$ 100 de preço de tabela (venda bruta), quanto virou <b>Desconto</b>, <b>Custo</b> (CMV), <b>Despesa</b> e imposto — e o que sobrou de <b>Lucro/Margem</b>.</div>
+        </div>
+        </div>
+        <div style={{ ...s.card, overflowX: 'auto' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 14, fontWeight: 700 }}>🏪 Indicadores × lojas</span>
+            <button onClick={salvarMercado} style={{ ...s.btnMini }}>💾 Salvar metas de mercado</button>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 8, fontSize: 12, color: '#64748b' }}>
+              🧮 Lucro alvo (Bulla)<input type="number" value={lucroAlvo} onChange={e => setLucroAlvo(Number(e.target.value))} style={{ width: 46, border: '1px solid #cdeadd', borderRadius: 6, padding: '2px 4px', fontSize: 12, textAlign: 'right' }} />%
+              <button onClick={() => {
+                const sf = ls.reduce((a, l) => a + (l.faturamento || 0), 0) || 1;
+                const despM = ls.reduce((a, l) => a + (l.desp_pct || 0) * (l.faturamento || 0), 0) / sf;
+                const impM = ls.reduce((a, l) => a + (l.imposto_pct || 0) * (l.faturamento || 0), 0) / sf;
+                const cmvIdeal = Math.round((100 - lucroAlvo - despM - impM) * 10) / 10;
+                setMercado(m => ({ ...m, cmv_pct: cmvIdeal, margem_pct: lucroAlvo }));
+                setMsg(`✅ CMV ideal = ${cmvIdeal}% (100 − ${lucroAlvo}% lucro − ${Math.round(despM * 10) / 10}% desp − ${Math.round(impM * 10) / 10}% imp). Salve pra fixar.`); setTimeout(() => setMsg(''), 6000);
+              }} style={{ ...s.btnMini }}>calcular CMV ideal</button>
+            </span>
+            {msg && <span style={{ fontSize: 12, color: msg[0] === '✅' ? '#15803d' : '#b91c1c' }}>{msg}</span>}
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead><tr>
+              <th style={{ ...thC('left'), left: 0, zIndex: 2 }}>Indicador</th>
+              {ls.map(l => <th key={l.loja_id} style={thC('right')} title={l.loja}>{nomeCurto(l.loja)}</th>)}
+              <th style={{ ...thC('right'), background: '#eef7f2' }}>Mercado</th>
+            </tr></thead>
+            <tbody>{IND_COMP.map(ind => (
+              <tr key={ind.key} style={{ background: graf === ind.key ? '#f0f7f4' : 'transparent' }}>
+                <td onClick={() => setGraf(ind.key)} title="Ver gráfico deste indicador" style={{ padding: '4px 8px', borderBottom: '1px solid #f1f5f9', fontWeight: 600, cursor: 'pointer', position: 'sticky', left: 0, background: graf === ind.key ? '#f0f7f4' : '#fff', whiteSpace: 'nowrap', fontSize: 11.5 }}>{graf === ind.key ? '📊 ' : ''}{ind.label}</td>
+                {ls.map(l => <td key={l.loja_id} style={{ ...tdR, color: corCel(ind, l[ind.key]), fontWeight: (ind.neg || ind.mercado) ? 700 : 500 }} title={fmtVal(ind.fmt, l[ind.key])}>{fmtComp(ind.fmt, l[ind.key])}</td>)}
+                <td style={{ ...tdR, background: '#f7fbf9' }}>
+                  {ind.mercado ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><input type="number" value={mercado[ind.mercado] ?? ''} onChange={e => setMercado(m => ({ ...m, [ind.mercado]: e.target.value }))} placeholder="—" style={{ width: 40, border: '1px solid #cdeadd', borderRadius: 6, padding: '2px 4px', fontSize: 11.5, textAlign: 'right' }} />%</span> : '—'}
+                </td>
+              </tr>
+            ))}
+            </tbody>
+          </table>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>Desconto = sobre o preço de tabela (itemvenda) · Imposto = deduções do DRE · Erros de caixa = diferenças da Tesouraria · Entregas = finalizadas no ano. Edite o <b>Mercado ideal</b> por indicador e salve — o semáforo compara cada loja com ele.</div>
+        </div>
+      </>}
+    </div>
+  );
+}
+
+// Eficiência de loja — menu próprio (Diretoria). Comparativo entre lojas + representatividade/mercado.
+export function EficienciaLojaPage() {
+  const { API } = useAuth();
+  const [lojas, setLojas] = useState([]);
+  const [loja, setLoja] = useState('');
+  const [aba, setAba] = useState('comparativo');
+  useEffect(() => { API.get('/financeiro/lojas').then(r => setLojas(r.data.lojas || [])).catch(() => {}); }, [API]);
+  return (
+    <div style={s.wrap}>
+      <Banner emoji="🏪" titulo="Eficiência de loja" cor="verde" sub="Comparativo entre lojas e representatividade — faturamento, colaboradores, margem e resultado." />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        {[['comparativo', '📊 Indicadores'], ['colab', '👥 Por colaborador'], ['estoque', '📦 Eficiência de estoque'], ['repr', '💹 Financeiro']].map(([v, l]) =>
+          <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
+      </div>
+      {aba === 'comparativo' && <ComparativoLojas API={API} />}
+      {aba === 'colab' && <EficienciaPessoas API={API} lojas={lojas} />}
+      {aba === 'estoque' && <EficienciaEstoque API={API} />}
+      {aba === 'repr' && <><div style={{ marginBottom: 12 }}><MultiLojaSelect lojas={lojas} value={loja} onChange={setLoja} compact /></div><EficienciaLoja API={API} loja={loja} setLoja={setLoja} lojas={lojas} /></>}
+    </div>
+  );
+}
+
+// 👥 Eficiência por pessoa — vendedor (vende mais), caixa (atende mais), conferente (confere mais),
+// entregador (mais entregas). Reusa os endpoints existentes; ranking em barras + tabela. Joe 2026-11-14.
+function RankBar({ itens, fmt, cor = '#0E7C5A' }) {
+  const max = Math.max(1, ...itens.map(i => Math.abs(i.valor || 0)));
+  return (
+    <div>
+      {itens.map((it, i) => { const w = Math.abs(it.valor || 0) / max * 100; return (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }} title={`${it.nome}: ${fmt(it.valor)}`}>
+          <span style={{ width: 24, fontSize: 11, color: '#94a3b8', textAlign: 'right' }}>{i + 1}º</span>
+          <span style={{ width: 180, fontSize: 12, color: '#444', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.nome}{it.loja ? <span style={{ color: '#aab', fontSize: 10.5 }}> · {it.loja}</span> : ''}</span>
+          <div style={{ flex: 1, background: '#f1f5f9', borderRadius: 6, height: 20, position: 'relative', minWidth: 120 }}>
+            <div style={{ width: Math.max(w, 1) + '%', height: '100%', background: cor, borderRadius: 6 }} />
+            <span style={{ position: 'absolute', left: 8, top: 2, fontSize: 11, fontWeight: 700, color: w > 35 ? '#fff' : '#333' }}>{fmt(it.valor)}</span>
+          </div>
+        </div>
+      ); })}
+      {!itens.length && <div style={{ fontSize: 12, color: '#94a3b8', padding: 12 }}>Sem dados no período.</div>}
+    </div>
+  );
+}
+function EficienciaPessoas({ API, lojas }) {
+  const anoAtual = new Date().getFullYear();
+  const [tipo, setTipo] = useState('vendedor'); // vendedor | caixa | conferente | entregador
+  const [loja, setLoja] = useState('');
+  const [ini, setIni] = useState(`${anoAtual}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`);
+  const [fim, setFim] = useState(new Date().toISOString().slice(0, 10));
+  const [mes, setMes] = useState(new Date().getMonth() + 1);
+  const [itens, setItens] = useState(null);
+  const [erro, setErro] = useState('');
+  const k = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+  const num = v => (Number(v) || 0).toLocaleString('pt-BR');
+  const carregar = useCallback(() => {
+    setItens(null); setErro('');
+    if (tipo === 'vendedor') { return; } // vendedor usa o componente detalhado VendaPorColaborador (abaixo)
+    if (tipo === 'caixa_dif') {
+      // Caixa com MENOR diferença (destaque): roster dos operadores (cupons) × soma |diferença| (quebras); menor = melhor.
+      Promise.all([
+        API.get('/tesouraria/cupons-operador', { params: { ini, fim, loja: loja || undefined } }).then(r => r.data.operadores || []).catch(() => []),
+        API.get('/tesouraria/quebras', { params: { ini, fim, loja: loja || undefined } }).then(r => r.data.quebras || []).catch(() => []),
+      ]).then(([ops, quebras]) => {
+        // casa por NOME (o operadorId do cupons-operador ≠ o da quebras). Soma falta+sobra em MÓDULO.
+        const norm = x => (x || '').trim().toUpperCase().replace(/#$/, '').trim();
+        const diff = {}; quebras.forEach(q => { const k = norm(q.operador); if (k) diff[k] = (diff[k] || 0) + Math.abs(Number(q.valor) || 0); });
+        const roster = {}; ops.forEach(o => { const nome = o.nome || o.operador; roster[norm(nome)] = nome; });
+        // inclui operadores que só aparecem nas quebras (caso não estejam no cupons)
+        Object.keys(diff).forEach(k => { if (!roster[k]) roster[k] = k; });
+        const arr = Object.entries(roster).map(([k, nome]) => ({ nome, valor: diff[k] || 0 })).sort((a, b) => a.valor - b.valor);
+        setItens(arr.slice(0, 30));
+      }).catch(() => setErro('Erro.'));
+      return;
+    }
+    if (tipo === 'caixa') {
+      API.get('/tesouraria/cupons-operador', { params: { ini, fim, loja: loja || undefined } })
+        .then(r => { const arr = (r.data.operadores || r.data.itens || r.data.ranking || []).map(o => ({ nome: o.nome || o.operador, loja: o.loja, valor: o.cupons ?? o.n ?? o.qtd ?? 0 })); arr.sort((a, b) => b.valor - a.valor); setItens(arr.slice(0, 30)); })
+        .catch(e => setErro(e.response?.data?.erro || 'Erro.'));
+    } else if (tipo === 'entregador') {
+      API.get('/entrega/entregadores', { params: { ini, fim, loja: loja || undefined } })
+        .then(r => { const arr = (r.data.entregadores || []).map(o => ({ nome: o.entregador || o.nome, loja: o.loja, valor: o.finalizadas ?? o.entregas ?? o.total ?? 0 })); arr.sort((a, b) => b.valor - a.valor); setItens(arr.slice(0, 30)); })
+        .catch(e => setErro(e.response?.data?.erro || 'Erro.'));
+    } else if (tipo === 'conferente') {
+      // Ranking por MENOR TEMPO MÉDIO de conferência (datahorafinal − datahora), Rede ou loja.
+      API.get('/recebimento/conferentes-tempo', { params: { loja_id: loja || undefined, mes, ano: anoAtual } })
+        .then(r => { const arr = (r.data.conferentes || []).map(o => ({ nome: o.nome, valor: o.tempo_min, sub: o.n + ' NFs' })).sort((a, b) => a.valor - b.valor); setItens(arr.slice(0, 30)); })
+        .catch(e => setErro(e.response?.data?.erro || 'Erro.'));
+    }
+  }, [API, tipo, loja, ini, fim, mes, anoAtual]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const CFG = {
+    vendedor: { titulo: 'Vendedores — quem vende mais (ano)', fmt: k, cor: '#0E7C5A', periodo: false },
+    caixa: { titulo: 'Caixas — quem atende mais (cupons)', fmt: num, cor: '#2E5C9E', periodo: true },
+    caixa_dif: { titulo: 'Caixas — menor diferença (R$) · menor é melhor', fmt: v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 }), cor: '#0E7C5A', periodo: true },
+    conferente: { titulo: 'Conferentes — menor tempo de conferência (min) · menor é melhor', fmt: v => (Number(v) || 0).toLocaleString('pt-BR') + ' min', cor: '#C77D3A', periodo: 'mes' },
+    entregador: { titulo: 'Entregadores — quem mais entrega', fmt: num, cor: '#6D4AA8', periodo: true },
+  }[tipo];
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        {[['vendedor', '🛍️ Vendedor'], ['caixa', '💳 Caixa (atende)'], ['caixa_dif', '💰 Caixa (diferença)'], ['conferente', '📦 Conferente'], ['entregador', '🛵 Entregador']].map(([v, l]) =>
+          <button key={v} onClick={() => setTipo(v)} style={{ ...s.chip, ...(tipo === v ? s.chipOn : {}) }}>{l}</button>)}
+      </div>
+      {tipo === 'vendedor' ? <VendaPorColaborador API={API} loja={loja} setLoja={setLoja} lojas={lojas} /> : <>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select value={loja} onChange={e => setLoja(e.target.value)} style={{ ...s.inp, padding: '6px 8px' }}>
+            <option value="">Rede (todas)</option>
+            {(lojas || []).map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+          </select>
+          {CFG.periodo === true && <><input type="date" value={ini} onChange={e => setIni(e.target.value)} style={{ ...s.inp, padding: '5px 7px' }} /><span style={{ color: '#888', fontSize: 12 }}>a</span><input type="date" value={fim} onChange={e => setFim(e.target.value)} style={{ ...s.inp, padding: '5px 7px' }} /></>}
+          {CFG.periodo === 'mes' && <select value={mes} onChange={e => setMes(Number(e.target.value))} style={{ ...s.inp, padding: '6px 8px' }}>{['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'].map((m, i) => <option key={i} value={i + 1}>{m}/{anoAtual}</option>)}</select>}
+          <button onClick={carregar} style={{ ...s.btnMini }}>🔄 Atualizar</button>
+        </div>
+        <div style={s.card}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>🏆 {CFG.titulo}</div>
+          {erro && <div style={{ fontSize: 12.5, color: '#b45309', marginBottom: 8 }}>{erro}</div>}
+          {itens === null ? <div style={{ fontSize: 12, color: '#999' }}>carregando…</div> : <RankBar itens={itens} fmt={CFG.fmt} cor={CFG.cor} />}
+        </div>
+      </>}
+    </div>
+  );
+}
+
+// Seção do Gerencial (aba própria, igual Meu Setor/Metas): uma análise do ERP por vez.
+const CP_CONFIG = {
+  aberto: {
+    url: '/financeiro/contas-pagar-aberto', titulo: '💳 Contas a pagar em aberto (vencidas, sem baixa)', cor: '#C0392B',
+    sub: 'Títulos vencidos ainda não baixados — correr atrás do que é.',
+    cols: [
+      { k: 'venc', l: 'Vencimento', get: it => dataBR(it.vencimento) },
+      { k: 'dias', l: 'Atraso', num: true, get: it => it.dias + 'd', cor: it => it.dias > 30 ? '#C0392B' : '#555' },
+      { k: 'forn', l: 'Fornecedor', get: it => it.fornecedor || '—' },
+      { k: 'doc', l: 'Documento', get: it => it.numerodocumento || '—' },
+      { k: 'desc', l: 'Descrição', wrap: true, get: it => it.descricao || '—' },
+      { k: 'user', l: 'Lançou', get: it => it.usuario || '—' },
+      { k: 'valor', l: 'Valor', num: true, get: it => brl(it.valor) },
+    ],
+  },
+  semplano: {
+    url: '/financeiro/lancamentos-sem-plano', titulo: '🧾 Lançamentos sem plano de contas', cor: '#B7791F',
+    sub: 'Precisam ser classificados (sem plano não dá pra analisar a despesa).',
+    cols: [
+      { k: 'venc', l: 'Vencimento', get: it => dataBR(it.vencimento) },
+      { k: 'forn', l: 'Fornecedor', get: it => it.fornecedor || '—' },
+      { k: 'doc', l: 'Documento', get: it => it.numerodocumento || '—' },
+      { k: 'desc', l: 'Descrição', wrap: true, get: it => it.descricao || '—' },
+      { k: 'user', l: 'Lançou', get: it => it.usuario || '—' },
+      { k: 'valor', l: 'Valor', num: true, get: it => brl(it.valor) },
+    ],
+  },
+  credito: {
+    url: '/financeiro/creditos-devolucao', titulo: '↩️ Créditos de devolução a recuperar', cor: '#2E5C9E',
+    sub: 'Devoluções a fornecedor em aberto — crédito/dinheiro preso no fornecedor.',
+    cols: [
+      { k: 'data', l: 'Emissão', get: it => dataBR(it.data) },
+      { k: 'cod', l: 'Código', get: it => it.codigo },
+      { k: 'forn', l: 'Fornecedor', get: it => it.fornecedor || '—' },
+      { k: 'nf', l: 'NF devolução', get: it => it.nf || '—' },
+      { k: 'st', l: 'Status', get: it => it.status_rot || it.status },
+      { k: 'valor', l: 'Saldo a recuperar', num: true, get: it => brl(it.valor) },
+    ],
+  },
+};
+function ContasPagarSecao({ API, loja, tipo }) {
+  const cfg = CP_CONFIG[tipo] || CP_CONFIG.aberto;
+  const [d, setD] = useState(null);
+  useEffect(() => { setD(null); API.get(cfg.url, { params: loja ? { loja } : {} }).then(r => setD(r.data)).catch(() => setD({ erro: 1 })); }, [API, loja, cfg.url]);
+  const th = { textAlign: 'left', padding: '7px 8px', background: '#f8fafc', color: '#475569', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' };
+  const td = { padding: '6px 8px', borderBottom: '1px solid #f1f5f9' };
+  return (
+    <div style={s.card}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ fontSize: 15, fontWeight: 700 }}>{cfg.titulo}</div>
+        {d && !d.erro && <div style={{ fontSize: 14 }}><b style={{ color: cfg.cor }}>{brl(d.total)}</b> <span style={{ color: '#888' }}>· {d.qtd} {d.qtd === 1 ? 'item' : 'itens'}</span></div>}
+      </div>
+      <div style={{ fontSize: 11.5, color: '#888', marginBottom: 10 }}>{cfg.sub}</div>
+      {!d && <div style={{ color: '#888', fontSize: 13 }}>Carregando…</div>}
+      {d && d.erro && <div style={{ color: '#c0392b', fontSize: 13 }}>ERP indisponível.</div>}
+      {d && !d.erro && !(d.itens || []).length && <div style={{ color: '#15803d', fontSize: 13 }}>Nada pendente. 👏</div>}
+      {d && (d.itens || []).length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead><tr>{cfg.cols.map(c => <th key={c.k} style={{ ...th, textAlign: c.num ? 'right' : 'left' }}>{c.l}</th>)}</tr></thead>
+            <tbody>{d.itens.map((it, i) => <tr key={i}>{cfg.cols.map(c => <td key={c.k} style={{ ...td, textAlign: c.num ? 'right' : 'left', whiteSpace: c.wrap ? 'normal' : 'nowrap', maxWidth: c.wrap ? 340 : undefined, color: c.cor ? c.cor(it) : undefined }}>{c.get(it)}</td>)}</tr>)}</tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -186,7 +658,9 @@ function DRE({ API, loja }) {
   const anoAtual = new Date().getFullYear();
   const [ano, setAno] = useState(anoAtual);
   const [d, setD] = useState(null); const [erro, setErro] = useState(''); const [aberto, setAberto] = useState(false);
+  const [linhaSel, setLinhaSel] = useState('resultado');
   useEffect(() => { setD(null); setErro(''); API.get('/financeiro/dre', { params: { ano, loja: loja || undefined } }).then(r => { if (r.data.ok) setD(r.data); else setErro(r.data.erro); }).catch(e => setErro(e.response?.data?.erro || 'Falha.')); }, [API, ano, loja]);
+  const LINHAS_DRE = [['receitaBruta', 'Receita Bruta', '#1E7A46'], ['receitaLiquida', 'Receita Líquida', '#1E7A46'], ['cmv', 'CMV', '#B23'], ['lucroBruto', 'Lucro Bruto', '#2E5C9E'], ['despOperTotal', 'Despesas Operacionais', '#B23'], ['resultadoOper', 'Resultado Operacional', '#2E5C9E'], ['resultado', 'Resultado Líquido', '#0E7C5A'], ['margem', 'Margem líquida %', '#6D4AA8']];
   const soma = a => (a || []).reduce((x, y) => x + y, 0);
   const brlc = v => v ? (v < 0 ? '-' : '') + Math.round(Math.abs(v) / 1000).toLocaleString('pt-BR') + 'k' : '—'; // mensal em milhares
   const limpaGrupo = g => (g || '').replace(/^\d[\d.]*\s*-\s*/, '').replace(/\s*\(-\)\s*$/, ''); // "2.03 - DESPESAS COM PESSOAL (-)" → "DESPESAS COM PESSOAL"
@@ -209,6 +683,21 @@ function DRE({ API, loja }) {
       {erro && <div style={{ ...s.card, color: COR.vermelho }}>⚠️ {erro}</div>}
       {!d && !erro && <div style={s.card}>Carregando…</div>}
       {d && <>
+        <div style={{ ...s.card, marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>📈 Evolução no ano</span>
+            <select value={linhaSel} onChange={e => setLinhaSel(e.target.value)} style={{ ...s.inp, padding: '5px 8px' }}>
+              {LINHAS_DRE.map(l => <option key={l[0]} value={l[0]}>{l[1]}</option>)}
+              {(d.despOperGrupos || []).map((g, i) => <option key={'g' + i} value={'g' + i}>↳ {limpaGrupo(g.grupo)}</option>)}
+            </select>
+          </div>
+          {(() => {
+            const sel = linhaSel[0] === 'g'
+              ? { nome: limpaGrupo((d.despOperGrupos[Number(linhaSel.slice(1))] || {}).grupo), cor: '#B23', valores: (d.despOperGrupos[Number(linhaSel.slice(1))] || {}).valores || [] }
+              : (() => { const L = LINHAS_DRE.find(l => l[0] === linhaSel) || LINHAS_DRE[6]; return { nome: L[1], cor: L[2], valores: d[L[0]] || [] }; })();
+            return <GraficoLinhas series={[sel]} meses={MESAB} />;
+          })()}
+        </div>
         <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', border: '1px solid #eee', borderRadius: 10 }}>
           <thead><tr><th style={{ ...cth, textAlign: 'left', position: 'sticky', left: 0, background: '#fff', width: 200 }}>DRE {ano}</th>{MESAB.map((m, i) => <th key={i} style={cth}>{m}</th>)}<th style={{ ...cth, borderLeft: '1px solid #eee' }}>Ano</th></tr></thead>
           <tbody>
@@ -240,6 +729,7 @@ function Confronto({ API, loja }) {
   const [mes, setMes] = useState(''); // '' = ano todo
   const [d, setD] = useState(null); const [erro, setErro] = useState('');
   const [drill, setDrill] = useState(null); // {linha, label}
+  const [conceito, setConceito] = useState('resultado');
   useEffect(() => { setD(null); setErro(''); API.get('/financeiro/demonstrativos', { params: { ano, loja: loja || undefined } }).then(r => { if (r.data.ok) setD(r.data); else setErro(r.data.erro); }).catch(e => setErro(e.response?.data?.erro || 'Falha.')); }, [API, ano, loja]);
   const dlp = d?.dlp, dfc = d?.dfc;
   const per = arr => !arr ? 0 : (mes === '' ? arr.reduce((a, b) => a + b, 0) : (arr[Number(mes)] || 0));
@@ -291,6 +781,19 @@ function Confronto({ API, loja }) {
       {erro && <div style={{ ...s.card, color: COR.vermelho }}>⚠️ {erro}</div>}
       {!d && !erro && <div style={s.card}>Carregando…</div>}
       {d && <>
+        <div style={{ ...s.card, marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>📈 Competência × Caixa no ano</span>
+            <select value={conceito} onChange={e => setConceito(e.target.value)} style={{ ...s.inp, padding: '5px 8px' }}>
+              {[['receita', 'Receita'], ['lucroBruto', 'Lucro Bruto'], ['margemContribuicao', 'Margem de Contribuição'], ['operacional', 'Resultado Operacional'], ['resultado', 'Resultado Líquido']].map(c => <option key={c[0]} value={c[0]}>{c[1]}</option>)}
+            </select>
+          </div>
+          {(() => {
+            const map = { receita: [dlp.vendaLiquida, dfc.receita], lucroBruto: [dlp.lucroBruto, dfc.lucroBruto], margemContribuicao: [dlp.margemContribuicao, dfc.margemContribuicao], operacional: [dlp.lucroOperacional, dfc.resultadoOperacional], resultado: [dlp.lucroLiquido, dfc.resultadoAjustado] };
+            const [cA, cB] = map[conceito] || map.resultado;
+            return <GraficoLinhas meses={MESAB} series={[{ nome: 'Competência (DRE)', cor: '#1E7A46', valores: cA || [] }, { nome: 'Caixa (DFC)', cor: '#2E5C9E', valores: cB || [] }]} />;
+          })()}
+        </div>
         <div style={{ ...s.card, overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
             <thead><tr>
@@ -631,6 +1134,118 @@ function DrillGrupo({ API, loja, grupo, periodo, base, onClose }) {
 }
 
 const MESAB = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+// 📉 Acompanhamento do orçamento (aba própria): visão SIMPLES por mês, com alerta de estouro e
+// drill-down — clica no grupo e abre os subplanos pra ver de ONDE vem o estouro.
+function AcompanhamentoOrcamento({ API, loja, lojas, setLoja }) {
+  const anoAtual = new Date().getFullYear();
+  const [ano, setAno] = useState(anoAtual);
+  const [d, setD] = useState(null);
+  const [erro, setErro] = useState('');
+  const [selMes, setSelMes] = useState(new Date().getMonth());
+  const [open, setOpen] = useState({});
+  const [justifs, setJustifs] = useState({}); // "grupoChave|mesNum" -> { texto, autor, atualizado_em }
+  const [editJ, setEditJ] = useState(null);   // grupo chave em edição
+  const [jtxt, setJtxt] = useState('');
+  useEffect(() => { setD(null); setErro(''); setSelMes(ano === anoAtual ? new Date().getMonth() : 'ano');
+    API.get('/financeiro/orcamento', { params: { ano, loja: loja || undefined } }).then(r => { if (r.data.erro) { setErro(r.data.erro); return; } setD(r.data); }).catch(() => setErro('Falha ao carregar.'));
+  }, [API, ano, loja, anoAtual]);
+  const carregarJustifs = React.useCallback(() => { API.get('/financeiro/orcamento/justificativas', { params: { ano, loja: loja || undefined } }).then(r => setJustifs(r.data.justificativas || {})).catch(() => {}); }, [API, ano, loja]);
+  useEffect(() => { carregarJustifs(); }, [carregarJustifs]);
+  const limpo = n => (n || '').replace(/^\d+\s*-\s*/, '');
+  const mesesN = ano === anoAtual ? (new Date().getMonth() + 1) : 12;
+  const perIni = selMes === 'ano' ? 0 : selMes;
+  const perFim = selMes === 'ano' ? mesesN : selMes + 1;
+  const mesNum = selMes === 'ano' ? 0 : selMes + 1; // 0 = ano acumulado; 1-12 = mês (p/ a justificativa)
+  const salvarJustif = (chave) => { API.post('/financeiro/orcamento/justificativa', { loja: loja || '', ano, mes: mesNum, grupo: chave, texto: jtxt }).then(() => { setEditJ(null); setJtxt(''); carregarJustifs(); }).catch(() => {}); };
+  const sliceSum = arr => (arr || []).slice(perIni, perFim).reduce((a, v) => a + (v || 0), 0);
+  const grpOrcMes = (g, i) => ((g.direto || [])[i] || 0) + (g.filhos || []).reduce((a, f) => a + ((f.projetado || [])[i] || 0), 0);
+  const grpRealMes = (g, i) => (g.filhos || []).reduce((a, f) => a + ((f.realizado || [])[i] || 0), 0);
+  const periodo = fn => { let s = 0; for (let i = perIni; i < perFim; i++) s += fn(i); return s; };
+  const grupos = (d ? d.despesas : []).map(g => {
+    const orc = periodo(i => grpOrcMes(g, i)), real = periodo(i => grpRealMes(g, i));
+    const filhos = (g.filhos || []).map(f => { const fo = sliceSum(f.projetado), fr = sliceSum(f.realizado); return { nome: limpo(f.nome || f.chave), orc: fo, real: fr, desvio: fr - fo, pct: fo ? Math.round((fr - fo) / fo * 1000) / 10 : null }; })
+      .filter(x => x.orc > 0 || x.real > 0).sort((a, b) => b.desvio - a.desvio);
+    return { chave: g.chave, nome: limpo(g.nome || g.chave), orc, real, desvio: real - orc, pct: orc ? Math.round((real - orc) / orc * 1000) / 10 : null, filhos };
+  }).filter(x => x.orc > 0 || x.real > 0).sort((a, b) => b.desvio - a.desvio);
+  const estouros = grupos.filter(x => x.desvio > 0);
+  const totalEstouro = estouros.reduce((a, x) => a + x.desvio, 0);
+  const maxAbs = Math.max(1, ...grupos.map(x => Math.abs(x.desvio)));
+  const periodoLbl = selMes === 'ano' ? `no ano até ${MESAB[mesesN - 1]}` : `em ${MESAB[selMes]}/${String(ano).slice(2)}`;
+  const nomeLoja = loja ? (lojas.find(l => l.id === loja)?.nome || '') : 'Rede (todas as lojas)';
+  const linhaDesvio = (x, sub) => { const estourou = x.desvio > 0; const cor = estourou ? COR.vermelho : COR.verde; const w = Math.min(100, Math.abs(x.desvio) / maxAbs * 100); const expansivel = !sub && x.filhos && x.filhos.length > 0; const aberto = open[x.chave];
+    const jKey = x.chave + '|' + mesNum; const jus = !sub ? justifs[jKey] : null; const editando = !sub && editJ === x.chave;
+    return (
+      <React.Fragment key={(sub ? 's-' : '') + (x.chave || x.nome)}>
+        <tr onClick={expansivel ? () => setOpen(o => ({ ...o, [x.chave]: !o[x.chave] })) : undefined} style={{ borderTop: '1px solid #f4f6f8', cursor: expansivel ? 'pointer' : 'default', background: sub ? '#fbfcfd' : '#fff' }}>
+          <td style={{ padding: sub ? '3px 8px 3px 26px' : '5px 8px', fontWeight: sub ? 400 : 600, color: sub ? '#64748b' : '#334', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }} title={x.nome}>
+            {expansivel ? <span style={{ color: '#94a3b8', marginRight: 4 }}>{aberto ? '▾' : '▸'}</span> : sub ? '• ' : ''}{estourou ? '🔴' : '🟢'} {x.nome}
+            {!sub && <button onClick={e => { e.stopPropagation(); setEditJ(editando ? null : x.chave); setJtxt(jus ? jus.texto : ''); }} title={jus ? 'Ver/editar justificativa' : 'Justificar este desvio'} style={{ marginLeft: 6, border: 'none', background: 'none', cursor: 'pointer', fontSize: 12, opacity: jus ? 1 : 0.5 }}>{jus ? '💬' : '💬＋'}</button>}
+          </td>
+          <td style={{ padding: '3px 8px', textAlign: 'right', color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>{brl(x.orc)}</td>
+          <td style={{ padding: '3px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{brl(x.real)}</td>
+          <td style={{ padding: '3px 8px', textAlign: 'right', fontWeight: 700, color: cor, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{estourou ? '+' : ''}{brl(x.desvio)}{x.pct != null ? <span style={{ fontWeight: 400, fontSize: 11 }}> ({estourou ? '+' : ''}{x.pct}%)</span> : null}</td>
+          <td style={{ padding: '3px 8px', width: '24%' }}><div style={{ background: '#f1f5f9', borderRadius: 5, height: 10 }}><div style={{ width: w + '%', height: '100%', background: cor, borderRadius: 5 }} /></div></td>
+        </tr>
+        {!sub && (jus || editando) && (
+          <tr style={{ background: '#FCFBF4' }}>
+            <td colSpan={5} style={{ padding: '2px 8px 8px 24px' }}>
+              {editando ? (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  <textarea value={jtxt} onChange={e => setJtxt(e.target.value)} placeholder={`Por que ${x.nome} ${estourou ? 'estourou' : 'ficou assim'} ${periodoLbl}?`} rows={2} style={{ flex: 1, minWidth: 240, border: '1px solid #e3d9b0', borderRadius: 8, padding: '6px 9px', fontSize: 12.5, resize: 'vertical' }} />
+                  <button onClick={() => salvarJustif(x.chave)} style={{ ...s.btnDark, padding: '6px 12px' }}>Salvar</button>
+                  <button onClick={() => { setEditJ(null); setJtxt(''); }} style={{ ...s.btnMini }}>Cancelar</button>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: '#6b5d2e' }}><b>💬 Justificativa:</b> {jus.texto} <span style={{ color: '#a99', fontSize: 10.5 }}>— {jus.autor || '—'}{jus.atualizado_em ? ' · ' + String(jus.atualizado_em).slice(0, 10).split('-').reverse().join('/') : ''}</span></div>
+              )}
+            </td>
+          </tr>
+        )}
+        {expansivel && aberto && x.filhos.map(f => linhaDesvio(f, true))}
+      </React.Fragment>
+    );
+  };
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+        <select value={ano} onChange={e => setAno(Number(e.target.value))} style={{ ...s.inp, padding: '6px 8px' }}>{[anoAtual - 1, anoAtual, anoAtual + 1].map(a => <option key={a} value={a}>{a}</option>)}</select>
+        <select value={selMes} onChange={e => setSelMes(e.target.value === 'ano' ? 'ano' : Number(e.target.value))} style={{ ...s.inp, padding: '6px 8px' }}>
+          {MESAB.slice(0, ano === anoAtual ? mesesN : 12).map((m, i) => <option key={i} value={i}>{m}/{String(ano).slice(2)}</option>)}
+          <option value="ano">Ano (acumulado)</option>
+        </select>
+        <MultiLojaSelect lojas={lojas} value={loja} onChange={v => setLoja && setLoja(v)} compact />
+        <span style={{ fontSize: 12, color: '#888' }}>{nomeLoja}</span>
+      </div>
+      {!d && !erro && <div style={s.card}>Carregando…</div>}
+      {erro && <div style={{ ...s.card, color: COR.vermelho }}>⚠️ {erro}</div>}
+      {d && (
+        <div style={{ ...s.card, borderLeft: '4px solid ' + (estouros.length ? COR.vermelho : COR.verde) }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+            <span style={{ fontSize: 15, fontWeight: 800, color: estouros.length ? COR.vermelho : COR.verde }}>📉 Acompanhamento {periodoLbl}</span>
+            {estouros.length
+              ? <span style={{ fontSize: 12.5, color: '#64748b' }}><b style={{ color: COR.vermelho }}>{estouros.length} grupo(s) estourando</b> · <b style={{ color: COR.vermelho }}>{brl(totalEstouro)}</b> acima do orçado · {grupos.length - estouros.length} dentro ✓</span>
+              : <span style={{ fontSize: 12.5, color: COR.verde, fontWeight: 600 }}>✓ Tudo dentro do orçamento ({grupos.length} grupos).</span>}
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead><tr style={{ color: '#94a3b8', fontSize: 11 }}>
+                <th style={{ padding: '4px 8px', textAlign: 'left', fontWeight: 600 }}>Categoria <span style={{ fontWeight: 400 }}>(clique p/ ver subplanos)</span></th>
+                <th style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 600 }}>Orçado</th>
+                <th style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 600 }}>Realizado</th>
+                <th style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 600 }}>Desvio</th>
+                <th style={{ padding: '4px 8px' }}></th>
+              </tr></thead>
+              <tbody>{grupos.map(g => linhaDesvio(g, false))}</tbody>
+            </table>
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>🔴 estourou · 🟢 dentro do orçado · {selMes === 'ano' ? 'acumulado do ano' : 'só o mês selecionado'}. <b>Clique num grupo</b> para abrir os subplanos e ver de onde vem o estouro.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OrcamentoFin({ API, loja, lojas, setLoja }) {
   const anoAtual = new Date().getFullYear();
   const [ano, setAno] = useState(anoAtual);
@@ -688,10 +1303,17 @@ function OrcamentoFin({ API, loja, lojas, setLoja }) {
   };
   const [baseIni, setBaseIni] = useState(1);
   const [baseFim, setBaseFim] = useState(12);
+  const [anoBase, setAnoBase] = useState(anoAtual);
+  // Ano futuro não tem realizado ainda → por padrão usa o histórico do ano anterior como base.
+  useEffect(() => { setAnoBase(ano > anoAtual ? ano - 1 : ano); }, [ano, anoAtual]);
   const gerar = () => {
     const mesesBase = []; for (let m = Math.min(baseIni, baseFim); m <= Math.max(baseIni, baseFim); m++) mesesBase.push(m);
-    API.post('/financeiro/orcamento/gerar', { loja, ano, fatorPct: fator, mesesBase })
-      .then(r => { setMsg(r.data.ok ? `✅ Gerado da base ${MESAB[mesesBase[0] - 1]}–${MESAB[mesesBase[mesesBase.length - 1] - 1]} ${fator >= 0 ? '+' : ''}${fator}%.` : ('⚠️ ' + r.data.erro)); carregar(); });
+    API.post('/financeiro/orcamento/gerar', { loja, ano, fatorPct: fator, mesesBase, anoBase })
+      .then(r => {
+        if (!r.data.ok) { setMsg('⚠️ ' + r.data.erro); return; }
+        if (r.data.semBase) { setMsg(`⚠️ Sem realizado em ${anoBase} pra esta loja — nada a gerar. Escolha um ano-base com histórico.`); return; }
+        setMsg(`✅ Gerado p/ ${ano} com base ${MESAB[mesesBase[0] - 1]}–${MESAB[mesesBase[mesesBase.length - 1] - 1]}/${anoBase} ${fator >= 0 ? '+' : ''}${fator}%.`); carregar();
+      });
   };
 
   // Soma projetado/realizado do ano por linha.
@@ -731,12 +1353,13 @@ function OrcamentoFin({ API, loja, lojas, setLoja }) {
         <button onClick={() => setRateioOpen(true)} style={s.btnMini}>⚖️ Rateio entre lojas</button>
         {d && d.editavel && (
           <>
-            <span style={{ marginLeft: 'auto', fontSize: 12, color: '#888' }}>Base</span>
+            <span style={{ marginLeft: 'auto', fontSize: 12, color: '#888' }}>Base: ano</span>
+            <select value={anoBase} onChange={e => setAnoBase(Number(e.target.value))} style={{ ...s.inp, padding: '5px' }} title="de qual ano puxar o histórico realizado como base">{[anoAtual - 2, anoAtual - 1, anoAtual, anoAtual + 1].map(a => <option key={a} value={a}>{a}</option>)}</select>
             <select value={baseIni} onChange={e => setBaseIni(Number(e.target.value))} style={{ ...s.inp, padding: '5px' }}>{MESAB.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
             <span style={{ fontSize: 12, color: '#888' }}>a</span>
             <select value={baseFim} onChange={e => setBaseFim(Number(e.target.value))} style={{ ...s.inp, padding: '5px' }}>{MESAB.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
             <input type="number" value={fator} onChange={e => setFator(Number(e.target.value))} style={{ ...s.inp, width: 58 }} title="acréscimo/decréscimo %" />%
-            <button onClick={gerar} style={{ ...s.btnMini }}>⚙️ Gerar</button>
+            <button onClick={gerar} style={{ ...s.btnMini }} title={`Gera o orçamento de ${ano} pela média do realizado de ${anoBase} (meses escolhidos) ${fator >= 0 ? '+' : ''}${fator}%`}>⚙️ Gerar</button>
             <button onClick={salvar} style={s.btnDark}>Salvar</button>
           </>
         )}
@@ -885,20 +1508,75 @@ function DistribuirGrupoModal({ API, loja, ano, grupo, onClose, onSaved }) {
   );
 }
 
-// Aba "Eficiência de loja": representatividade (plano de contas × mercado) + venda por colaborador.
-function EficienciaLoja({ API, loja, setLoja, lojas }) {
-  const [sub, setSub] = useState('repr');
+// 📦 Eficiência de estoque por loja: valor, cobertura, ruptura, curva ABC, excesso, produtos parados.
+const IND_EST = [
+  { key: 'valor_estoque', label: 'Valor em estoque', fmt: 'money' },
+  { key: 'posicoes', label: 'Posições (SKUs)', fmt: 'int' },
+  { key: 'cobertura_dias', label: 'Cobertura (dias)', fmt: 'int', sem: 'cobertura_sem' },
+  { key: 'giro', label: 'Giro de estoque (x/ano)', fmt: 'int' },
+  { key: 'ruptura_pct', label: 'Ruptura %', fmt: 'pct', sem: 'ruptura_sem' },
+  { key: 'excesso', label: 'Excesso de estoque', fmt: 'money', ruim: v => v > 0 },
+  { key: 'abc_a_pct', label: 'Curva A (% valor)', fmt: 'pct' },
+  { key: 'abc_b_pct', label: 'Curva B (% valor)', fmt: 'pct' },
+  { key: 'abc_c_pct', label: 'Curva C (% valor)', fmt: 'pct' },
+  { key: 'abc_d_pct', label: 'Curva D — parado (% valor)', fmt: 'pct', ruim: v => v > 15 },
+  { key: 'parados_valor', label: 'Produtos novos parados (R$)', fmt: 'money', ruim: v => v > 0 },
+  { key: 'tempo_entrada', label: 'Tempo médio de entrada (dias)', fmt: 'int', ruim: v => v > 3 },
+];
+function EficienciaEstoque({ API }) {
+  const [d, setD] = useState(null);
+  useEffect(() => { setD(null); API.get('/financeiro/eficiencia-estoque').then(r => setD(r.data)).catch(() => setD({ erro: 1 })); }, [API]);
+  const ls = (d?.lojas || []).filter(l => l.erp && l.posicoes > 0);
+  const tdR = { padding: '6px 10px', borderBottom: '1px solid #f1f5f9', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
+  const thC = (al) => ({ textAlign: al, padding: '8px 10px', background: '#f8fafc', color: '#475569', fontWeight: 700, fontSize: 11.5, borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap', position: 'sticky', top: 0 });
+  const semCor = s => s === 'verde' ? COR.verde : s === 'amarelo' ? '#B7791F' : s === 'vermelho' ? COR.vermelho : '#334';
+  const ABC = [['abc_a_pct', '#0E7C5A', 'A'], ['abc_b_pct', '#2E9E6B', 'B'], ['abc_c_pct', '#C9A227', 'C'], ['abc_d_pct', '#B23A48', 'D']];
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        {[['repr', '📊 Representatividade × mercado'], ['colab', '👥 Venda por colaborador']].map(([v, l]) => (
-          <button key={v} onClick={() => setSub(v)} style={{ ...s.chip, ...(sub === v ? s.chipOn : {}) }}>{l}</button>
-        ))}
-      </div>
-      {sub === 'repr' && <Representatividade API={API} loja={loja} />}
-      {sub === 'colab' && <VendaPorColaborador API={API} loja={loja} setLoja={setLoja} lojas={lojas} />}
+      {!d && <div style={s.card}>Carregando estoque de todas as lojas… (puxa do ERP, pode levar alguns segundos)</div>}
+      {d && d.erro && <div style={{ ...s.card, color: COR.vermelho }}>ERP indisponível.</div>}
+      {d && !d.erro && <>
+        <div style={{ ...s.card, marginBottom: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>🅰️ Curva ABC por loja (% do valor em estoque)</div>
+          {ls.map(l => (
+            <div key={l.loja_id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
+              <span style={{ width: 150, fontSize: 12, color: '#444', textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.loja}</span>
+              <div style={{ flex: 1, display: 'flex', height: 22, borderRadius: 6, overflow: 'hidden', minWidth: 200, border: '1px solid #eef1f4' }}>
+                {ABC.map(([key, cor, lbl]) => { const w = l[key] || 0; return w > 0 ? <div key={key} title={`Curva ${lbl}: ${w}%`} style={{ width: w + '%', background: cor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#fff', fontWeight: 700 }}>{w >= 8 ? lbl : ''}</div> : null; })}
+              </div>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap', fontSize: 11, color: '#64748b' }}>
+            {ABC.map(([, cor, lbl]) => <span key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: cor }} />Curva {lbl}{lbl === 'D' ? ' (sem venda — parado)' : ''}</span>)}
+          </div>
+        </div>
+        <div style={{ ...s.card, overflowX: 'auto' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>📦 Indicadores de estoque × lojas</div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead><tr>
+              <th style={{ ...thC('left'), left: 0, zIndex: 2 }}>Indicador</th>
+              {ls.map(l => <th key={l.loja_id} style={thC('right')}>{l.loja}</th>)}
+            </tr></thead>
+            <tbody>{IND_EST.map(ind => (
+              <tr key={ind.key}>
+                <td style={{ padding: '6px 10px', borderBottom: '1px solid #f1f5f9', fontWeight: 600, position: 'sticky', left: 0, background: '#fff', whiteSpace: 'nowrap' }}>{ind.label}</td>
+                {ls.map(l => { const v = l[ind.key]; const cor = ind.sem ? semCor(l[ind.sem]) : (ind.ruim && ind.ruim(v) ? COR.vermelho : '#334'); return (
+                  <td key={l.loja_id} style={{ ...tdR, color: cor, fontWeight: (ind.sem || ind.ruim) ? 700 : 500 }} title={fmtVal(ind.fmt, v)}>{fmtComp(ind.fmt, v)}</td>
+                ); })}
+              </tr>
+            ))}</tbody>
+          </table>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>Cobertura = dias de estoque · Ruptura = itens com venda mas sem saldo · Curva D = produtos sem venda (estoque parado) · Excesso = acima do alvo de orçamento de estoque.</div>
+        </div>
+      </>}
     </div>
   );
+}
+
+// Aba "Eficiência de loja": representatividade (plano de contas × mercado) + venda por colaborador.
+function EficienciaLoja({ API, loja }) {
+  // "Venda por colaborador" foi pra aba 👥 Por colaborador. Aqui fica só a Representatividade × mercado.
+  return <Representatividade API={API} loja={loja} />;
 }
 
 // Faturamento da loja ÷ vendedores → média que cada um deveria vender e quem está abaixo.

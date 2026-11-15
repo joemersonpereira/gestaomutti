@@ -40,7 +40,7 @@ import Clima from './pages/Clima';
 import PainelCompras from './pages/PainelCompras';
 import Faturamento, { FaturamentoOnline } from './pages/Faturamento';
 import Precificacao from './pages/Precificacao';
-import Financeiro from './pages/Financeiro';
+import Financeiro, { EficienciaLojaPage, PlanejamentoPage, ResultadoPage } from './pages/Financeiro';
 import ValidacaoFinanceira from './pages/ValidacaoFinanceira';
 import ContasReceber from './pages/ContasReceber';
 import Convenio from './pages/Convenio';
@@ -126,7 +126,10 @@ const MODULOS = [
   { id: 'acordos', label: '🤝 Acordos e Negociações', C: Acordos, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Marketing'] },
   { id: 'trademkt', label: '📐 Retail & Ads', C: TradeMarketing, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Marketing'] },
   { id: 'cobranca-trade', label: '💰 Cobrança (Trade)', C: CobrancaTrade, perfis: ['Financeiro', 'Controladoria', 'Diretor Geral', 'Gestor Geral', 'Supervisor', 'Comprador Beleza', 'Comprador Bem-estar', 'Marketing', 'Tesouraria'] },
-  { id: 'financeiro', label: '💼 Financeiro', C: Financeiro, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
+  { id: 'financeiro', label: '💳 Contas a pagar', C: Financeiro, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
+  { id: 'planejamento', label: '🗺️ Planejamento', C: PlanejamentoPage, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
+  { id: 'resultado', label: '📄 Resultado', C: ResultadoPage, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
+  { id: 'eficiencia-loja', label: '🏪 Eficiência de loja', C: EficienciaLojaPage, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
   { id: 'contas-receber', label: '📥 Contas a Receber', C: ContasReceber, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro'] },
   { id: 'convenio', label: '🏢 Convênio', C: Convenio, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Tesouraria', 'Financeiro'] },
   { id: 'fechamento-setor', label: '🏁 Fechamento do setor', C: FechamentoSetor, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria'] },
@@ -222,22 +225,17 @@ const NAV = [
     { nome: 'Comercial', itens: ['painel-compras', 'precificacao', 'faturamento', 'online', 'acordos', 'trademkt'] },
     { nome: 'Marketing', itens: ['marketing', 'mkt-calendario'] },
     { nome: 'Gente & Gestão', itens: ['cadastros', 'visao360', 'capacitacao', 'indicadores-colab', 'afastamentos', 'ponto', 'ponto-repp', 'ocorrencias', 'documentos-rh', 'beneficios', 'clima', 'desligamentos', 'canal-escuta', 'painel-rh', 'estagio-rh', 'banco-talentos'] },
-    { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'contas-receber'], subs: [
+    { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'planejamento', 'contas-receber'], subs: [
       { nome: 'Controladoria', itens: ['controladoria'] },
     ] },
     { nome: 'Tesouraria', itens: ['tesouraria', 'conciliacao-cartao', 'estagios', 'convenio'] },
-    { nome: 'Contabilidade', itens: ['contabilidade', 'fornecedores', 'auditoria-contabil'] },
-    { nome: 'Suporte', itens: ['suporte', 'fiscal', 'suporte-loja'] },
+    { nome: 'Contabilidade', itens: ['contabilidade', 'fornecedores'] },
+    { nome: 'Suporte', itens: ['fiscal', 'suporte-loja'] },
     { nome: 'Logística', itens: ['conferentes', 'devolucoes', 'almoxarifado'] },
   ] },
   { camada: 'Gestão', grupos: [
-    { nome: 'Supervisão', itens: ['supervisor', 'metas'], subs: [
-      { nome: 'Atendimento Online', itens: ['entrega'] },
-    ] },
-    { nome: 'Resultado', itens: ['premiacao-fechamento', 'premiacao-equipe'] },
-    { nome: 'Diretoria', itens: ['fechamento-setor'] },
-    { nome: 'Direção', itens: ['diretoria', 'auditoria', 'avaliacao-admin', 'ranking'] },
-    { nome: 'Relatórios', itens: ['relatorios'] },
+    { nome: 'Supervisão', itens: ['supervisor', 'metas'] },
+    { nome: 'Diretoria', itens: ['diretoria', 'fechamento-setor', 'resultado', 'premiacao-fechamento', 'premiacao-equipe', 'auditoria-contabil', 'eficiencia-loja', 'avaliacao-admin', 'ranking', 'relatorios'] },
     { nome: 'Configurações', itens: ['parametros', 'integracoes', 'email-tarefas'] },
   ] },
 ];

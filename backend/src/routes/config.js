@@ -55,7 +55,7 @@ router.post('/lojas', (req, res) => {
 // PATCH /config/lojas/:id  { nome, cidade, apelido, razao_social, cnpj, endereco, ativa, gerente_id, subgerente_id }
 router.patch('/lojas/:id', (req, res) => {
   const campos = [], vals = [];
-  ['nome', 'cidade', 'apelido', 'razao_social', 'cnpj', 'endereco', 'ativa', 'gerente_id', 'subgerente_id', 'socio_assina_id'].forEach(k => { if (req.body[k] !== undefined) { campos.push(`${k}=?`); vals.push(req.body[k] === '' ? null : req.body[k]); } });
+  ['nome', 'cidade', 'apelido', 'razao_social', 'cnpj', 'endereco', 'ativa', 'gerente_id', 'subgerente_id', 'socio_assina_id', 'area_m2'].forEach(k => { if (req.body[k] !== undefined) { campos.push(`${k}=?`); vals.push(req.body[k] === '' ? null : req.body[k]); } });
   if (!campos.length) return res.status(400).json({ erro: 'Nada a atualizar.' });
   vals.push(req.params.id, req.usuario.empresa_id);
   db.prepare(`UPDATE lojas SET ${campos.join(',')} WHERE id=? AND empresa_id=?`).run(...vals);

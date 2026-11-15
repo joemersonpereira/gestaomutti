@@ -16,7 +16,11 @@ export default function AgendaGeral() {
       <Banner emoji="📅" titulo="Calendário da empresa" cor="verde"
         sub="Tudo num lugar: programações do trade, feriados, compromissos da empresa (todos veem) + os seus (só você). Para agendar, clique num dia ou em “+ Agendar”." />
       <div style={{ marginTop: 12 }}>
-        <CalendarioEmpresa API={API} gestao={gestao} />
+        <CalendarioEmpresa API={API} gestao={gestao} botaoExtra={gestao ? (
+          <button onClick={() => { try { sessionStorage.setItem('mkt_nova_acao', JSON.stringify({ novo: new Date().toISOString().slice(0, 10) })); } catch (e) { } window.dispatchEvent(new CustomEvent('mutti-nav', { detail: 'mkt-calendario' })); }}
+            title="Criar uma ação de marketing (material, briefing, gasto) — abre no módulo Marketing"
+            style={{ fontSize: 13, padding: '8px 14px', borderRadius: 8, border: 'none', background: '#111', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>📣 + Ação</button>
+        ) : null} />
       </div>
     </div>
   );

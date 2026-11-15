@@ -25,6 +25,8 @@ const compInval = _ccInv('comp:'); // invalida o cache quando muda algo que os r
 const _ultimoSync = {}; // empresa_id -> timestamp (throttle do sync de alertas)
 
 const GESTAO_COMPRAS = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria'];
+// Cadastro de META/PREMIAÇÃO do setor: só Diretoria (ninguém edita a própria meta).
+const DIRETORIA_META = ['Diretor Geral', 'Gestor Geral'];
 const anoAtual = () => new Date().getFullYear();
 router.use(auth);
 
@@ -73,17 +75,17 @@ router.get('/meu-setor', compCache, async (req, res) => {
   catch (e) { res.status(502).json({ erro: e.message }); }
 });
 router.get('/meu-setor/config', (req, res) => res.json({ indicadores: meuSetor.config(req.usuario.empresa_id, req.query.comprador || null) }));
-router.put('/meu-setor/config', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => { try { res.json(meuSetor.setConfig(req.usuario.empresa_id, req.body)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.put('/meu-setor/config', exigePerfil(...DIRETORIA_META), compInval, (req, res) => { try { res.json(meuSetor.setConfig(req.usuario.empresa_id, req.body)); } catch (e) { res.status(400).json({ erro: e.message }); } });
 router.put('/meu-setor/realizado', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => { try { res.json(meuSetor.setRealizado(req.usuario.empresa_id, req.body, req.usuario)); } catch (e) { res.status(400).json({ erro: e.message }); } });
 // Pilares (nome + teto R$) + bônus de superação
 router.get('/meu-setor/pilares', (req, res) => res.json({ pilares: meuSetor.pilaresConfig(req.usuario.empresa_id), bonus: meuSetor.premioConfig(req.usuario.empresa_id).bonus_pct }));
-router.put('/meu-setor/pilar', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => { try { res.json(meuSetor.setPilar(req.usuario.empresa_id, req.body)); } catch (e) { res.status(400).json({ erro: e.message }); } });
-router.delete('/meu-setor/pilar', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => res.json(meuSetor.removerPilar(req.usuario.empresa_id, req.query.pilar)));
-router.put('/meu-setor/premio-config', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => { try { res.json(meuSetor.setPremioConfig(req.usuario.empresa_id, req.body)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.put('/meu-setor/pilar', exigePerfil(...DIRETORIA_META), compInval, (req, res) => { try { res.json(meuSetor.setPilar(req.usuario.empresa_id, req.body)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.delete('/meu-setor/pilar', exigePerfil(...DIRETORIA_META), compInval, (req, res) => res.json(meuSetor.removerPilar(req.usuario.empresa_id, req.query.pilar)));
+router.put('/meu-setor/premio-config', exigePerfil(...DIRETORIA_META), compInval, (req, res) => { try { res.json(meuSetor.setPremioConfig(req.usuario.empresa_id, req.body)); } catch (e) { res.status(400).json({ erro: e.message }); } });
 // Pessoas vinculadas à premiação de um comprador (por fator)
 router.get('/meu-setor/pessoas', (req, res) => res.json({ pessoas: meuSetor.listPremioPessoas(req.usuario.empresa_id, req.query.comprador || null) }));
-router.put('/meu-setor/pessoa', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => { try { res.json(meuSetor.setPremioPessoa(req.usuario.empresa_id, req.body)); } catch (e) { res.status(400).json({ erro: e.message }); } });
-router.delete('/meu-setor/pessoa', exigePerfil(...GESTAO_COMPRAS), compInval, (req, res) => res.json(meuSetor.removePremioPessoa(req.usuario.empresa_id, req.query.comprador, req.query.colaborador)));
+router.put('/meu-setor/pessoa', exigePerfil(...DIRETORIA_META), compInval, (req, res) => { try { res.json(meuSetor.setPremioPessoa(req.usuario.empresa_id, req.body)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.delete('/meu-setor/pessoa', exigePerfil(...DIRETORIA_META), compInval, (req, res) => res.json(meuSetor.removePremioPessoa(req.usuario.empresa_id, req.query.comprador, req.query.colaborador)));
 
 // ── Meta de CMV por GRUPO PRINCIPAL (global ou por loja) + gerar pela média histórica ──
 router.get('/cmv-metas', compCache, async (req, res) => {

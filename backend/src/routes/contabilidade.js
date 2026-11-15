@@ -101,68 +101,74 @@ router.get('/creditos/resumo', async (req, res) => {
 });
 
 // ============================ BI / PAINEL (tela central) ============================
+// Núcleo reutilizável do BI "com nota × sem nota (perda)": total + por loja + por motivo.
+// `lojaQuery` = filtro cru de loja (p/ a parte de despesas da Tesouraria). Usado pela rota /bi
+// e pelo indicador "Sem nota (perda)" do Meu Setor do Financeiro (meuSetorArea).
+async function biSemNota(emp, unis, { de, ate, lojaQuery } = {}) {
+  const mapa = mapaLojas(emp);
+  const periodo = { de, ate };
+  // flags por fornecedor: emite_nf / motivo
+  const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf, motivo, consumo FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
+  const cents = carregarCentralizadores(emp); // agrupadores por nome (ex.: FAMPESA)
+  const planoList = planosSemNf(emp); // planos sem NF por natureza (folha/impostos/sócio…)
+  // agregado por loja (total + com NF do ERP)
+  const agg = await contab.biNfContaPagar(unis, periodo);
+  const L = {}; // loja -> buckets
+  const bucket = () => ({ valor: 0, com_valor: 0, sem_valor: 0, nao_emite_valor: 0, n: 0, com_n: 0 });
+  for (const a of agg) { const loja = mapa[Number(a.loja_erp)] || String(a.loja_erp) || '—'; L[loja] = L[loja] || bucket(); L[loja].valor += Number(a.valor) || 0; L[loja].n += Number(a.n) || 0; L[loja].com_valor += Number(a.com_valor) || 0; L[loja].com_n += Number(a.com_n) || 0; }
+  // sem NF por fornecedor → classifica em "não emite (por motivo)" x "sem nota (perda)"
+  const porMotivo = {};
+  const sem = await contab.semNfPorFornecedor(unis, periodo);
+  // overlay: notas de serviço anexadas (viram com nota) — desconta do grupo (loja|pessoa)
+  const anex = {};
+  const locaisIds = db.prepare(`SELECT contapagar_id FROM contabil_nf_contapagar WHERE empresa_id=? AND validade_fiscal=1`).all(emp).map(r => r.contapagar_id);
+  if (locaisIds.length) { const dd = await contab.contaPagarPorIds(locaisIds); for (const d of dd) { if (d.tem_nf_erp) continue; anex[d.loja_erp + '|' + d.pessoa_id] = (anex[d.loja_erp + '|' + d.pessoa_id] || 0) + (Number(d.valor) || 0); } }
+  for (const g of sem) {
+    const loja = mapa[Number(g.loja_erp)] || String(g.loja_erp) || '—';
+    L[loja] = L[loja] || bucket();
+    let v = Number(g.valor) || 0;
+    const descAnex = anex[g.loja_erp + '|' + g.pessoa_id]; if (descAnex) { const usa = Math.min(descAnex, v); v -= usa; L[loja].com_valor += usa; anex[g.loja_erp + '|' + g.pessoa_id] -= usa; }
+    if (v <= 0) continue;
+    const cent = matchCentralizador(cents, g.fornecedor);
+    const f = flags[String(g.pessoa_id)];
+    const motPlano = motivoPlano(g.plano, planoList);
+    if (cent && (cent.emite_nf === 0 || cent.consumo === 1)) { const mot = cent.motivo || cent.nome; L[loja].nao_emite_valor += v; porMotivo[mot] = (porMotivo[mot] || 0) + v; }
+    else if (f && (f.emite_nf === 0 || f.consumo === 1)) { const mot = f.motivo || (f.consumo === 1 ? 'Conta de consumo' : 'Não emite'); L[loja].nao_emite_valor += v; porMotivo[mot] = (porMotivo[mot] || 0) + v; }
+    else if (motPlano) { L[loja].nao_emite_valor += v; porMotivo[motPlano] = (porMotivo[motPlano] || 0) + v; }
+    else { L[loja].sem_valor += v; }
+  }
+  // + Despesas da TESOURARIA (foto/comprovante do gerente): fiscal=1 → com nota; senão → sem nota (perda).
+  try {
+    const mapaLojaNome = {}; lojasEmpresa(emp).forEach(l => { mapaLojaNome[l.id] = l.nome; });
+    let wt = 'empresa_id=? AND tipo=?'; const pt = [emp, 'despesa'];
+    if (periodo.de) { pt.push(periodo.de); wt += ' AND data >= ?'; }
+    if (periodo.ate) { pt.push(periodo.ate); wt += ' AND data <= ?'; }
+    const lojasFiltro = new Set((lojaQuery ? lojasEmpresa(emp).filter(l => unis.includes(Number(l.erp_unidadenegocio_id))) : lojasEmpresa(emp)).map(l => l.id));
+    db.prepare(`SELECT loja_id, fiscal, COALESCE(SUM(valor),0) v, COUNT(*) n FROM tesouraria_anexo WHERE ${wt} GROUP BY loja_id, fiscal`).all(...pt).forEach(row => {
+      if (lojaQuery && !lojasFiltro.has(row.loja_id)) return;
+      const loja = mapaLojaNome[row.loja_id] || row.loja_id || '—';
+      L[loja] = L[loja] || bucket();
+      const v = Number(row.v) || 0; L[loja].valor += v;
+      if (row.fiscal === 1) L[loja].com_valor += v; else { L[loja].sem_valor += v; }
+    });
+  } catch (e) { /* tabela pode não existir ainda */ }
+  Object.keys(L).forEach(k => { L[k].loja = k; });
+  // pct fiscal = com / (com + sem) — só entre quem DEVERIA ter nota (exclui "não emite")
+  const pct = b => (b.com_valor + b.sem_valor) > 0 ? Math.round(b.com_valor / (b.com_valor + b.sem_valor) * 1000) / 10 : null;
+  const por_loja = Object.values(L).map(b => ({ loja: b.loja, valor: round2(b.valor), com_valor: round2(b.com_valor), sem_valor: round2(b.sem_valor), nao_emite_valor: round2(b.nao_emite_valor), pct: pct(b) })).sort((a, b) => b.sem_valor - a.sem_valor);
+  const T = Object.values(L).reduce((a, b) => ({ valor: a.valor + b.valor, com_valor: a.com_valor + b.com_valor, sem_valor: a.sem_valor + b.sem_valor, nao_emite_valor: a.nao_emite_valor + b.nao_emite_valor }), { valor: 0, com_valor: 0, sem_valor: 0, nao_emite_valor: 0 });
+  const total = { valor: round2(T.valor), com_valor: round2(T.com_valor), sem_valor: round2(T.sem_valor), nao_emite_valor: round2(T.nao_emite_valor), pct: pct(T) };
+  const por_motivo = Object.entries(porMotivo).map(([motivo, valor]) => ({ motivo, valor: round2(valor) })).sort((a, b) => b.valor - a.valor);
+  return { total, por_loja, por_motivo };
+}
+
 // % com nota × sem nota das despesas (contas a pagar), total e por loja, no período.
 router.get('/bi', async (req, res) => {
   try {
     const emp = req.usuario.empresa_id;
     const unis = unisEmpresa(emp, req.query.loja);
-    const vazio = { total: { n: 0, valor: 0, com_valor: 0, sem_valor: 0, nao_emite_valor: 0, pct: null }, por_loja: [], por_motivo: [] };
-    if (!unis.length) return res.json(vazio);
-    const mapa = mapaLojas(emp);
-    const periodo = { de: req.query.de, ate: req.query.ate };
-    // flags por fornecedor: emite_nf / motivo
-    const flags = {}; db.prepare(`SELECT pessoa_id, emite_nf, motivo, consumo FROM contabil_fornecedor WHERE empresa_id=?`).all(emp).forEach(f => { flags[String(f.pessoa_id)] = f; });
-    const cents = carregarCentralizadores(emp); // agrupadores por nome (ex.: FAMPESA)
-    const planoList = planosSemNf(emp); // planos sem NF por natureza (folha/impostos/sócio…)
-    // agregado por loja (total + com NF do ERP)
-    const agg = await contab.biNfContaPagar(unis, periodo);
-    const L = {}; // loja -> buckets
-    const bucket = () => ({ valor: 0, com_valor: 0, sem_valor: 0, nao_emite_valor: 0, n: 0, com_n: 0 });
-    for (const a of agg) { const loja = mapa[Number(a.loja_erp)] || String(a.loja_erp) || '—'; L[loja] = L[loja] || bucket(); L[loja].valor += Number(a.valor) || 0; L[loja].n += Number(a.n) || 0; L[loja].com_valor += Number(a.com_valor) || 0; L[loja].com_n += Number(a.com_n) || 0; }
-    // sem NF por fornecedor → classifica em "não emite (por motivo)" x "sem nota (perda)"
-    const porMotivo = {};
-    const sem = await contab.semNfPorFornecedor(unis, periodo);
-    // overlay: notas de serviço anexadas (viram com nota) — desconta do grupo (loja|pessoa)
-    const anex = {};
-    const locaisIds = db.prepare(`SELECT contapagar_id FROM contabil_nf_contapagar WHERE empresa_id=? AND validade_fiscal=1`).all(emp).map(r => r.contapagar_id);
-    if (locaisIds.length) { const dd = await contab.contaPagarPorIds(locaisIds); for (const d of dd) { if (d.tem_nf_erp) continue; anex[d.loja_erp + '|' + d.pessoa_id] = (anex[d.loja_erp + '|' + d.pessoa_id] || 0) + (Number(d.valor) || 0); } }
-    for (const g of sem) {
-      const loja = mapa[Number(g.loja_erp)] || String(g.loja_erp) || '—';
-      L[loja] = L[loja] || bucket();
-      let v = Number(g.valor) || 0;
-      const descAnex = anex[g.loja_erp + '|' + g.pessoa_id]; if (descAnex) { const usa = Math.min(descAnex, v); v -= usa; L[loja].com_valor += usa; anex[g.loja_erp + '|' + g.pessoa_id] -= usa; }
-      if (v <= 0) continue;
-      const cent = matchCentralizador(cents, g.fornecedor);
-      const f = flags[String(g.pessoa_id)];
-      const motPlano = motivoPlano(g.plano, planoList);
-      if (cent && (cent.emite_nf === 0 || cent.consumo === 1)) { const mot = cent.motivo || cent.nome; L[loja].nao_emite_valor += v; porMotivo[mot] = (porMotivo[mot] || 0) + v; }
-      else if (f && (f.emite_nf === 0 || f.consumo === 1)) { const mot = f.motivo || (f.consumo === 1 ? 'Conta de consumo' : 'Não emite'); L[loja].nao_emite_valor += v; porMotivo[mot] = (porMotivo[mot] || 0) + v; }
-      else if (motPlano) { L[loja].nao_emite_valor += v; porMotivo[motPlano] = (porMotivo[motPlano] || 0) + v; }
-      else { L[loja].sem_valor += v; }
-    }
-    // + Despesas da TESOURARIA (foto/comprovante do gerente): fiscal=1 → com nota; senão → sem nota (perda).
-    try {
-      const mapaLojaNome = {}; lojasEmpresa(emp).forEach(l => { mapaLojaNome[l.id] = l.nome; });
-      let wt = 'empresa_id=? AND tipo=?'; const pt = [emp, 'despesa'];
-      if (periodo.de) { pt.push(periodo.de); wt += ' AND data >= ?'; }
-      if (periodo.ate) { pt.push(periodo.ate); wt += ' AND data <= ?'; }
-      const lojasFiltro = new Set((req.query.loja ? lojasEmpresa(emp).filter(l => unis.includes(Number(l.erp_unidadenegocio_id))) : lojasEmpresa(emp)).map(l => l.id));
-      db.prepare(`SELECT loja_id, fiscal, COALESCE(SUM(valor),0) v, COUNT(*) n FROM tesouraria_anexo WHERE ${wt} GROUP BY loja_id, fiscal`).all(...pt).forEach(row => {
-        if (req.query.loja && !lojasFiltro.has(row.loja_id)) return;
-        const loja = mapaLojaNome[row.loja_id] || row.loja_id || '—';
-        L[loja] = L[loja] || bucket();
-        const v = Number(row.v) || 0; L[loja].valor += v;
-        if (row.fiscal === 1) L[loja].com_valor += v; else { L[loja].sem_valor += v; }
-      });
-    } catch (e) { /* tabela pode não existir ainda */ }
-    Object.keys(L).forEach(k => { L[k].loja = k; });
-    // pct fiscal = com / (com + sem) — só entre quem DEVERIA ter nota (exclui "não emite")
-    const pct = b => (b.com_valor + b.sem_valor) > 0 ? Math.round(b.com_valor / (b.com_valor + b.sem_valor) * 1000) / 10 : null;
-    const por_loja = Object.values(L).map(b => ({ loja: b.loja, valor: round2(b.valor), com_valor: round2(b.com_valor), sem_valor: round2(b.sem_valor), nao_emite_valor: round2(b.nao_emite_valor), pct: pct(b) })).sort((a, b) => b.sem_valor - a.sem_valor);
-    const T = Object.values(L).reduce((a, b) => ({ valor: a.valor + b.valor, com_valor: a.com_valor + b.com_valor, sem_valor: a.sem_valor + b.sem_valor, nao_emite_valor: a.nao_emite_valor + b.nao_emite_valor }), { valor: 0, com_valor: 0, sem_valor: 0, nao_emite_valor: 0 });
-    const total = { valor: round2(T.valor), com_valor: round2(T.com_valor), sem_valor: round2(T.sem_valor), nao_emite_valor: round2(T.nao_emite_valor), pct: pct(T) };
-    const por_motivo = Object.entries(porMotivo).map(([motivo, valor]) => ({ motivo, valor: round2(valor) })).sort((a, b) => b.valor - a.valor);
-    res.json({ total, por_loja, por_motivo });
+    if (!unis.length) return res.json({ total: { n: 0, valor: 0, com_valor: 0, sem_valor: 0, nao_emite_valor: 0, pct: null }, por_loja: [], por_motivo: [] });
+    res.json(await biSemNota(emp, unis, { de: req.query.de, ate: req.query.ate, lojaQuery: req.query.loja }));
   } catch (e) { res.status(503).json({ erro: 'ERP indisponível para o BI.', detalhe: String(e.message || e) }); }
 });
 function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
@@ -785,6 +791,78 @@ router.get('/auditoria/manuais/planos', async (req, res) => {
     const rows = await auditoria.lancamentosManuaisPlanos(unis, { de: req.query.de, ate: req.query.ate, contas: req.query.contas, semCartao: req.query.semCartao === '1' });
     res.json({ planos: rows });
   } catch (e) { res.status(503).json({ erro: 'ERP indisponível para os planos.', detalhe: String(e.message || e) }); }
+});
+
+// (A2) Lançamentos RETROATIVOS — digitados muito depois da data de competência (datahorainclusao >> datahora).
+//      Flag de auditoria: a Diretoria vê e cobra o MOTIVO (guardado no app). "X dias" é configurável.
+const RETRO_CHAVE = 'lanc_retroativo_dias';
+function retroDias(empresaId) {
+  const r = db.prepare('SELECT valor FROM configuracoes WHERE empresa_id=? AND chave=?').get(empresaId, RETRO_CHAVE);
+  const n = r ? Number(r.valor) : NaN; return Number.isFinite(n) && n >= 0 ? n : 5;
+}
+router.get('/auditoria/retroativos', async (req, res) => {
+  try {
+    const emp = req.usuario.empresa_id;
+    const unis = unisEmpresa(emp, req.query.loja);
+    const dias = req.query.dias != null && req.query.dias !== '' ? Number(req.query.dias) : retroDias(emp);
+    if (!unis.length) return res.json({ lancamentos: [], diasMin: dias });
+    const mapaErp = {};
+    lojasEmpresa(emp).forEach(l => { mapaErp[String(l.erp_unidadenegocio_id)] = l.nome; });
+    const rows = await auditoria.lancamentosRetroativos(unis, { de: req.query.de, ate: req.query.ate, contas: req.query.contas, semCartao: req.query.semCartao === '1', diasMin: dias });
+    const motivos = {};
+    db.prepare('SELECT lanc_id, motivo, usuario, criado_em FROM lanc_retroativo_motivo WHERE empresa_id=?').all(emp)
+      .forEach(m => { motivos[String(m.lanc_id)] = m; });
+    const out = rows.map(r => { const m = motivos[String(r.id)]; return {
+      ...r, loja: mapaErp[String(r.loja_erp)] || r.conta,
+      motivo: m ? m.motivo : '', motivo_por: m ? m.usuario : '', motivo_em: m ? m.criado_em : '' }; });
+    const semMotivo = out.filter(r => !r.motivo).length;
+    res.json({ lancamentos: out, diasMin: dias, total: out.length, semMotivo });
+  } catch (e) { res.status(503).json({ erro: 'ERP indisponível para auditoria de retroativos.', detalhe: String(e.message || e) }); }
+});
+// Salvar/limpar o motivo de um lançamento retroativo (quem for do setor justifica; Diretoria cobra).
+router.post('/auditoria/retroativos/motivo', (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const { lanc_id, motivo } = req.body || {};
+  if (!lanc_id) return res.status(400).json({ erro: 'lanc_id obrigatório.' });
+  const quem = req.usuario.nome || req.usuario.funcao_nome || '—';
+  if (!String(motivo || '').trim()) {
+    db.prepare('DELETE FROM lanc_retroativo_motivo WHERE empresa_id=? AND lanc_id=?').run(emp, String(lanc_id));
+    return res.json({ ok: true, removido: true });
+  }
+  db.prepare(`INSERT INTO lanc_retroativo_motivo (empresa_id, lanc_id, motivo, usuario, criado_em)
+    VALUES (?,?,?,?,datetime('now'))
+    ON CONFLICT(empresa_id, lanc_id) DO UPDATE SET motivo=excluded.motivo, usuario=excluded.usuario, criado_em=excluded.criado_em`)
+    .run(emp, String(lanc_id), String(motivo).trim(), quem);
+  res.json({ ok: true });
+});
+// Config do limiar de dias (só Diretoria/Controladoria).
+router.put('/auditoria/retroativos/config', exigePerfil('Diretor Geral', 'Gestor Geral', 'Controladoria'), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const n = Number(req.body.dias);
+  if (!Number.isFinite(n) || n < 0) return res.status(400).json({ erro: 'Informe os dias (>= 0).' });
+  db.prepare(`INSERT INTO configuracoes (empresa_id, chave, valor) VALUES (?,?,?)
+    ON CONFLICT(empresa_id, chave) DO UPDATE SET valor=excluded.valor`).run(emp, RETRO_CHAVE, String(Math.round(n)));
+  res.json({ ok: true, diasMin: Math.round(n) });
+});
+
+// (A3) Estornos & exclusões no ERP: exclusão de conta a pagar + estorno de depósito/transferência.
+router.get('/auditoria/estornos', async (req, res) => {
+  try {
+    const emp = req.usuario.empresa_id;
+    const unis = unisEmpresa(emp, req.query.loja);
+    if (!unis.length) return res.json({ itens: [] });
+    const mapaErp = {}; lojasEmpresa(emp).forEach(l => { mapaErp[String(l.erp_unidadenegocio_id)] = l.nome; });
+    const rows = await auditoria.estornosExclusoes(unis, { de: req.query.de, ate: req.query.ate });
+    const itens = rows.map(r => ({
+      tipo: r.tipo, data: String(r.datahora).slice(0, 10), hora: String(r.datahora).slice(11, 16),
+      data_lancamento: r.data_lancamento || '', usuario_lancou: r.usuario_lancou || '—',
+      usuario: r.usuario || '—', motivo: r.motivo || '', valor: Number(r.valor) || 0,
+      ref: r.ref || '', loja: mapaErp[String(r.uni)] || r.uni,
+    }));
+    const porTipo = {};
+    itens.forEach(i => { (porTipo[i.tipo] = porTipo[i.tipo] || { n: 0, valor: 0 }); porTipo[i.tipo].n++; porTipo[i.tipo].valor += i.valor; });
+    res.json({ itens, total: itens.length, porTipo });
+  } catch (e) { res.status(503).json({ erro: 'ERP indisponível para estornos/exclusões.', detalhe: String(e.message || e) }); }
 });
 
 // (B) Conciliação de cartão: % conciliado × pendentes e atraso, por operadora.
@@ -1552,3 +1630,4 @@ router.get('/recebimento-aberto', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.biSemNota = biSemNota;

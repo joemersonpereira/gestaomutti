@@ -19,7 +19,7 @@ const c = {
   tab: { padding: '8px 14px', borderRadius: 9, border: '1px solid #e3e8ea', background: '#f3f7f6', color: '#334', fontSize: 13, fontWeight: 700, cursor: 'pointer' },
   tabOn: { background: 'linear-gradient(95deg,#0E7C5A,#0b6e59)', color: '#fff', borderColor: 'transparent' },
 };
-const ABAS = [['geral', '📊 Visão geral'], ['vendedores', '🧑‍💼 Vendedores'], ['comparativo', '📈 Comparativo'], ['metas', '🎯 Metas']];
+const ABAS = [['geral', '📊 Visão geral'], ['horario', '⏰ Por horário'], ['vendedores', '🧑‍💼 Vendedores'], ['comparativo', '📈 Comparativo'], ['metas', '🎯 Metas']];
 
 function Stat({ label, valor, sub, cor }) {
   return <div style={{ background: '#f8fafc', border: '1px solid #eef2f0', borderRadius: 10, padding: '8px 12px', minWidth: 120 }}>
@@ -27,6 +27,37 @@ function Stat({ label, valor, sub, cor }) {
     <div style={{ fontSize: 18, fontWeight: 800, color: cor || '#1f2937' }}>{valor}</div>
     {sub && <div style={{ fontSize: 10.5, color: '#94a3b8' }}>{sub}</div>}
   </div>;
+}
+
+// Explicação de cada indicador do Faturamento (padrão Meu Setor) — clica no indicador e abre o detalhe.
+const EXPLICA = {
+  venda: { nome: 'Venda', significa: 'Receita bruta das vendas finalizadas no período (todas as formas de pagamento).', medido: 'Soma do valor total dos cupons fechados no período/loja.', calculado: 'Σ valortotal das vendas com status Fechada (ERP), no filtro de período e loja.', acesso: 'ERP (venda). Confira em Faturamento → Visão geral e no cupom do PDV.', mercado: 'É o topo do funil; tudo (margem, despesa, resultado) se mede como % dela.' },
+  cmv: { nome: 'CMV (%)', significa: 'Quanto do que se vende é custo da mercadoria. Quanto menor, mais sobra.', medido: 'Custo da mercadoria vendida sobre a venda, no período.', calculado: 'CMV% = custo da mercadoria vendida ÷ venda × 100 (ERP).', acesso: 'ERP. Faturamento → Visão geral e aba CMV por grupo.', mercado: 'Farma independente ~68–72%; redes eficientes 62–66%. Meta = ficar no teto (≤).' },
+  margem: { nome: 'Margem (%)', significa: 'O que sobra da venda depois do custo da mercadoria (antes das despesas).', medido: 'Complemento do CMV: 100 − CMV%.', calculado: 'Margem% = 100 − CMV% ; em R$ = venda − custo.', acesso: 'ERP (derivado do CMV). Faturamento → Visão geral.', mercado: 'Margem bruta saudável sustenta despesa + lucro; vigie junto do CMV.' },
+  ticket: { nome: 'Ticket médio', significa: 'Quanto, em média, cada cupom (cliente) leva. Mede a venda casada / upsell.', medido: 'Venda ÷ número de cupons do período.', calculado: 'Ticket = venda ÷ cupons.', acesso: 'ERP. Faturamento → Visão geral e por vendedor.', mercado: 'Subir ticket é mais barato que trazer cliente novo; foco em cross-sell.' },
+  unidades: { nome: 'Unidades', significa: 'Quantos itens foram vendidos no período (volume).', medido: 'Soma das quantidades dos itens de venda.', calculado: 'Σ quantidade dos itens de venda (status Fechada).', acesso: 'ERP (itemvenda). Faturamento → Visão geral.', mercado: 'Volume × ticket × margem = resultado; ler junto, não isolado.' },
+  cupons: { nome: 'Cupons', significa: 'Número de vendas/atendimentos concluídos (fluxo de clientes).', medido: 'Contagem de cupons fechados no período.', calculado: 'count(*) das vendas com status Fechada.', acesso: 'ERP (venda). Faturamento → Visão geral.', mercado: 'Base do ticket e da conversão; queda de fluxo acende alerta.' },
+  clientes: { nome: 'Clientes', significa: 'Quantos clientes distintos compraram no período.', medido: 'Clientes únicos identificados nas vendas.', calculado: 'Contagem distinta de cliente (pessoaid) nas vendas do período.', acesso: 'ERP (venda.pessoaid). Faturamento → Visão geral.', mercado: 'Base da recompra e do CRM (Trivio); sem identificar, não há relacionamento.' },
+  identificacao: { nome: 'Identificação (%)', significa: 'Quantos cupons saíram com o cliente identificado (CPF/cadastro).', medido: '% das vendas com cliente vinculado.', calculado: 'Vendas com pessoaid ÷ total de vendas × 100.', acesso: 'ERP (venda.pessoaid) / Trivio. Faturamento → Visão geral.', mercado: 'Identificar é o que permite CRM, recompra e campanha; alvo alto (Trivio ~70%).' },
+  entrega: { nome: 'Entrega (delivery)', significa: 'Venda e cupons vindos do canal de entrega (delivery).', medido: 'Venda e nº de cupons marcados como entrega no período.', calculado: 'Σ valortotal e count dos cupons do canal entrega (ERP).', acesso: 'ERP. Faturamento Online e módulo de Entregas.', mercado: 'Canal em crescimento; mede alcance além da porta da loja.' },
+};
+function ExplicaModal({ ek, onClose }) {
+  const e = EXPLICA[ek]; if (!e) return null;
+  const Bloco = ({ t, children }) => children ? <div style={{ marginBottom: 10 }}><div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: .3, marginBottom: 2 }}>{t}</div><div style={{ fontSize: 13, color: '#334', lineHeight: 1.45 }}>{children}</div></div> : null;
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(16,40,45,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 80, padding: 16 }}>
+      <div onClick={ev => ev.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: 22, maxWidth: 540, width: '100%', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: '#1c2a2e', marginBottom: 2 }}>{e.nome}</div>
+        <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>⚙️ automático do sistema (ERP)</div>
+        <Bloco t="O que significa">{e.significa}</Bloco>
+        <Bloco t="Como é medido">{e.medido}</Bloco>
+        <Bloco t="Como é calculado">{e.calculado}</Bloco>
+        <Bloco t="Onde acessar / de onde vem">{e.acesso}</Bloco>
+        <Bloco t="Referência de mercado">{e.mercado}</Bloco>
+        <div style={{ textAlign: 'right', marginTop: 6 }}><button onClick={onClose} style={{ background: '#0E7C5A', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 700, cursor: 'pointer' }}>Fechar</button></div>
+      </div>
+    </div>
+  );
 }
 
 export function FaturamentoOnline() { return <Faturamento canal="entrega" />; }
@@ -100,6 +131,7 @@ export default function Faturamento({ canal = 'todos' } = {}) {
 
       {d && d.erp && !d.erro && <>
         {aba === 'geral' && <VisaoGeral d={d} online={online} API={API} loja={loja} dias={diasEff} ini={periodoParams?.ini || ''} fim={periodoParams?.fim || ''} canal={canal} />}
+        {aba === 'horario' && <PorHorario API={API} loja={loja} online={online} ini={periodoParams?.ini || ''} fim={periodoParams?.fim || ''} />}
         {aba === 'vendedores' && <Vendedores API={API} d={d} loja={loja} dias={diasEff} canal={canal} gestao={gestao} />}
         {aba === 'comparativo' && <Comparativo API={API} loja={loja} canal={canal} />}
         {aba === 'metas' && <Metas API={API} gestao={gestao} lojas={lojas} d={d} canal={canal} />}
@@ -146,8 +178,78 @@ function AvaliacoesBaixas({ API, loja, ini, fim }) {
   );
 }
 
+// ⏰ Faturamento e cupons por horário do dia (+ entregadores quando é a tela Online).
+const DOW = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+function PorHorario({ API, loja, online, ini, fim }) {
+  const [d, setD] = useState(null);
+  const [ent, setEnt] = useState(null);
+  const [topDias, setTopDias] = useState(null);
+  const [metr, setMetr] = useState('total'); // total | cupons
+  useEffect(() => { setD(null); API.get('/faturamento/por-horario', { params: { loja: loja || undefined, ini: ini || undefined, fim: fim || undefined } }).then(r => setD(r.data)).catch(() => setD({ horas: [] })); }, [API, loja, ini, fim]);
+  useEffect(() => { API.get('/faturamento/top-dias', { params: { loja: loja || undefined } }).then(r => setTopDias(r.data.dias || [])).catch(() => setTopDias([])); }, [API, loja]);
+  useEffect(() => { if (!online) { setEnt(null); return; } API.get('/entrega/entregadores', { params: { loja: loja || undefined, ini: ini || undefined, fim: fim || undefined } }).then(r => setEnt(r.data.entregadores || [])).catch(() => setEnt([])); }, [API, loja, ini, fim, online]);
+  const horas = (d?.horas || []);
+  const ativos = horas.filter(h => h.cupons > 0 || h.total > 0);
+  const maxV = Math.max(1, ...horas.map(h => metr === 'total' ? h.total : h.cupons));
+  const totV = ativos.reduce((a, h) => a + (metr === 'total' ? h.total : h.cupons), 0);
+  const pico = ativos.reduce((m, h) => (metr === 'total' ? h.total : h.cupons) > (metr === 'total' ? m.total : m.cupons) ? h : m, { total: 0, cupons: 0, h: null });
+  const fmt = v => metr === 'total' ? brl0(v) : (v || 0).toLocaleString('pt-BR');
+  const maxEnt = Math.max(1, ...((ent || []).map(e => e.finalizadas ?? e.entregas ?? 0)));
+  return (
+    <div>
+      <div style={{ ...c.card, marginBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 15, fontWeight: 800 }}>⏰ {online ? 'Vendas' : 'Faturamento'} por horário</span>
+          <div style={{ display: 'flex', gap: 2 }}>{[['total', 'R$'], ['cupons', 'Cupons']].map(([v, l]) => <button key={v} onClick={() => setMetr(v)} style={{ fontSize: 12, padding: '4px 10px', borderRadius: 7, border: '1px solid ' + (metr === v ? '#0E7C5A' : '#ddd'), background: metr === v ? '#0E7C5A' : '#fff', color: metr === v ? '#fff' : '#555', cursor: 'pointer' }}>{l}</button>)}</div>
+          {pico.h != null && <span style={{ fontSize: 12, color: '#64748b', marginLeft: 'auto' }}>Pico: <b>{String(pico.h).padStart(2, '0')}h</b> ({fmt(metr === 'total' ? pico.total : pico.cupons)})</span>}
+        </div>
+        {!d ? <div style={{ color: '#94a3b8', fontSize: 13 }}>Carregando…</div> : !ativos.length ? <div style={{ color: '#94a3b8', fontSize: 13 }}>Sem vendas no período.</div> :
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 220, overflowX: 'auto', paddingTop: 18 }}>
+            {horas.map(h => { const v = metr === 'total' ? h.total : h.cupons; const pct = v / maxV * 100; const ev = v > 0; return (
+              <div key={h.h} style={{ flex: '1 0 30px', display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }} title={`${String(h.h).padStart(2, '0')}h — ${brl0(h.total)} · ${h.cupons} cupons`}>
+                <span style={{ fontSize: 9, color: '#64748b', marginBottom: 2, whiteSpace: 'nowrap' }}>{ev && pct > 14 ? (metr === 'total' ? (h.total >= 1000 ? Math.round(h.total / 1000) + 'k' : h.total) : h.cupons) : ''}</span>
+                <div style={{ width: '78%', height: Math.max(pct, ev ? 2 : 0) + '%', background: pico.h === h.h ? '#0E7C5A' : '#7FB7A3', borderRadius: '4px 4px 0 0' }} />
+                <span style={{ fontSize: 9, color: '#94a3b8', marginTop: 3 }}>{String(h.h).padStart(2, '0')}</span>
+              </div>
+            ); })}
+          </div>}
+        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>Total no período: <b>{fmt(totV)}</b> · barra verde = horário de pico. Passe o mouse para R$ e cupons de cada hora.</div>
+      </div>
+      <div style={{ ...c.card, marginBottom: 14 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 10 }}>🏆 Dias com mais venda no ano</div>
+        {topDias === null ? <div style={{ color: '#94a3b8', fontSize: 13 }}>Carregando…</div> : !topDias.length ? <div style={{ color: '#94a3b8', fontSize: 13 }}>Sem dados.</div> :
+          (() => { const mx = Math.max(1, ...topDias.map(x => x.total)); return topDias.map((x, i) => { const w = x.total / mx * 100; const dt = x.dia.split('-').reverse().join('/'); return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }} title={`${dt} (${DOW[x.dow]}) — ${brl0(x.total)} · ${x.cupons} cupons`}>
+              <span style={{ width: 20, fontSize: 11, color: '#94a3b8', textAlign: 'right' }}>{i + 1}º</span>
+              <span style={{ width: 120, fontSize: 12, color: '#444', whiteSpace: 'nowrap' }}>{dt} <span style={{ color: '#94a3b8' }}>{DOW[x.dow]}</span></span>
+              <div style={{ flex: 1, background: '#f1f5f9', borderRadius: 6, height: 20, position: 'relative', minWidth: 120 }}>
+                <div style={{ width: Math.max(w, 1) + '%', height: '100%', background: i === 0 ? '#0E7C5A' : '#7FB7A3', borderRadius: 6 }} />
+                <span style={{ position: 'absolute', left: 8, top: 2, fontSize: 11, fontWeight: 700, color: w > 35 ? '#fff' : '#333' }}>{brl0(x.total)}</span>
+              </div>
+            </div>
+          ); }); })()}
+      </div>
+      {online && <div style={{ ...c.card }}>
+        <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 10 }}>🛵 Entregas por entregador</div>
+        {ent === null ? <div style={{ color: '#94a3b8', fontSize: 13 }}>Carregando…</div> : !ent.length ? <div style={{ color: '#94a3b8', fontSize: 13 }}>Sem entregas no período.</div> :
+          [...ent].sort((a, b) => (b.finalizadas ?? b.entregas ?? 0) - (a.finalizadas ?? a.entregas ?? 0)).slice(0, 20).map((e, i) => { const n = e.finalizadas ?? e.entregas ?? 0; const w = n / maxEnt * 100; return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }} title={`${e.entregador}: ${n} entregas${e.tempoMedio ? ' · ' + e.tempoMedio + 'min' : ''}`}>
+              <span style={{ width: 20, fontSize: 11, color: '#94a3b8', textAlign: 'right' }}>{i + 1}º</span>
+              <span style={{ width: 180, fontSize: 12, color: '#444', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.entregador}</span>
+              <div style={{ flex: 1, background: '#f1f5f9', borderRadius: 6, height: 20, position: 'relative', minWidth: 120 }}>
+                <div style={{ width: Math.max(w, 1) + '%', height: '100%', background: '#6D4AA8', borderRadius: 6 }} />
+                <span style={{ position: 'absolute', left: 8, top: 2, fontSize: 11, fontWeight: 700, color: w > 30 ? '#fff' : '#333' }}>{n}{e.tempoMedio ? ` · ${e.tempoMedio}min` : ''}</span>
+              </div>
+            </div>
+          ); })}
+      </div>}
+    </div>
+  );
+}
+
 function VisaoGeral({ d, online, API, loja, dias, ini, fim, canal }) {
   const [exp, setExp] = useState(null);
+  const [expInd, setExpInd] = useState(null); // indicador do hero p/ modal de explicação
   const [cestasView, setCestasView] = useState('motivo');
   const [atend, setAtend] = useState(null); const [metaT, setMetaT] = useState({}); const [vendas, setVendas] = useState(null);
   // Metas (venda/ticket/cmv/unidades/identificação + tempos) — valem pro Faturamento e pro Online.
@@ -175,8 +277,8 @@ function VisaoGeral({ d, online, API, loja, dias, ini, fim, canal }) {
     <div>
       <div style={{ ...c.card, background: 'linear-gradient(135deg,#0E7C5A,#0b6e59)', color: '#fff' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 12, opacity: .85 }}>Venda no período ({d.dias} dias)</div>
+          <div onClick={() => setExpInd('venda')} style={{ cursor: 'pointer' }} title="Ver explicação">
+            <div style={{ fontSize: 12, opacity: .85 }}>Venda no período ({d.dias} dias) <span style={{ opacity: .6, fontSize: 10 }}>ⓘ</span></div>
             <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.1 }}>{brl(t.venda)}</div>
             {mLine(metaT.venda, t.venda, brl0, true)}
           </div>
@@ -187,16 +289,19 @@ function VisaoGeral({ d, online, API, loja, dias, ini, fim, canal }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 12, fontSize: 13 }}>
-          <div><b style={{ fontSize: 18 }}>{t.cmv != null ? t.cmv + '%' : '—'}</b><div style={{ opacity: .8, fontSize: 11 }}>CMV</div>{mLine(metaT.cmv, t.cmv, v => v + '%', false)}</div>
-          <div><b style={{ fontSize: 18 }}>{t.cmv != null ? (Math.round((100 - t.cmv) * 10) / 10) + '%' : '—'}</b><div style={{ opacity: .8, fontSize: 11 }}>margem · {brl0(t.venda - t.custo)}</div></div>
-          <div><b style={{ fontSize: 18 }}>{brl(t.ticket)}</b><div style={{ opacity: .8, fontSize: 11 }}>ticket médio</div>{mLine(metaT.ticket, t.ticket, brl, true)}</div>
-          <div><b style={{ fontSize: 18 }}>{num(t.unidades)}</b><div style={{ opacity: .8, fontSize: 11 }}>unidades</div>{mLine(metaT.unidades, t.unidades, num, true)}</div>
-          <div><b style={{ fontSize: 18 }}>{num(t.cupons)}</b><div style={{ opacity: .8, fontSize: 11 }}>cupons</div></div>
-          <div><b style={{ fontSize: 18 }}>{num(t.clientes)}</b><div style={{ opacity: .8, fontSize: 11 }}>clientes</div></div>
-          <div><b style={{ fontSize: 18 }}>{t.identificacao != null ? t.identificacao + '%' : '—'}</b><div style={{ opacity: .8, fontSize: 11 }}>identificação</div>{mLine(metaT.clientes, t.identificacao, v => v + '%', true)}</div>
-          <div><b style={{ fontSize: 18 }}>{brl0(t.vendaEntrega)}</b><div style={{ opacity: .8, fontSize: 11 }}>🛵 entrega · {num(t.cuponsEntrega)} cupons</div></div>
+          {(() => { const clk = ek => ({ onClick: () => setExpInd(ek), style: { cursor: 'pointer' }, title: 'Ver explicação' }); const i = <span style={{ opacity: .6, fontSize: 9, marginLeft: 3 }}>ⓘ</span>; return <>
+          <div {...clk('cmv')}><b style={{ fontSize: 18 }}>{t.cmv != null ? t.cmv + '%' : '—'}</b><div style={{ opacity: .8, fontSize: 11 }}>CMV{i}</div>{mLine(metaT.cmv, t.cmv, v => v + '%', false)}</div>
+          <div {...clk('margem')}><b style={{ fontSize: 18 }}>{t.cmv != null ? (Math.round((100 - t.cmv) * 10) / 10) + '%' : '—'}</b><div style={{ opacity: .8, fontSize: 11 }}>margem{i} · {brl0(t.venda - t.custo)}</div></div>
+          <div {...clk('ticket')}><b style={{ fontSize: 18 }}>{brl(t.ticket)}</b><div style={{ opacity: .8, fontSize: 11 }}>ticket médio{i}</div>{mLine(metaT.ticket, t.ticket, brl, true)}</div>
+          <div {...clk('unidades')}><b style={{ fontSize: 18 }}>{num(t.unidades)}</b><div style={{ opacity: .8, fontSize: 11 }}>unidades{i}</div>{mLine(metaT.unidades, t.unidades, num, true)}</div>
+          <div {...clk('cupons')}><b style={{ fontSize: 18 }}>{num(t.cupons)}</b><div style={{ opacity: .8, fontSize: 11 }}>cupons{i}</div></div>
+          <div {...clk('clientes')}><b style={{ fontSize: 18 }}>{num(t.clientes)}</b><div style={{ opacity: .8, fontSize: 11 }}>clientes{i}</div></div>
+          <div {...clk('identificacao')}><b style={{ fontSize: 18 }}>{t.identificacao != null ? t.identificacao + '%' : '—'}</b><div style={{ opacity: .8, fontSize: 11 }}>identificação{i}</div>{mLine(metaT.clientes, t.identificacao, v => v + '%', true)}</div>
+          <div {...clk('entrega')}><b style={{ fontSize: 18 }}>{brl0(t.vendaEntrega)}</b><div style={{ opacity: .8, fontSize: 11 }}>🛵 entrega{i} · {num(t.cuponsEntrega)} cupons</div></div>
+          </>; })()}
         </div>
       </div>
+      {expInd && <ExplicaModal ek={expInd} onClose={() => setExpInd(null)} />}
 
       {p.tendencia && <div style={c.card}>
         <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8 }}>🔮 Tendência do mês <span style={{ fontSize: 11.5, color: '#94a3b8', fontWeight: 400 }}>— no ritmo atual ({p.dia}/{p.diasMes} dias), o mês fecha assim</span></div>

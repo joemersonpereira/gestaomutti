@@ -53,6 +53,31 @@ router.get('/conferentes', async (req, res) => {
   res.json({ loja_id: lojaId, mes, ano, gap_batida_min: recebimentoErp.GAP_BATIDA_SEG / 60, conferentes });
 });
 
+// Ranking de conferentes por TEMPO MÉDIO de conferência (datahorafinal − datahora) — menor é melhor.
+router.get('/conferentes-tempo', async (req, res) => {
+  try {
+    const { erpQuery, habilitado } = require('../db/erp');
+    const { unisEmpresa } = require('../lib/escopoCompras');
+    if (!habilitado()) return res.json({ conferentes: [] });
+    const hoje = new Date();
+    const mes = parseInt(req.query.mes) || hoje.getMonth() + 1;
+    const ano = parseInt(req.query.ano) || hoje.getFullYear();
+    const unis = unisEmpresa(req.usuario.empresa_id, req.query.loja_id || req.query.loja || '');
+    if (!unis.length) return res.json({ conferentes: [] });
+    const ini = `${ano}-${String(mes).padStart(2, '0')}-01`;
+    const fim = mes === 12 ? `${ano + 1}-01-01` : `${ano}-${String(mes + 1).padStart(2, '0')}-01`;
+    const rows = await erpQuery(`
+      SELECT COALESCE(u.apelido, u.login) nome, count(*) n,
+        round(avg(extract(epoch from (rf.datahorafinal - rf.datahora))/60)::numeric, 1) tempo_min
+      FROM recebimentofisico rf JOIN usuario u ON u.id = rf.usuarioconclusaoid
+      WHERE rf.unidadenegocioid = ANY($1::bigint[]) AND rf.datahorafinal IS NOT NULL
+        AND rf.datahora >= $2::date AND rf.datahora < $3::date AND rf.datahorafinal > rf.datahora
+      GROUP BY COALESCE(u.apelido, u.login) HAVING count(*) >= 3
+      ORDER BY tempo_min ASC`, [unis, ini, fim]);
+    res.json({ mes, ano, conferentes: rows.map(r => ({ nome: (r.nome || '').trim(), n: Number(r.n) || 0, tempo_min: Number(r.tempo_min) || 0 })) });
+  } catch (e) { res.status(502).json({ erro: e.message }); }
+});
+
 // POST /recebimento/conferentes/importar  { usuarioid, nome, loja_id }  → cria colaborador func-conferente
 const GEST_CONF = ['Gerente', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'RH', 'Suporte'];
 router.post('/conferentes/importar', require('../middleware/auth').exigePerfil(...GEST_CONF), (req, res) => {

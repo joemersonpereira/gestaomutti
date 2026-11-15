@@ -29,6 +29,8 @@ const { cacheMiddleware: _tesCacheMw, invalidarMiddleware: _tesInvMw } = require
 const tesCache = _tesCacheMw('tes');
 const tesInval = _tesInvMw('tes:'); // aplicar só nas rotas que mudam o que os relatórios do ERP mostram
 const soGestao = exigePerfil(...GESTAO_TES); // bloqueia gerente nas telas de indicador/quebra
+// Cadastro de META/PREMIAÇÃO: só Diretoria (ninguém edita a própria meta, nem a Tesouraria a dela).
+const soDiretoriaMeta = exigePerfil('Diretor Geral', 'Gestor Geral');
 
 const hoje = () => new Date().toISOString().slice(0, 10);
 const primeiroDoMes = () => hoje().slice(0, 8) + '01';
@@ -46,7 +48,7 @@ function podeLoja(req, lojaId) { return !!lojaId && lojasDoUsuario(req).some(l =
 router.get('/lojas', (req, res) => res.json({ lojas: lojasDoUsuario(req) }));
 
 router.get('/config', soGestao, (req, res) => res.json(t.getConfig(req.usuario.empresa_id)));
-router.post('/config', soGestao, (req, res) => res.json(t.setConfig(req.usuario.empresa_id, { limiar: req.body.limiar, pontosTopOperador: req.body.pontosTopOperador, pontosDescontoQuebra: req.body.pontosDescontoQuebra, pontosCaixaZerado: req.body.pontosCaixaZerado, escalaNotaCaixa: req.body.escalaNotaCaixa })));
+router.post('/config', soDiretoriaMeta, (req, res) => res.json(t.setConfig(req.usuario.empresa_id, { limiar: req.body.limiar, pontosTopOperador: req.body.pontosTopOperador, pontosDescontoQuebra: req.body.pontosDescontoQuebra, pontosCaixaZerado: req.body.pontosCaixaZerado, escalaNotaCaixa: req.body.escalaNotaCaixa })));
 
 // ── Caixa Destaque por PONTOS — critérios CONFIGURÁVEIS (Joe 2026-11-11). tipo auto=sai do ERP/ponto; manual=lançamento avulso. ──
 const _pontosMin = (emp) => { try { const r = db.prepare("SELECT valor FROM tesouraria_config WHERE empresa_id=? AND chave='pontos_minimo_premiacao'").get(emp); return r ? (Number(r.valor) || 0) : 30; } catch (e) { return 30; } };
@@ -55,7 +57,7 @@ router.get('/pontos/regras', soGestao, (req, res) => {
   const regras = db.prepare('SELECT chave, label, pontos, tipo, desclassifica, ordem, ativo FROM caixa_pontos_regra WHERE empresa_id=? ORDER BY ordem, label').all(emp);
   res.json({ regras, minimo: _pontosMin(emp) });
 });
-router.put('/pontos/regras', soGestao, (req, res) => {
+router.put('/pontos/regras', soDiretoriaMeta, (req, res) => {
   const emp = req.usuario.empresa_id;
   const up = db.prepare('UPDATE caixa_pontos_regra SET pontos=?, desclassifica=?, ativo=? WHERE empresa_id=? AND chave=?');
   const tx = db.transaction((rows) => { for (const r of rows) up.run(Number(r.pontos) || 0, r.desclassifica ? 1 : 0, r.ativo === false ? 0 : 1, emp, r.chave); });
@@ -107,17 +109,17 @@ router.get('/ciclos-fechamento', soGestao, (req, res) => {
   }
   res.json({ ciclos: out, config: cpontos.cicloConfig(emp) });
 });
-router.put('/metas/config', soGestao, (req, res) => { try { res.json(metas.setMeta(req.usuario.empresa_id, { chave: req.body.chave, meta_valor: req.body.meta_valor, ativo: req.body.ativo })); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.put('/metas/config', soDiretoriaMeta, (req, res) => { try { res.json(metas.setMeta(req.usuario.empresa_id, { chave: req.body.chave, meta_valor: req.body.meta_valor, ativo: req.body.ativo })); } catch (e) { res.status(400).json({ erro: e.message }); } });
 router.get('/metas/sugerir', soGestao, tesCache, async (req, res) => {
   try { res.json(await metas.sugerir(req.usuario.empresa_id, { reducao: req.query.reducao, ciclos: req.query.ciclos })); }
   catch (e) { res.status(502).json({ erro: e.message }); }
 });
-router.post('/metas/aplicar-sugestoes', soGestao, (req, res) => res.json(metas.aplicarSugestoes(req.usuario.empresa_id, req.body.sugestoes)));
+router.post('/metas/aplicar-sugestoes', soDiretoriaMeta, (req, res) => res.json(metas.aplicarSugestoes(req.usuario.empresa_id, req.body.sugestoes)));
 // Faixas do prêmio: teto R$/pilar + pessoas vinculadas (colaborador + fator). Configurado na aba Metas.
 router.get('/premio', soGestao, (req, res) => res.json({ premioValor: metas.premioPilar(req.usuario.empresa_id), bonusPct: metas.premioBonusPct(req.usuario.empresa_id), pessoas: metas.listPremioPessoas(req.usuario.empresa_id) }));
-router.put('/premio', soGestao, tesInval, (req, res) => { try { res.json(metas.setPremioConfig(req.usuario.empresa_id, { valor: req.body.valor, bonusPct: req.body.bonusPct })); } catch (e) { res.status(400).json({ erro: e.message }); } });
-router.post('/premio/pessoa', soGestao, tesInval, (req, res) => { try { res.json(metas.setPremioPessoa(req.usuario.empresa_id, { colaborador_id: req.body.colaborador_id, fator: req.body.fator })); } catch (e) { res.status(400).json({ erro: e.message }); } });
-router.delete('/premio/pessoa/:id', soGestao, tesInval, (req, res) => res.json(metas.removePremioPessoa(req.usuario.empresa_id, req.params.id)));
+router.put('/premio', soDiretoriaMeta, tesInval, (req, res) => { try { res.json(metas.setPremioConfig(req.usuario.empresa_id, { valor: req.body.valor, bonusPct: req.body.bonusPct })); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.post('/premio/pessoa', soDiretoriaMeta, tesInval, (req, res) => { try { res.json(metas.setPremioPessoa(req.usuario.empresa_id, { colaborador_id: req.body.colaborador_id, fator: req.body.fator })); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.delete('/premio/pessoa/:id', soDiretoriaMeta, tesInval, (req, res) => res.json(metas.removePremioPessoa(req.usuario.empresa_id, req.params.id)));
 // Piso de data da conciliação (padrão 01/10/2026)
 router.get('/conc-inicio', soGestao, (req, res) => res.json({ conc_inicio: metas.concInicio(req.usuario.empresa_id) }));
 router.put('/conc-inicio', soGestao, (req, res) => res.json(metas.setConcInicio(req.usuario.empresa_id, req.body.data)));
@@ -445,8 +447,35 @@ router.post('/anexos', (req, res) => {
   res.status(201).json({ id, mensagem: salvo ? 'Anexado e salvo na pasta.' : 'Anexado.', arquivo_salvo: salvo });
 });
 router.delete('/anexos/:id', (req, res) => {
-  db.prepare(`DELETE FROM tesouraria_anexo WHERE id=? AND empresa_id=?`).run(req.params.id, req.usuario.empresa_id);
+  const emp = req.usuario.empresa_id;
+  // Antes de excluir, guarda a "lápide" do anexo (quem/quando/qual) — a Diretoria revê as exclusões (fila #8).
+  const a = db.prepare(`SELECT id, loja_id, data, tipo, descricao, valor, nome, criado_em FROM tesouraria_anexo WHERE id=? AND empresa_id=?`).get(req.params.id, emp);
+  const tx = db.transaction(() => {
+    if (a) {
+      db.prepare(`INSERT INTO tesouraria_anexo_exclusao (empresa_id, anexo_id, loja_id, data, tipo, descricao, valor, nome_arquivo, criado_em, excluido_por, excluido_por_id, motivo, excluido_em)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`)
+        .run(emp, String(a.id), a.loja_id, a.data, a.tipo, a.descricao, a.valor, a.nome, a.criado_em,
+          req.usuario.nome || req.usuario.funcao_nome || '—', req.usuario.id, String(req.body?.motivo || '').trim() || null);
+    }
+    db.prepare(`DELETE FROM tesouraria_anexo WHERE id=? AND empresa_id=?`).run(req.params.id, emp);
+  });
+  tx();
   res.json({ ok: true });
+});
+
+// Exclusões de anexos (depósitos em destaque) — a Diretoria revê quem excluiu o quê. Só gestão.
+router.get('/exclusoes', soGestao, (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const { ini, fim, tipo } = req.query;
+  let q = `SELECT e.*, l.nome AS loja_nome FROM tesouraria_anexo_exclusao e LEFT JOIN lojas l ON l.id=e.loja_id WHERE e.empresa_id=?`;
+  const p = [emp];
+  if (ini) { q += ' AND e.data >= ?'; p.push(ini); }
+  if (fim) { q += ' AND e.data <= ?'; p.push(fim); }
+  if (tipo) { q += ' AND e.tipo = ?'; p.push(tipo); }
+  q += ' ORDER BY e.excluido_em DESC LIMIT 500';
+  const rows = db.prepare(q).all(...p);
+  const totDep = rows.filter(r => r.tipo === 'deposito').reduce((a, r) => a + (Number(r.valor) || 0), 0);
+  res.json({ exclusoes: rows, total: rows.length, totalDepositos: totDep, qtdDepositos: rows.filter(r => r.tipo === 'deposito').length });
 });
 
 // Pasta da nuvem (OneDrive sincronizado) de onde o gerente sobe as fotos de despesa.

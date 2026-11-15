@@ -42,6 +42,10 @@ export default function TesourariaHub() {
   return (
     <div style={{ ...s.wrap, paddingRight: shift, transition: 'padding-right .18s' }}>
       <Banner emoji="🏦" titulo="Tesouraria" cor="roxo" sub={ehGestao ? 'Controle de caixa da gestão — fechamento do dia por loja junto com as apurações e o orçamento. Sem tarefa pro operador.' : 'Fechamento do dia — anexe os depósitos, despesas e recargas da sua loja e acompanhe os caixas e diferenças do dia.'} />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '0 0 12px' }}>
+        <button onClick={() => setAba('fechamento')} style={{ ...s.atalho, ...(aba === 'fechamento' ? { borderColor: '#0E7C5A', color: '#0E7C5A', fontWeight: 700 } : {}) }}>📎 Anexar depósito / despesa</button>
+        <button onClick={() => window.dispatchEvent(new CustomEvent('mutti-nav', { detail: 'meurh' }))} style={s.atalho} title="Operador vê as próprias diferenças de caixa em Meu RH">📉 Minhas diferenças de caixa</button>
+      </div>
       {abas.length > 1 && <div style={s.tabs}>
         {abas.map(([k, l]) => (
           <button key={k} onClick={() => setAba(k)} style={{ ...s.tab, ...(aba === k ? s.tabOn : {}) }}>{l}</button>
@@ -462,6 +466,7 @@ function HorarioMes({ API }) {
 
 const s = {
   wrap: { padding: '18px 20px' },
+  atalho: { padding: '7px 13px', borderRadius: 9, border: '1px solid #d8e0e3', background: '#fff', color: '#334', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' },
   tabs: { display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 },
   tab: { padding: '8px 14px', borderRadius: 9, border: '1px solid #e3e8ea', background: '#f3f7f6', color: '#334', fontSize: 13, fontWeight: 700, cursor: 'pointer' },
   tabOn: { background: 'linear-gradient(95deg,#0E7C5A,#0b6e59)', color: '#fff', borderColor: 'transparent' },

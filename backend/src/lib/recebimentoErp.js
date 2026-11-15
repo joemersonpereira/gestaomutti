@@ -39,7 +39,7 @@ async function conferentesLojaMes(lojaId, mes, ano) {
       SELECT u.id AS usuarioid, u.apelido AS nome, u.login,
         COUNT(*) AS total,
         COUNT(*) FILTER (WHERE rf.liberacaousuariocomdivergenciaid IS NOT NULL OR rf.liberacaousuariolotedivergenteid IS NOT NULL) AS com_divergencia
-      FROM recebimentofisico rf JOIN usuario u ON u.id = rf.usuarioid
+      FROM recebimentofisico rf JOIN usuario u ON u.id = rf.usuarioconclusaoid
       WHERE rf.unidadenegocioid = $1 AND rf.datahora >= $2 AND rf.datahora < $3
       GROUP BY u.id, u.apelido, u.login`, [uni, ini, fim]);
     // (B) Recepção de transporte × início do recebimento físico (por NF)

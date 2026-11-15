@@ -5,7 +5,8 @@ const router = express.Router();
 const { auth, exigePerfil } = require('../middleware/auth');
 const { faturamento, historico, vendedorGrupos, comparativo, comparativoItens, mediaVendaVendedores, mediaIndicadoresVendedores } = require('../lib/faturamentoErp');
 const fatMetas = require('../lib/faturamentoMetas');
-const { lojasEmpresa } = require('../lib/escopoCompras');
+const { lojasEmpresa, unisEmpresa } = require('../lib/escopoCompras');
+const { erpQuery, habilitado } = require('../db/erp');
 const db = require('../db/connection');
 const { cacheMiddleware: _ccMw, invalidarMiddleware: _ccInv } = require('../lib/erpCache');
 const fatCache = _ccMw('fat');
@@ -15,6 +16,41 @@ const GESTAO = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria', 
 router.use(auth);
 
 router.get('/lojas', (req, res) => res.json({ lojas: lojasEmpresa(req.usuario.empresa_id) }));
+
+// Rank dos DIAS com mais venda no ano (top 15) — venda fechada. Usado em Faturamento/Online.
+router.get('/top-dias', fatCache, async (req, res) => {
+  try {
+    const unis = unisEmpresa(req.usuario.empresa_id, req.query.loja);
+    if (!unis.length || !habilitado()) return res.json({ dias: [] });
+    const ano = Number(req.query.ano) || new Date().getFullYear();
+    const r = await erpQuery(`
+      SELECT to_char(v.datahorafechamento,'YYYY-MM-DD') dia, extract(dow from v.datahorafechamento)::int dow,
+        count(*) cupons, sum(v.valortotal)::float8 total
+      FROM venda v WHERE v.status='F' AND v.unidadenegocioid = ANY($1::bigint[])
+        AND v.datahorafechamento >= $2::date AND v.datahorafechamento < $3::date
+      GROUP BY 1,2 ORDER BY total DESC LIMIT 15`, [unis, `${ano}-01-01`, `${ano + 1}-01-01`]);
+    res.json({ dias: r.map(x => ({ dia: x.dia, dow: Number(x.dow), cupons: Number(x.cupons) || 0, total: Math.round(Number(x.total) || 0) })) });
+  } catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
+
+// Faturamento e cupons por HORÁRIO do dia (0–23h) — venda fechada no período. Usado em Faturamento e Online.
+router.get('/por-horario', fatCache, async (req, res) => {
+  try {
+    const unis = unisEmpresa(req.usuario.empresa_id, req.query.loja);
+    if (!unis.length || !habilitado()) return res.json({ horas: [] });
+    const hoje = new Date();
+    const ini = req.query.ini || new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10);
+    const fim = req.query.fim || hoje.toISOString().slice(0, 10);
+    const r = await erpQuery(`
+      SELECT extract(hour from v.datahorafechamento)::int h, count(*) cupons, sum(v.valortotal)::float8 total
+      FROM venda v WHERE v.status='F' AND v.unidadenegocioid = ANY($1::bigint[])
+        AND v.datahorafechamento >= $2::date AND v.datahorafechamento < ($3::date + 1)
+      GROUP BY 1 ORDER BY 1`, [unis, ini, fim]);
+    const horas = Array.from({ length: 24 }, (_, h) => ({ h, cupons: 0, total: 0 }));
+    r.forEach(x => { const h = Number(x.h); if (h >= 0 && h < 24) horas[h] = { h, cupons: Number(x.cupons) || 0, total: Math.round(Number(x.total) || 0) }; });
+    res.json({ horas, ini, fim });
+  } catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
 
 // Faixas de PREMIAÇÃO do vendedor (% da venda por faixa) — configurável. Padrão 3/4/5 (regra do Joe).
 const cfgGet = (emp, k, d) => { const r = db.prepare('SELECT valor FROM configuracoes WHERE empresa_id=? AND chave=?').get(emp, k); return r && r.valor != null ? r.valor : d; };

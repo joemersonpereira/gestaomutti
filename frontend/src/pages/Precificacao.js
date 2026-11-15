@@ -24,6 +24,7 @@ const ABAS = {
 export default function Precificacao() {
   const { API, usuario } = useAuth();
   const gestao = GESTAO.includes(usuario?.funcao);
+  const diretoria = ['Diretor Geral', 'Gestor Geral'].includes(usuario?.funcao); // só Diretoria edita meta
   const [lojas, setLojas] = useState([]); const [comps, setComps] = useState([]); const [classifs, setClassifs] = useState([]);
   const [loja, setLoja] = useState(''); const [comp, setComp] = useState(''); const [classif, setClassif] = useState('');
   const per = usePeriodo('30'); const [margem, setMargem] = useState(20); const [dir, setDir] = useState('caro');
@@ -71,7 +72,7 @@ export default function Precificacao() {
         <button onClick={carregar} style={{ ...UI.btn, cursor: 'pointer' }}>🔄 Atualizar</button>
       </FiltroBar>}
 
-      <Tabs itens={Object.entries(ABAS).map(([k, v]) => [k, v.label])} ativa={aba} onChange={setAba} />
+      <Tabs itens={Object.entries(ABAS).filter(([k]) => k !== 'metas' || diretoria).map(([k, v]) => [k, v.label])} ativa={aba} onChange={setAba} />
 
       {ehMS ? <MeuSetorArea fonte={fontePrecificacao()} embutido abaFixa={aba === 'metas' ? 'metas' : 'setor'} /> :
       ehPesquisa ? <PesquisaPreco API={API} comps={comps} classifs={classifs} gestao={gestao} /> :

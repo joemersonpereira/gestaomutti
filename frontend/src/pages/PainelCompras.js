@@ -28,6 +28,7 @@ const BG = { verde: '#E7F5EC', amarelo: '#FCF3E2', vermelho: '#FBEAE7' };
 export default function PainelCompras() {
   const { API, usuario } = useAuth();
   const gestao = ['Diretor Geral', 'Gestor Geral', 'Supervisor', 'Controladoria'].includes(usuario.funcao);
+  const diretoria = ['Diretor Geral', 'Gestor Geral'].includes(usuario.funcao); // só Diretoria cadastra meta/premiação
   const [aba, setAba] = useState('meusetor');
   const [lateral, setLateral] = useState(() => { try { return localStorage.getItem('compras_lateral') !== '0'; } catch (e) { return true; } });
   const [wide, setWide] = useState(typeof window !== 'undefined' ? window.innerWidth >= 1120 : true);
@@ -49,7 +50,7 @@ export default function PainelCompras() {
       {aba === 'painel' && <Orcamento API={API} gestao={gestao} />}
       {aba === 'estoque' && <EstoqueIndicadores API={API} />}
       {aba === 'meusetor' && <MeuSetorCompras API={API} gestao={gestao} />}
-      {aba === 'metas' && <MetasCompras API={API} gestao={gestao} />}
+      {aba === 'metas' && <MetasCompras API={API} gestao={diretoria} />}
       {aba === 'regime' && <RegimeFornecedores API={API} gestao={gestao} />}
       {aba === 'config' && <Config API={API} gestao={gestao} />}
       <LateralCompras API={API} usuario={usuario} aba={aba} onAba={setAba} aberto={lateral} setAberto={setLat} />

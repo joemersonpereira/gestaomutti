@@ -7,7 +7,8 @@ import { usePeriodo, CampoPeriodo } from '../components/Periodo';
 
 const num = v => (Number(v) || 0).toLocaleString('pt-BR');
 const brl = v => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
-const GESTAO = ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Supervisor'];
+// Só Diretoria cadastra/edita meta e premiação (ninguém mexe na própria meta).
+const GESTAO = ['Diretor Geral', 'Gestor Geral'];
 const corFarol = f => f === 'verde' ? CORES.ok : f === 'amarelo' ? '#B45309' : f === 'vermelho' ? CORES.alerta : CORES.fraco;
 const fmtVal = (v, u) => v == null ? '—' : u === 'R$' ? 'R$ ' + num(Math.round(v)) : u === '%' ? v + '%' : u === 'min' ? v + ' min' : u === 'dias' ? v + ' dias' : u === 'nota' ? v : num(v);
 const AREAS = { online: { emoji: '🛒', titulo: 'Meu Setor — Online', sub: 'Pilares e metas do atendimento online (BotVendas): tempos, satisfação, conversão e venda.' },

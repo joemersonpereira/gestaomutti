@@ -1,5 +1,5 @@
 /* eslint-disable no-unused-vars */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
 import Indicadores from './Indicadores';
@@ -380,6 +380,7 @@ function Colaboradores({ API }) {
         {editId && (lista.find(c => c.id === editId) || {}).ativo === 0 && (
           <div style={{ fontSize: 12, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 7, padding: '6px 10px', marginTop: 8 }}>Este colaborador está <b>inativo</b> — clique em <b>✅ Ativar colaborador</b> para ativá-lo. O acesso (login) você libera com <b>🔑 Senha</b> na lista.</div>
         )}
+        {editId && <AcessosColaborador API={API} colaboradorId={editId} funcao={funcoes.find(f => f.id === form.funcao_id)} />}
       </div>
       )}
 
@@ -521,6 +522,10 @@ function Lojas({ API, podeCriar }) {
                 <label style={{ ...s.lbl, flex: 0.7, minWidth: 150 }}>CNPJ
                   <input defaultValue={l.cnpj || ''} placeholder="00.000.000/0001-00" style={{ ...s.campo, marginBottom: 0 }}
                     onBlur={e => { if (e.target.value !== (l.cnpj || '')) setGestor(l.id, 'cnpj', e.target.value); }} />
+                </label>
+                <label style={{ ...s.lbl, flex: 0.5, minWidth: 110 }}>📐 Área (m²)
+                  <input type="number" defaultValue={l.area_m2 || ''} placeholder="ex.: 120" style={{ ...s.campo, marginBottom: 0 }}
+                    onBlur={e => { if (e.target.value !== (l.area_m2 != null ? String(l.area_m2) : '')) setGestor(l.id, 'area_m2', e.target.value); }} title="Área de vendas em m² — p/ o indicador Vendas por m² (Bulla)" />
                 </label>
                 <label style={{ ...s.lbl, flex: 1, minWidth: 180 }}>🏷️ Apelido (uso interno)
                   <input defaultValue={l.apelido || ''} placeholder="ex.: Multi Esplanada" style={{ ...s.campo, marginBottom: 0 }}
@@ -762,6 +767,65 @@ function AcessosConfig({ API }) {
       )}
       {msg && <div style={{ fontSize: 12, color: '#3B6D11', margin: '10px 0 0' }}>{msg}</div>}
       {!travada && <button style={{ ...s.btn, marginTop: 12 }} onClick={salvar}>Salvar acessos</button>}
+    </div>
+  );
+}
+
+// 🔐 Acessos de módulo POR COLABORADOR — aparece no cadastro quando editando. Guarda só os desvios
+// desta pessoa sobre o padrão da função dela: Padrão (herda a função), Liberar (força mostrar),
+// Bloquear (esconde). Núcleo e travas de segurança seguem garantidos no App (não dá pra se trancar fora).
+function AcessosColaborador({ API, colaboradorId, funcao }) {
+  const [overrides, setOverrides] = useState({});   // { modulo_id: true|false }
+  const [funcaoOv, setFuncaoOv] = useState({});      // override herdado da função (só informativo)
+  const [msg, setMsg] = useState(''); const [busca, setBusca] = useState(''); const [aberto, setAberto] = useState(false);
+  const validos = useMemo(() => new Set(MODULOS_META.map(m => m.id)), []);
+  const podar = mp => { const out = {}; for (const [id, v] of Object.entries(mp || {})) if (validos.has(id) && (v === true || v === false)) out[id] = v; return out; };
+  useEffect(() => {
+    if (!colaboradorId) return;
+    setAberto(false); setMsg('');
+    API.get(`/acessos/colaborador/${colaboradorId}`).then(r => { setOverrides(podar(r.data.overrides || {})); setFuncaoOv(r.data.funcaoOverrides || {}); }).catch(() => { setOverrides({}); setFuncaoOv({}); });
+  }, [API, colaboradorId]); // eslint-disable-line
+  const estado = id => (overrides[id] === true ? 'liberado' : overrides[id] === false ? 'bloqueado' : 'padrao');
+  const setEstado = (id, novo) => setOverrides(prev => { const mp = { ...prev }; if (novo === 'padrao') delete mp[id]; else mp[id] = (novo === 'liberado'); return mp; });
+  async function salvar() {
+    // manda explicitamente null pros que voltaram a 'padrão' (pra apagar no banco)
+    const payload = {}; MODULOS_META.forEach(m => { payload[m.id] = overrides[m.id] === true ? true : overrides[m.id] === false ? false : null; });
+    const r = await API.put(`/acessos/colaborador/${colaboradorId}`, { overrides: payload });
+    setOverrides(podar(r.data.overrides || {})); setMsg('✅ Acessos do colaborador salvos.'); setTimeout(() => setMsg(''), 2500);
+  }
+  const limpar = () => setOverrides({});
+  const nDesvios = Object.keys(overrides).length;
+  const mods = MODULOS_META.filter(m => !busca.trim() || m.label.toLowerCase().includes(busca.toLowerCase()));
+  const heranca = id => (funcaoOv[id] === true ? 'função libera' : funcaoOv[id] === false ? 'função bloqueia' : 'padrão do sistema');
+  return (
+    <div style={{ marginTop: 14, border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+      <button type="button" onClick={() => setAberto(a => !a)} style={{ width: '100%', textAlign: 'left', background: '#f0f7f4', border: 'none', padding: '10px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#0d6b5e', display: 'flex', alignItems: 'center', gap: 8 }}>
+        🔐 Acessos de módulo (escritório){nDesvios > 0 && <span style={{ fontSize: 11, fontWeight: 600, background: '#0d6b5e', color: '#fff', borderRadius: 10, padding: '1px 8px' }}>{nDesvios} ajuste{nDesvios > 1 ? 's' : ''}</span>}
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748b', fontWeight: 500 }}>{aberto ? '▲ fechar' : '▼ abrir'}</span>
+      </button>
+      {aberto && <div style={{ padding: 12 }}>
+        <div style={{ fontSize: 12, color: '#666', marginBottom: 10 }}>Define o que <b>esta pessoa</b> vê, por cima do padrão da função{funcao?.nome ? <> (<b>{funcao.nome}</b>{funcao.escritorio ? '' : ' — atendimento, normalmente não usa menus do escritório'})</> : ''}. <b>Padrão</b> = herda a função; <b>Liberar</b> força mostrar; <b>Bloquear</b> esconde. Só ajuste o que mudar — o núcleo (Comunidade, Tarefas, Minhas metas, Meu RH) nunca some.</div>
+        <input placeholder="🔎 filtrar menu…" value={busca} onChange={e => setBusca(e.target.value)} style={{ ...s.campo, width: 200, marginBottom: 10 }} />
+        <div style={{ border: '1px solid #eee', borderRadius: 8, overflow: 'hidden', maxHeight: 360, overflowY: 'auto' }}>
+          {mods.map((m, i) => {
+            const est = estado(m.id);
+            return (
+              <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderTop: i ? '1px solid #f3f3f3' : 'none', background: est === 'bloqueado' ? '#FCF3F2' : est === 'liberado' ? '#F1FAF3' : '#fff' }}>
+                <div style={{ flex: 1, fontSize: 12.5 }}>{m.label}<span style={{ fontSize: 10, color: '#9aa', marginLeft: 6 }}>({heranca(m.id)})</span></div>
+                {[['padrao', 'Padrão', '#888'], ['liberado', 'Liberar', '#1E824C'], ['bloqueado', 'Bloquear', '#C0392B']].map(([v, lbl, cor]) => (
+                  <button key={v} type="button" onClick={() => setEstado(m.id, v)}
+                    style={{ fontSize: 11, padding: '4px 10px', borderRadius: 14, cursor: 'pointer', border: '1px solid ' + (est === v ? cor : '#ddd'), background: est === v ? cor : '#fff', color: est === v ? '#fff' : '#666' }}>{lbl}</button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
+          <button type="button" style={s.btn} onClick={salvar}>Salvar acessos da pessoa</button>
+          {nDesvios > 0 && <button type="button" style={{ ...s.btn, background: '#999' }} onClick={limpar}>Zerar ajustes (tudo padrão)</button>}
+          {msg && <span style={{ fontSize: 12, color: '#3B6D11' }}>{msg}</span>}
+        </div>
+      </div>}
     </div>
   );
 }

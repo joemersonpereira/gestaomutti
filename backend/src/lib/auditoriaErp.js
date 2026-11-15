@@ -59,6 +59,71 @@ async function lancamentosManuais(unis, { de, ate, contas, semCartao, plano } = 
     ORDER BY m.datahora DESC LIMIT 2000`, params);
 }
 
+// Lançamentos manuais RETROATIVOS (Joe 2026-11-14): lançados com data (competência) bem anterior ao dia
+// em que foram DIGITADOS (datahorainclusao). Sinal de auditoria pra Diretoria cobrar o motivo. Gap = dias
+// entre a competência e a inclusão; só acima de `diasMin` (configurável). Filtra pela DATA DE INCLUSÃO
+// (o que foi lançado no período). Exclui competências-epoch (data nula vira 1970). Mesmas exclusões de
+// sistema/cartão dos lançamentos manuais.
+async function lancamentosRetroativos(unis, { de, ate, contas, semCartao, diasMin = 5 } = {}) {
+  const { params, w: w0 } = whereManuais(unis, { contas, semCartao }); let w = w0;
+  params.push(Number(diasMin) || 0); w += ` AND (m.datahorainclusao::date - m.datahora::date) > $${params.length}`;
+  w += ` AND m.datahora >= '2015-01-01'`; // ignora competência nula/epoch
+  if (de) { params.push(de); w += ` AND m.datahorainclusao >= $${params.length}::date`; }
+  if (ate) { params.push(ate); w += ` AND m.datahorainclusao < ($${params.length}::date + interval '1 day')`; }
+  return erpQuery(`
+    SELECT m.id, to_char(m.datahora,'YYYY-MM-DD') AS competencia, to_char(m.datahorainclusao,'YYYY-MM-DD') AS lancado,
+      (m.datahorainclusao::date - m.datahora::date) AS gap, cc.nome AS conta, cc.unidadenegocioid AS loja_erp,
+      tm.descricao AS tipo, m.valor, m.descricao, m.numerodocumento,
+      COALESCE(pu.nome, u.login) AS usuario, pl.nome AS plano_contas
+    FROM movimentacaocontacorrente m
+    JOIN contacorrente cc ON cc.id = m.contacorrenteid
+    JOIN tipomovimentacaocontacorrente tm ON tm.id = m.tipomovimentacaocontacorrenteid AND tm.descricao IN ('Lançamento de Entrada','Lançamento de Saída')
+    LEFT JOIN usuario u ON u.id = m.usuarioid LEFT JOIN pessoa pu ON pu.id = u.pessoaid
+    LEFT JOIN LATERAL (SELECT p.nome FROM lancamentofinanceiro lf JOIN planocontas p ON p.id=lf.planocontasid WHERE lf.movimentacaocontacorrenteid=m.id LIMIT 1) pl ON TRUE
+    WHERE ${w}
+    ORDER BY gap DESC, m.datahorainclusao DESC LIMIT 1000`, params);
+}
+
+// ESTORNOS & EXCLUSÕES no ERP (Joe 2026-11-14): exclusão de conta a pagar + estorno de depósito/
+// transferência de conta corrente. A Diretoria acompanha quem desfez o quê (quem/quando/valor/motivo).
+async function estornosExclusoes(unis, { de, ate } = {}) {
+  const cond = (col) => { const p = [unis]; let w = ''; if (de) { p.push(de); w += ` AND ${col} >= $${p.length}::date`; } if (ate) { p.push(ate); w += ` AND ${col} < ($${p.length}::date + interval '1 day')`; } return { p, w }; };
+  const a = cond('cc.datahora');
+  const cap = await erpQuery(`
+    SELECT 'Exclusão de conta a pagar' tipo, to_char(cc.datahora,'YYYY-MM-DD HH24:MI') datahora,
+      to_char(cp.dataemissao,'YYYY-MM-DD') data_lancamento, cc.motivo,
+      COALESCE(up.nome,u.login) usuario, COALESCE(upl.nome, ull.login) usuario_lancou,
+      cp.unidadenegocioid uni, COALESCE(cp.valor,cp.valordocumento,0)::float8 valor, cp.descricao ref
+    FROM cancelamentocontapagar cc JOIN contapagar cp ON cp.id=cc.contapagarid
+      JOIN usuario u ON u.id=cc.usuarioid LEFT JOIN pessoa up ON up.id=u.pessoaid
+      LEFT JOIN usuario ull ON ull.id=cp.usuarioid LEFT JOIN pessoa upl ON upl.id=ull.pessoaid
+    WHERE cp.unidadenegocioid = ANY($1::bigint[]) ${a.w}`, a.p);
+  const b = cond('e.datahora');
+  const est = await erpQuery(`
+    SELECT 'Estorno de depósito/transferência' tipo, to_char(e.datahora,'YYYY-MM-DD HH24:MI') datahora,
+      to_char(mo.datahora,'YYYY-MM-DD HH24:MI') data_lancamento, e.motivo,
+      COALESCE(up.nome,u.login) usuario, COALESCE(upl.nome, ull.login) usuario_lancou,
+      e.unidadenegocioid uni, e.valor::float8 valor, ''::text ref
+    FROM estornotransferenciacontacorrente e JOIN usuario u ON u.id=e.usuarioid LEFT JOIN pessoa up ON up.id=u.pessoaid
+      LEFT JOIN movimentacaocontacorrente mo ON mo.id = e.movimentacaocontacorrenteorigemid
+      LEFT JOIN usuario ull ON ull.id=mo.usuarioid LEFT JOIN pessoa upl ON upl.id=ull.pessoaid
+    WHERE e.unidadenegocioid = ANY($1::bigint[]) ${b.w}`, b.p);
+  // 3ª fonte: estorno de PAGAMENTO (baixa desfeita) de conta a pagar. usuario = quem estornou, usuario_lancou = quem pagou.
+  const c = cond('ei.datahora');
+  const pag = await erpQuery(`
+    SELECT 'Estorno de pagamento' tipo, to_char(ei.datahora,'YYYY-MM-DD HH24:MI') datahora,
+      to_char(cp.dataemissao,'YYYY-MM-DD') data_lancamento, ei.motivo,
+      COALESCE(up.nome,u.login) usuario, COALESCE(upl.nome, ull.login) usuario_lancou,
+      cp.unidadenegocioid uni, ip.valorpagamento::float8 valor, cp.descricao ref
+    FROM estornoitempgtocontapagar ei
+      JOIN itempgtocontapagar ip ON ip.id = ei.itempgtocontapagarid
+      JOIN contapagar cp ON cp.id = ip.contapagarid
+      JOIN usuario u ON u.id=ei.usuarioid LEFT JOIN pessoa up ON up.id=u.pessoaid
+      LEFT JOIN usuario ull ON ull.id=cp.usuarioid LEFT JOIN pessoa upl ON upl.id=ull.pessoaid
+    WHERE cp.unidadenegocioid = ANY($1::bigint[]) ${c.w}`, c.p);
+  return [...cap, ...est, ...pag].sort((x, y) => new Date(y.datahora) - new Date(x.datahora));
+}
+
 // Planos de contas distintos presentes nos lançamentos manuais (p/ o filtro). Inclui "sem plano".
 async function lancamentosManuaisPlanos(unis, { de, ate, contas, semCartao } = {}) {
   const { params, w: w0 } = whereManuais(unis, { contas, semCartao }); let w = w0;
@@ -134,4 +199,4 @@ async function conciliacaoBancariaIndice(unis) {
     ORDER BY cc.nome`, [unis]);
 }
 
-module.exports = { conciliacaoTempo, lancamentosManuais, lancamentosManuaisPlanos, conciliacaoBancaria, conciliacaoBancariaPendentes, conciliacaoBancariaIndice };
+module.exports = { conciliacaoTempo, lancamentosManuais, lancamentosManuaisPlanos, lancamentosRetroativos, estornosExclusoes, conciliacaoBancaria, conciliacaoBancariaPendentes, conciliacaoBancariaIndice };

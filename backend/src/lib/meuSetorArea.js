@@ -47,21 +47,25 @@ const CATALOGO = {
     { chave: 'custo_acao', nome: 'Custo das ações (R$)', pilar: 'Orçamento', peso: 10, meta: null, tol: 0, direcao: 'menor', unidade: 'R$', desc: 'Custo total das ações (verba + tráfego pago + tempo da equipe). Meta: abaixo do teto (cadastre).', calc: 'Soma dos gastos itemizados lançados nas ações do período (mkt_gasto).', acesso: 'Marketing → ação → seção 💸 Gastos.', mercado: 'Validar o custo da ação × retorno (sell-out).' },
   ],
   gerencial: [
-    { chave: 'resultado_liquido', nome: 'Resultado líquido (%)', pilar: 'Resultado', peso: 10, meta: 5, tol: 3, direcao: 'maior', unidade: '%', desc: 'Lucro líquido do mês sobre a receita bruta (DRE). Meta: ≥ 5%.', calc: 'Resultado da DRE ÷ receita bruta do mês × 100.', acesso: 'Financeiro → 📄 DRE (fiscal).', mercado: 'Drogaria saudável costuma operar com lucro líquido de 3–8%.' },
+    // Resultado líquido e CMV saíram das metas do Financeiro (Joe 2026-11-15) — ficam na Eficiência de loja.
+    // Despesa sobre receita FICA (Joe pediu p/ manter).
     { chave: 'despesas_receita', nome: 'Despesas sobre receita (%)', pilar: 'Despesas', peso: 10, meta: 30, tol: 5, direcao: 'menor', unidade: '%', desc: 'Despesas operacionais sobre a receita bruta. Meta: ≤ 30%.', calc: 'Despesas operacionais (sem CMV) ÷ receita bruta do mês × 100.', acesso: 'Financeiro → DRE / Fluxo de caixa (Despesas).', mercado: 'Controlar as despesas é o que preserva o lucro.' },
-    { chave: 'cmv_pct', nome: 'CMV (%)', pilar: 'Despesas', peso: 10, meta: 64, tol: 3, direcao: 'menor', unidade: '%', desc: 'Custo da mercadoria vendida sobre a receita. Meta: ficar no teto (≤).', calc: 'CMV ÷ receita bruta do mês × 100.', acesso: 'Financeiro → DRE.', mercado: '~62–66% em redes eficientes; ~68–72% em independente.' },
     { chave: 'lanc_sem_plano', nome: 'Lançamentos sem plano de contas (qtd)', pilar: 'Lançamentos', peso: 10, meta: 0, tol: 5, direcao: 'menor', unidade: 'qtd', desc: 'Lançamentos financeiros no ERP sem plano de contas definido. Meta: 0 (tudo classificado).', calc: 'Contagem de lançamentos (contas a pagar) sem plano de contas no período.', acesso: 'Financeiro → 🧾 Lançamentos sem plano.', mercado: 'Sem classificação não dá pra analisar despesa; corrigir sempre.' },
     { chave: 'lanc_retroativo', nome: 'Lançamentos retroativos (qtd)', pilar: 'Lançamentos', peso: 10, meta: 0, tol: 5, direcao: 'menor', unidade: 'qtd', desc: 'Lançamentos com data retroativa além do limite configurado, sem motivo. Meta: 0.', calc: 'Contagem de lançamentos cuja data é anterior ao lançamento em mais de X dias (configurável).', acesso: 'Financeiro / Painel da Gestão → retroativos.', mercado: 'Retroativo distorce o fechamento; precisa de justificativa.' },
     { chave: 'titulos_aberto', nome: 'Títulos a pagar em aberto (qtd)', pilar: 'Contas a pagar', peso: 10, meta: 0, tol: 10, direcao: 'menor', unidade: 'qtd', desc: 'Títulos vencidos ainda em aberto (sem baixa). Meta: o menor possível — correr atrás do que é.', calc: 'Contagem de títulos de contas a pagar vencidos e não baixados.', acesso: 'Financeiro → 💳 Baixa de contas a pagar.', mercado: 'Título parado sem baixa = risco de juros/erro; tem que resolver.' },
     { chave: 'baixa_prazo', nome: 'Baixa de títulos no prazo (%)', pilar: 'Contas a pagar', peso: 10, meta: 95, tol: 10, direcao: 'maior', unidade: '%', desc: 'Dos títulos com vencimento no período, % baixado até o vencimento. Meta: ≥ 95%.', calc: '% = títulos baixados até a data de vencimento ÷ títulos vencidos no período.', acesso: 'Financeiro → 💳 Baixa de contas a pagar.', mercado: 'Pagar/baixar em dia evita juros e mantém o caixa confiável.' },
     { chave: 'devolucoes_aberto', nome: 'Devoluções em aberto (qtd)', pilar: 'Devoluções', peso: 10, meta: 0, tol: 5, direcao: 'menor', unidade: 'qtd', desc: 'Devoluções a fornecedor ainda não concluídas (valor parado). Meta: resolver — o menor possível.', calc: 'Contagem de devoluções em aberto no ERP (Alpha 7).', acesso: 'Financeiro → ↩️ Devoluções em aberto (do ERP).', mercado: 'Devolução parada = dinheiro/crédito preso com o fornecedor.' },
+    { chave: 'orcamento_aderencia', nome: 'Aderência ao orçamento (%)', pilar: 'Contas a pagar', peso: 10, meta: 100, tol: 5, direcao: 'menor', unidade: '%', desc: 'Quanto do orçamento de despesas já foi consumido no acumulado do ano. Meta: ≤ 100% (dentro do orçado).', calc: 'Despesas realizadas (YTD, do DRE) ÷ despesas orçadas (YTD, cadastro do orçamento) × 100.', acesso: 'Financeiro → 📊 Orçamento (desvio de orçamento).', mercado: 'Gastar acima do orçado corrói o resultado planejado; ficar ≤100% é cumprir o plano.' },
+    { chave: 'validacoes_pendentes', nome: 'Validações financeiras pendentes (qtd)', pilar: 'Contas a pagar', peso: 10, meta: 0, tol: 3, direcao: 'menor', unidade: 'qtd', desc: 'Comprovantes anexados (Trade/Devolução…) aguardando a confirmação do Financeiro. Meta: 0 (tudo confirmado).', calc: 'Contagem de itens em fin_validacao com comprovante anexado e status ainda pendente.', acesso: 'Contabilidade → ✅ Validação financeira (painel único).', mercado: 'Comprovante parado sem confirmação trava o acerto; confirmar rápido fecha o ciclo financeiro.' },
+    { chave: 'sem_nota', nome: 'Sem nota — perda fiscal (R$)', pilar: 'Contas a pagar', peso: 10, meta: 0, tol: 0, direcao: 'menor', unidade: 'R$', desc: 'Despesa paga SEM nota fiscal e SEM justificativa de "não emite" (sócio/imposto/folha). É perda de crédito/custo fiscal a resolver. Meta: R$ 0.', calc: 'Valor das despesas (contas a pagar + despesas da Tesouraria) sem NF no ERP, descontando o que tem comprovante/é de fornecedor que não emite, no mês.', acesso: 'Contabilidade → 🧾 Sem nota (perda) — mesmo cálculo do BI.', mercado: 'Comprar sem nota perde crédito de ICMS/PIS/COFINS e infla o custo real; zerar protege a margem e o fisco.' },
+    { chave: 'fluxo_caixa', nome: 'Fluxo de caixa do mês (R$)', pilar: 'Contas a pagar', peso: 10, meta: 0, tol: 0, direcao: 'maior', unidade: 'R$', desc: 'Entradas menos saídas de caixa no mês (realizado até agora). Meta: ≥ R$ 0 — não terminar o mês queimando caixa.', calc: 'Receitas recebidas − despesas pagas no mês (do Fluxo de caixa do ERP, por conta corrente).', acesso: 'Financeiro → 🗺️ Planejamento → Fluxo de caixa.', mercado: 'Lucro não paga conta — caixa paga. Fluxo positivo é o oxigênio do negócio.' },
   ],
 };
 const PILARES = {
   online: ['Atendimento', 'Satisfação', 'Conversão', 'Venda'],
   suporte: ['Recebimento', 'Conferência', 'Acuracidade', 'Fiscal', 'Entrega'],
   marketing: ['Planejamento', 'Produção', 'Execução', 'Ofertas', 'Orçamento'],
-  gerencial: ['Resultado', 'Despesas', 'Lançamentos', 'Contas a pagar', 'Devoluções'],
+  gerencial: ['Despesas', 'Lançamentos', 'Contas a pagar', 'Devoluções'],
 };
 
 function config(emp, area) {
@@ -233,9 +237,10 @@ async function realizadoAuto(emp, area, { dias = 30, ini = '', fim = '', lojaId 
     // ainda são manuais/cadastráveis — serão ligados ao ERP numa próxima fatia.
     const base = fim ? new Date(fim + 'T00:00:00') : new Date();
     const ano = base.getFullYear(), i = base.getMonth();
-    let resultado_liquido = null, despesas_receita = null, cmv_pct = null;
+    let resultado_liquido = null, despesas_receita = null, cmv_pct = null, dreData = null;
     try {
       const d = await finErp.dre(emp, { ano, lojaId: lojaId || undefined });
+      dreData = d;
       if (d && d.ok !== false && Array.isArray(d.receitaBruta)) {
         const rec = d.receitaBruta[i] || 0;
         resultado_liquido = Array.isArray(d.margem) && d.margem[i] != null ? d.margem[i] : null;
@@ -245,8 +250,71 @@ async function realizadoAuto(emp, area, { dias = 30, ini = '', fim = '', lojaId 
         }
       }
     } catch (e) { /* ERP indisponível → ficam manuais */ }
-    return { resultado_liquido, despesas_receita, cmv_pct,
-      lanc_sem_plano: null, lanc_retroativo: null, titulos_aberto: null, baixa_prazo: null, devolucoes_aberto: null };
+    // Contas a pagar / devoluções do ERP (Alpha 7)
+    let lanc_sem_plano = null, titulos_aberto = null, baixa_prazo = null, devolucoes_aberto = null;
+    if (habilitado()) {
+      try {
+        const unis = unisEmpresa(emp, lojaId || undefined);
+        const mm = String(i + 1).padStart(2, '0');
+        const de = `${ano}-${mm}-01`;
+        const ateExcl = i === 11 ? `${ano + 1}-01-01` : `${ano}-${String(i + 2).padStart(2, '0')}-01`;
+        const hoje = new Date().toISOString().slice(0, 10);
+        const sp = (await erpQuery(`SELECT COUNT(*)::int n FROM contapagar WHERE unidadenegocioid = ANY($1::bigint[]) AND status <> 'C' AND planocontasid IS NULL AND datavencimento >= $2::date AND datavencimento < $3::date`, [unis, de, ateExcl]))[0];
+        lanc_sem_plano = sp ? sp.n : null;
+        const ta = (await erpQuery(`SELECT COUNT(*)::int n FROM contapagar WHERE unidadenegocioid = ANY($1::bigint[]) AND status='A' AND datavencimento < $2::date`, [unis, hoje]))[0];
+        titulos_aberto = ta ? ta.n : null;
+        const bp = (await erpQuery(`SELECT COUNT(*)::int total, COUNT(*) FILTER (WHERE pg.datahora::date <= cp.datavencimento)::int noprazo FROM contapagar cp JOIN pgtocontapagar pg ON pg.id=cp.pgtocontapagarid WHERE cp.unidadenegocioid = ANY($1::bigint[]) AND cp.status='B' AND cp.datavencimento >= $2::date AND cp.datavencimento < $3::date`, [unis, de, ateExcl]))[0];
+        baixa_prazo = bp && bp.total ? Math.round(bp.noprazo / bp.total * 1000) / 10 : null;
+        const dv = (await erpQuery(`SELECT COUNT(*)::int n FROM devolucaocompra WHERE unidadenegocioid = ANY($1::bigint[]) AND status NOT IN ('F','C')`, [unis]))[0];
+        devolucoes_aberto = dv ? dv.n : null;
+      } catch (e) { /* ERP indisponível */ }
+    }
+    // Aderência ao orçamento (YTD): realizado ÷ orçado das despesas × 100. ≤100% = dentro do orçamento.
+    // Leve: orçado vem da tabela LOCAL; realizado reaproveita o DRE já buscado (sem recalcular o orçamento inteiro).
+    let orcamento_aderencia = null;
+    try {
+      const mesesN = i + 1; // acumulado do ano até o mês-base
+      const orcRow = lojaId
+        ? db.prepare("SELECT COALESCE(SUM(valor),0) v FROM orcamento_financeiro WHERE empresa_id=? AND ano=? AND tipo='despesa' AND mes<=? AND loja_id=?").get(emp, ano, mesesN, lojaId)
+        : db.prepare("SELECT COALESCE(SUM(valor),0) v FROM orcamento_financeiro WHERE empresa_id=? AND ano=? AND tipo='despesa' AND mes<=?").get(emp, ano, mesesN);
+      const orcado = orcRow ? Number(orcRow.v) : 0;
+      let realizado = 0;
+      if (dreData && Array.isArray(dreData.despOperTotal)) for (let k = 0; k < mesesN; k++) realizado += Number(dreData.despOperTotal[k] || 0);
+      orcamento_aderencia = orcado ? Math.round(realizado / orcado * 1000) / 10 : null;
+    } catch (e) { /* sem orçamento */ }
+    // Validações financeiras pendentes (comprovante anexado aguardando confirmação do Financeiro) — fonte local.
+    let validacoes_pendentes = null;
+    try {
+      const vp = db.prepare("SELECT COUNT(*) n FROM fin_validacao WHERE empresa_id=? AND status='pendente' AND comprovante IS NOT NULL").get(emp);
+      validacoes_pendentes = vp ? vp.n : 0;
+    } catch (e) { /* tabela pode não existir nesta base */ }
+    // Sem nota (perda fiscal) do mês: despesa sem NF e sem justificativa de "não emite" (reaproveita o BI da Contabilidade).
+    let sem_nota = null;
+    if (habilitado()) {
+      try {
+        const unis = unisEmpresa(emp, lojaId || undefined);
+        if (unis.length) {
+          const mm = String(i + 1).padStart(2, '0');
+          const ultimo = new Date(ano, i + 1, 0).getDate();
+          const bi = await require('../routes/contabilidade').biSemNota(emp, unis, { de: `${ano}-${mm}-01`, ate: `${ano}-${mm}-${String(ultimo).padStart(2, '0')}`, lojaQuery: lojaId || undefined });
+          sem_nota = bi && bi.total ? Math.round(bi.total.sem_valor || 0) : null;
+        }
+      } catch (e) { /* BI indisponível */ }
+    }
+    // Fluxo de caixa do mês (realizado = entradas − saídas). Meta: ≥ 0 (não queimar caixa no mês).
+    let fluxo_caixa = null;
+    if (habilitado()) {
+      try {
+        const fc = await finErp.fluxoCaixa(emp, { lojaId: lojaId || undefined, granularidade: 'mes', nHist: 3, nProj: 0 });
+        if (fc && fc.erp !== false && Array.isArray(fc.periodos) && Array.isArray(fc.saldo)) {
+          const mm = String(i + 1).padStart(2, '0');
+          const idx = fc.periodos.findIndex(p => String(p.ini || '').startsWith(`${ano}-${mm}`));
+          if (idx >= 0) fluxo_caixa = Math.round(fc.saldo[idx] || 0);
+        }
+      } catch (e) { /* ERP indisponível */ }
+    }
+    return { resultado_liquido, despesas_receita, cmv_pct, orcamento_aderencia, validacoes_pendentes, sem_nota, fluxo_caixa,
+      lanc_sem_plano, lanc_retroativo: null, titulos_aberto, baixa_prazo, devolucoes_aberto };
   }
   return {};
 }

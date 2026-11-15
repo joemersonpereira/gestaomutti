@@ -6,6 +6,8 @@ const { auth, exigePerfil } = require('../middleware/auth');
 const ms = require('../lib/meuSetorArea');
 const { lojasEmpresa } = require('../lib/escopoCompras');
 const GESTAO = ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Supervisor'];
+// Cadastro/edição de META e PREMIAÇÃO: só nível Diretoria (pra ninguém mexer na própria meta).
+const DIRETORIA = ['Diretor Geral', 'Gestor Geral'];
 
 router.use(auth);
 const areaOk = a => !!(ms.PILARES && ms.PILARES[a]); // qualquer área definida no catálogo (online/suporte/marketing/…)
@@ -23,7 +25,7 @@ router.get('/:area/config', (req, res) => {
   if (!areaOk(req.params.area)) return res.status(400).json({ erro: 'Área inválida.' });
   res.json({ pilares: ms.PILARES[req.params.area], indicadores: ms.config(req.usuario.empresa_id, req.params.area) });
 });
-router.post('/:area/config', exigePerfil(...GESTAO), (req, res) => {
+router.post('/:area/config', exigePerfil(...DIRETORIA), (req, res) => {
   if (!areaOk(req.params.area)) return res.status(400).json({ erro: 'Área inválida.' });
   try { res.json(ms.setConfig(req.usuario.empresa_id, req.params.area, req.body || {})); }
   catch (e) { res.status(400).json({ erro: e.message }); }
@@ -35,18 +37,18 @@ router.get('/:area/premio', (req, res) => {
   const emp = req.usuario.empresa_id, a = req.params.area;
   res.json({ premioValor: ms.premioPilar(emp, a), bonusPct: ms.premioBonusPct(emp, a), pessoas: ms.listPessoas(emp, a) });
 });
-router.put('/:area/premio', exigePerfil(...GESTAO), (req, res) => {
+router.put('/:area/premio', exigePerfil(...DIRETORIA), (req, res) => {
   if (!areaOk(req.params.area)) return res.status(400).json({ erro: 'Área inválida.' });
   try { res.json(ms.setPremio(req.usuario.empresa_id, req.params.area, req.body || {})); }
   catch (e) { res.status(400).json({ erro: e.message }); }
 });
 // Pessoas vinculadas por fator (faixas do prêmio).
-router.post('/:area/pessoas', exigePerfil(...GESTAO), (req, res) => {
+router.post('/:area/pessoas', exigePerfil(...DIRETORIA), (req, res) => {
   if (!areaOk(req.params.area)) return res.status(400).json({ erro: 'Área inválida.' });
   try { res.json(ms.addPessoa(req.usuario.empresa_id, req.params.area, req.body || {})); }
   catch (e) { res.status(400).json({ erro: e.message }); }
 });
-router.delete('/:area/pessoas/:id', exigePerfil(...GESTAO), (req, res) => {
+router.delete('/:area/pessoas/:id', exigePerfil(...DIRETORIA), (req, res) => {
   if (!areaOk(req.params.area)) return res.status(400).json({ erro: 'Área inválida.' });
   try { res.json(ms.rmPessoa(req.usuario.empresa_id, req.params.area, req.params.id)); }
   catch (e) { res.status(400).json({ erro: e.message }); }

@@ -101,12 +101,14 @@ export default function AuditoriaContabil() {
         <h1 style={s.h1}>🔎 Auditoria</h1>
         <div style={{ ...s.tabs, marginLeft: 'auto', flexWrap: 'wrap' }}>
           <button style={s.tab(secao === 'manuais')} onClick={() => setSecao('manuais')}>✍️ Lançamentos manuais</button>
+          <button style={s.tab(secao === 'retroativos')} onClick={() => setSecao('retroativos')}>⏮️ Retroativos</button>
+          <button style={s.tab(secao === 'estornos')} onClick={() => setSecao('estornos')}>💥 Estornos & exclusões</button>
           <button style={s.tab(secao === 'bancaria')} onClick={() => setSecao('bancaria')}>🏦 Conciliação bancária</button>
           <button style={s.tab(secao === 'cartao')} onClick={() => setSecao('cartao')}>💳 Conciliação de cartão</button>
           <button style={s.tab(secao === 'feriados')} onClick={() => setSecao('feriados')}>📅 Feriados</button>
         </div>
       </div>
-      {secao === 'manuais' ? <Manuais API={API} /> : secao === 'bancaria' ? <ConciliacaoBancaria API={API} /> : secao === 'feriados' ? <Feriados API={API} /> : <ConciliacaoAudit API={API} />}
+      {secao === 'manuais' ? <Manuais API={API} /> : secao === 'retroativos' ? <Retroativos API={API} /> : secao === 'estornos' ? <EstornosExclusoes API={API} /> : secao === 'bancaria' ? <ConciliacaoBancaria API={API} /> : secao === 'feriados' ? <Feriados API={API} /> : <ConciliacaoAudit API={API} />}
     </div>
   );
 }
@@ -203,15 +205,15 @@ function Manuais({ API }) {
           <tbody>
             {linhas.map((l, i) => (
               <tr key={i}>
-                <td style={s.td}>{l.datahora}</td>
-                <td style={s.td}>{l.loja}</td>
-                <td style={s.td}>{l.conta}</td>
+                <td style={{ ...s.td, whiteSpace: 'nowrap' }}>{l.datahora}</td>
+                <td style={{ ...s.td, whiteSpace: 'normal', maxWidth: 120 }}>{l.loja}</td>
+                <td style={{ ...s.td, whiteSpace: 'normal', maxWidth: 150 }}>{l.conta}</td>
                 <td style={s.td}><span style={s.pill(l.credito ? { bg: '#dcfce7', fg: '#15803d' } : { bg: '#fee2e2', fg: '#b91c1c' })}>{l.credito ? 'Entrada' : 'Saída'}</span>{l.reprocesso_cartao ? <span style={{ ...s.pill({ bg: '#e0e7ff', fg: '#4338ca' }), marginLeft: 4 }}>↻ cartão</span> : null}</td>
                 <td style={{ ...s.tdNum, color: l.credito ? '#15803d' : '#b91c1c' }}>{brl(l.valor)}</td>
-                <td style={{ ...s.td, color: l.plano_contas ? '#334155' : '#cbd5e1' }}>{l.plano_contas || '— sem plano —'}</td>
+                <td style={{ ...s.td, color: l.plano_contas ? '#334155' : '#cbd5e1', whiteSpace: 'normal', maxWidth: 180 }}>{l.plano_contas || '— sem plano —'}</td>
                 <td style={s.td}>{l.numerodocumento || '—'}</td>
-                <td style={{ ...s.td, whiteSpace: 'normal', maxWidth: 260 }}>{l.descricao || '—'}</td>
-                <td style={s.td}>{l.usuario || '—'}</td>
+                <td style={{ ...s.td, whiteSpace: 'normal', maxWidth: 240 }}>{l.descricao || '—'}</td>
+                <td style={{ ...s.td, whiteSpace: 'normal', maxWidth: 120 }}>{l.usuario || '—'}</td>
               </tr>
             ))}
             {!rows.length && !carregando && <tr><td colSpan={9} style={{ ...s.td, textAlign: 'center', color: '#94a3b8', padding: 24 }}>Nenhum lançamento manual no período.</td></tr>}
@@ -222,6 +224,189 @@ function Manuais({ API }) {
         Mostra só o que foi digitado à mão na conta corrente (Lançamento de Entrada/Saída) — recargas, descontos a cliente, ajustes.
         Baixas automáticas de cartão e baixas de contas a pagar não entram aqui.
       </p>
+    </>
+  );
+}
+
+// (A2) Lançamentos RETROATIVOS — digitados muito depois da competência. Diretoria cobra o motivo.
+function Retroativos({ API }) {
+  const { usuario } = useAuth();
+  const podeConfig = ['Diretor Geral', 'Gestor Geral', 'Controladoria'].includes(usuario?.funcao);
+  const [loja, setLoja] = useState('');
+  const [de, setDe] = useState(iniMes);
+  const [ate, setAte] = useState(hojeStr);
+  const [semCartao, setSemCartao] = useState(true);
+  const [dias, setDias] = useState(5);
+  const [diasEdit, setDiasEdit] = useState('');
+  const [rows, setRows] = useState([]);
+  const [motivos, setMotivos] = useState({}); // lanc_id -> texto em edição
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState(null);
+  const [msg, setMsg] = useState('');
+
+  const carregar = useCallback(() => {
+    setCarregando(true); setErro(null);
+    const p = new URLSearchParams();
+    if (loja) p.set('loja', loja); if (de) p.set('de', de); if (ate) p.set('ate', ate);
+    if (semCartao) p.set('semCartao', '1');
+    API.get(`/contabilidade/auditoria/retroativos?${p.toString()}`)
+      .then(r => {
+        const ls = r.data.lancamentos || []; setRows(ls); setDias(r.data.diasMin);
+        const m = {}; ls.forEach(l => { m[l.id] = l.motivo || ''; }); setMotivos(m);
+      })
+      .catch(e => setErro(e.response?.data?.erro || 'Erro ao carregar retroativos.'))
+      .finally(() => setCarregando(false));
+  }, [API, loja, de, ate, semCartao]);
+  useEffect(() => { carregar(); }, [carregar]);
+
+  const salvarMotivo = (lanc_id) => {
+    API.post('/contabilidade/auditoria/retroativos/motivo', { lanc_id, motivo: motivos[lanc_id] || '' })
+      .then(() => { setRows(rs => rs.map(r => r.id === lanc_id ? { ...r, motivo: motivos[lanc_id] || '', motivo_por: usuario?.nome } : r)); setMsg('✅ Motivo salvo.'); setTimeout(() => setMsg(''), 1800); })
+      .catch(() => setMsg('⚠️ Erro ao salvar motivo.'));
+  };
+  const salvarDias = () => {
+    const n = Number(diasEdit);
+    if (!Number.isFinite(n) || n < 0) { setMsg('⚠️ Informe os dias.'); return; }
+    API.put('/contabilidade/auditoria/retroativos/config', { dias: n })
+      .then(r => { setDias(r.data.diasMin); setDiasEdit(''); setMsg(`✅ Limiar salvo: ${r.data.diasMin} dias.`); setTimeout(() => setMsg(''), 2000); carregar(); })
+      .catch(e => setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro.')));
+  };
+  const semMotivo = rows.filter(r => !r.motivo).length;
+  const totalValor = rows.reduce((a, r) => a + Math.abs(Number(r.valor || 0)), 0);
+  const maiorGap = rows.reduce((a, r) => Math.max(a, Number(r.gap || 0)), 0);
+
+  return (
+    <>
+      <div style={s.filtros}>
+        <label style={s.lab}>Loja<MultiLojaSelect value={loja} onChange={setLoja} /></label>
+        <label style={s.lab}>Lançado de<input type="date" style={s.inp} value={de} onChange={e => setDe(e.target.value)} /></label>
+        <label style={s.lab}>até<input type="date" style={s.inp} value={ate} onChange={e => setAte(e.target.value)} /></label>
+        <label style={{ ...s.lab, flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 6 }}><input type="checkbox" checked={semCartao} onChange={e => setSemCartao(e.target.checked)} /> Ocultar reprocesso de cartão</label>
+        <button style={s.btn} onClick={carregar} disabled={carregando}>{carregando ? 'Carregando…' : '🔄 Atualizar'}</button>
+        <button style={{ ...s.btn, marginLeft: 'auto' }} onClick={() => baixarCsv('retroativos.csv', [
+          { h: 'Competência', f: l => l.competencia }, { h: 'Lançado em', f: l => l.lancado }, { h: 'Atraso (dias)', f: l => l.gap },
+          { h: 'Loja', f: l => l.loja }, { h: 'Conta', f: l => l.conta }, { h: 'Tipo', f: l => l.tipo }, { h: 'Valor', f: l => l.valor },
+          { h: 'Plano', f: l => l.plano_contas || '' }, { h: 'Descrição', f: l => l.descricao || '' }, { h: 'Usuário', f: l => l.usuario || '' }, { h: 'Motivo', f: l => l.motivo || '' },
+        ], rows)} disabled={!rows.length}>⬇️ CSV</button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12, fontSize: 13, color: '#475569' }}>
+        <span>Considera retroativo quando a diferença entre a <b>competência</b> e o <b>dia em que foi digitado</b> passa de <b>{dias} dia{dias !== 1 ? 's' : ''}</b>.</span>
+        {podeConfig && <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <input type="number" min={0} placeholder={String(dias)} value={diasEdit} onChange={e => setDiasEdit(e.target.value)} style={{ ...s.inp, width: 70 }} />
+          <button style={s.btn} onClick={salvarDias}>Salvar limiar</button>
+        </span>}
+      </div>
+
+      <div style={s.cards}>
+        <div style={s.card}><div style={s.cardLab}>Retroativos</div><div style={s.cardVal}>{rows.length}</div></div>
+        <div style={s.card}><div style={s.cardLab}>Sem motivo (cobrar)</div><div style={{ ...s.cardVal, color: semMotivo ? '#b91c1c' : '#15803d' }}>{semMotivo}</div></div>
+        <div style={s.card}><div style={s.cardLab}>Valor movimentado</div><div style={s.cardVal}>{brl(totalValor)}</div></div>
+        <div style={s.card}><div style={s.cardLab}>Maior atraso</div><div style={s.cardVal}>{maiorGap}d</div></div>
+      </div>
+      {msg && <div style={{ fontSize: 12.5, color: msg.startsWith('✅') ? '#15803d' : '#b91c1c', marginBottom: 8 }}>{msg}</div>}
+      {erro && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
+
+      <ScrollX>
+        <table style={s.tbl}>
+          <thead><tr>
+            {['Competência', 'Lançado em', 'Atraso', 'Loja', 'Conta', 'Tipo', 'Valor', 'Plano', 'Descrição', 'Usuário', 'Motivo'].map(h => <th key={h} style={s.th}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {rows.map((l) => {
+              const credito = /Entrada/i.test(l.tipo);
+              return (
+                <tr key={l.id} style={!l.motivo ? { background: 'rgba(185,28,28,0.04)' } : undefined}>
+                  <td style={{ ...s.td, whiteSpace: 'nowrap' }}>{l.competencia}</td>
+                  <td style={{ ...s.td, whiteSpace: 'nowrap' }}>{l.lancado}</td>
+                  <td style={{ ...s.tdNum, fontWeight: 700, color: l.gap > 30 ? '#b91c1c' : l.gap > 10 ? '#B7791F' : '#475569' }}>{l.gap}d</td>
+                  <td style={{ ...s.td, whiteSpace: 'normal', maxWidth: 110 }}>{l.loja}</td>
+                  <td style={{ ...s.td, whiteSpace: 'normal', maxWidth: 130 }}>{l.conta}</td>
+                  <td style={s.td}><span style={s.pill(credito ? { bg: '#dcfce7', fg: '#15803d' } : { bg: '#fee2e2', fg: '#b91c1c' })}>{credito ? 'Entrada' : 'Saída'}</span></td>
+                  <td style={{ ...s.tdNum, color: credito ? '#15803d' : '#b91c1c' }}>{brl(l.valor)}</td>
+                  <td style={{ ...s.td, color: l.plano_contas ? '#334155' : '#cbd5e1', whiteSpace: 'normal', maxWidth: 160 }}>{l.plano_contas || '— sem plano —'}</td>
+                  <td style={{ ...s.td, whiteSpace: 'normal', maxWidth: 200 }}>{l.descricao || '—'}</td>
+                  <td style={{ ...s.td, whiteSpace: 'normal', maxWidth: 110 }}>{l.usuario || '—'}</td>
+                  <td style={{ ...s.td, minWidth: 200 }}>
+                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                      <input value={motivos[l.id] || ''} onChange={e => setMotivos(m => ({ ...m, [l.id]: e.target.value }))}
+                        onBlur={() => { if ((motivos[l.id] || '') !== (l.motivo || '')) salvarMotivo(l.id); }}
+                        placeholder="justificar…" style={{ ...s.inp, minWidth: 150, borderColor: l.motivo ? '#86efac' : '#fecaca' }} />
+                    </div>
+                    {l.motivo_por && l.motivo ? <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>por {l.motivo_por}</div> : null}
+                  </td>
+                </tr>
+              );
+            })}
+            {!rows.length && !carregando && <tr><td colSpan={11} style={{ ...s.td, textAlign: 'center', color: '#94a3b8', padding: 24 }}>Nenhum lançamento retroativo no período (acima de {dias} dias).</td></tr>}
+          </tbody>
+        </table>
+      </ScrollX>
+      <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 10 }}>
+        Lançamentos manuais na conta corrente cuja <b>competência</b> (data do lançamento) é bem anterior ao dia em que foram
+        <b> digitados</b> no sistema. A Diretoria cobra o <b>motivo</b>; o responsável justifica na coluna ao lado. Baixas automáticas de cartão não entram.
+      </p>
+    </>
+  );
+}
+
+// (A3) Estornos & exclusões no ERP — exclusão de conta a pagar + estorno de depósito/transferência.
+function EstornosExclusoes({ API }) {
+  const [loja, setLoja] = useState('');
+  const [de, setDe] = useState(iniMes);
+  const [ate, setAte] = useState(hojeStr);
+  const [tipo, setTipo] = useState('');
+  const [d, setD] = useState(null);
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState(null);
+  const carregar = useCallback(() => {
+    setCarregando(true); setErro(null);
+    const p = new URLSearchParams(); if (loja) p.set('loja', loja); if (de) p.set('de', de); if (ate) p.set('ate', ate);
+    API.get(`/contabilidade/auditoria/estornos?${p.toString()}`).then(r => setD(r.data)).catch(e => setErro(e.response?.data?.erro || 'Erro.')).finally(() => setCarregando(false));
+  }, [API, loja, de, ate]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const itens = (d?.itens || []).filter(i => !tipo || i.tipo === tipo);
+  const tipos = Object.keys(d?.porTipo || {});
+  return (
+    <>
+      <div style={s.filtros}>
+        <label style={s.lab}>Loja<MultiLojaSelect value={loja} onChange={setLoja} /></label>
+        <label style={s.lab}>De<input type="date" style={s.inp} value={de} onChange={e => setDe(e.target.value)} /></label>
+        <label style={s.lab}>Até<input type="date" style={s.inp} value={ate} onChange={e => setAte(e.target.value)} /></label>
+        <label style={s.lab}>Tipo<select style={s.inp} value={tipo} onChange={e => setTipo(e.target.value)}><option value="">Todos</option>{tipos.map(t => <option key={t} value={t}>{t}</option>)}</select></label>
+        <button style={s.btn} onClick={carregar} disabled={carregando}>{carregando ? 'Carregando…' : '🔄 Atualizar'}</button>
+        <button style={{ ...s.btn, marginLeft: 'auto' }} onClick={() => baixarCsv('estornos-exclusoes.csv', [
+          { h: 'Data', f: l => l.data }, { h: 'Tipo', f: l => l.tipo }, { h: 'Loja', f: l => l.loja }, { h: 'Usuário', f: l => l.usuario }, { h: 'Valor', f: l => l.valor }, { h: 'Motivo', f: l => l.motivo }, { h: 'Ref', f: l => l.ref },
+        ], itens)} disabled={!itens.length}>⬇️ CSV</button>
+      </div>
+      <div style={s.cards}>
+        <div style={s.card}><div style={s.cardLab}>Estornos / exclusões</div><div style={s.cardVal}>{itens.length}</div></div>
+        {(d?.porTipo && Object.entries(d.porTipo).map(([t, v]) => (
+          <div key={t} style={s.card}><div style={s.cardLab}>{t}</div><div style={{ ...s.cardVal, color: '#b45309' }}>{v.n} · {brl(v.valor)}</div></div>
+        )))}
+      </div>
+      {erro && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
+      <ScrollX>
+        <table style={s.tbl}>
+          <thead><tr>{['Lançado em', 'Lançou', 'Estorno/exclusão em', 'Excluiu', 'Tipo', 'Loja', 'Valor', 'Motivo'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {itens.map((l, i) => (
+              <tr key={i}>
+                <td style={{ ...s.td, whiteSpace: 'nowrap', color: '#64748b' }}>{l.data_lancamento || '—'}</td>
+                <td style={{ ...s.td, whiteSpace: 'normal', maxWidth: 130, color: '#64748b' }}>{l.usuario_lancou}</td>
+                <td style={{ ...s.td, whiteSpace: 'nowrap', fontWeight: 600 }}>{l.data}{l.hora ? ' ' + l.hora : ''}</td>
+                <td style={{ ...s.td, whiteSpace: 'normal', maxWidth: 140, fontWeight: 600 }}>{l.usuario}</td>
+                <td style={s.td}><span style={s.pill(/Exclus/i.test(l.tipo) ? { bg: '#fee2e2', fg: '#b91c1c' } : { bg: '#fef3c7', fg: '#b45309' })}>{l.tipo}</span></td>
+                <td style={{ ...s.td, whiteSpace: 'normal', maxWidth: 120 }}>{l.loja}</td>
+                <td style={{ ...s.tdNum, color: '#b45309', fontWeight: 700 }}>{brl(l.valor)}</td>
+                <td style={{ ...s.td, whiteSpace: 'normal', maxWidth: 220 }}>{l.motivo || '—'}</td>
+              </tr>
+            ))}
+            {!itens.length && !carregando && <tr><td colSpan={8} style={{ ...s.td, textAlign: 'center', color: '#94a3b8', padding: 24 }}>Nenhum estorno ou exclusão no período.</td></tr>}
+          </tbody>
+        </table>
+      </ScrollX>
+      <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 10 }}>Exclusão de conta a pagar (cancelamento no ERP) e estorno de depósito/transferência de conta corrente — quem desfez, quando, valor e motivo. Depósitos lançados retroativos ficam na aba <b>⏮️ Retroativos</b>.</p>
     </>
   );
 }

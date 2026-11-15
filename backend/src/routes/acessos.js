@@ -40,13 +40,56 @@ function sanear(mapa) {
   return out;
 }
 
-// Overrides da função do usuário logado (o App aplica sobre o padrão).
+// Overrides do usuário logado (o App aplica sobre o padrão): função ⊕ colaborador (a PESSOA vence).
+function colabOverrides(colaboradorId) {
+  const ov = {};
+  try {
+    db.prepare('SELECT modulo_id, permitido FROM colaborador_acessos WHERE colaborador_id=?').all(colaboradorId)
+      .forEach(r => { ov[r.modulo_id] = !!r.permitido; });
+  } catch { /* tabela pode não existir em bases antigas */ }
+  return ov;
+}
 router.get('/meus', (req, res) => {
   const mapa = ler(req.usuario.empresa_id);
-  res.json({ funcao: req.usuario.funcao_nome, overrides: mapa[req.usuario.funcao_nome] || {} });
+  const funcOv = mapa[req.usuario.funcao_nome] || {};
+  const pessoaOv = colabOverrides(req.usuario.id);
+  res.json({ funcao: req.usuario.funcao_nome, overrides: { ...funcOv, ...pessoaOv } });
 });
 
-// Configuração completa (só gestão máxima edita).
+// Acessos POR COLABORADOR (menus do escritório que a pessoa vê) — RH/gestão edita.
+const PODE_COLAB = ['RH', 'Gestor Geral', 'Diretor Geral'];
+router.get('/colaborador/:id', exigePerfil(...PODE_COLAB), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const colab = db.prepare(`SELECT c.id, c.nome, f.nome AS funcao, f.escritorio AS escritorio
+    FROM colaboradores c JOIN funcoes f ON f.id=c.funcao_id WHERE c.id=? AND c.empresa_id=?`).get(req.params.id, emp);
+  if (!colab) return res.status(404).json({ erro: 'Colaborador não encontrado.' });
+  const rows = db.prepare('SELECT modulo_id, permitido FROM colaborador_acessos WHERE empresa_id=? AND colaborador_id=?').all(emp, req.params.id);
+  const overrides = {}; rows.forEach(r => { overrides[r.modulo_id] = !!r.permitido; });
+  const funcaoOverrides = ler(emp)[colab.funcao] || {}; // base da função (p/ a UI mostrar o padrão herdado)
+  res.json({ colaborador: { id: colab.id, nome: colab.nome, funcao: colab.funcao, escritorio: !!colab.escritorio }, overrides, funcaoOverrides });
+});
+router.put('/colaborador/:id', exigePerfil(...PODE_COLAB), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const colab = db.prepare('SELECT id FROM colaboradores WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!colab) return res.status(404).json({ erro: 'Colaborador não encontrado.' });
+  const mapa = req.body.overrides || {}; // { modulo_id: true | false | null(=padrão) }
+  const del = db.prepare('DELETE FROM colaborador_acessos WHERE colaborador_id=? AND modulo_id=?');
+  const up = db.prepare(`INSERT INTO colaborador_acessos (empresa_id, colaborador_id, modulo_id, permitido, atualizado_em)
+    VALUES (?,?,?,?,datetime('now'))
+    ON CONFLICT(colaborador_id, modulo_id) DO UPDATE SET permitido=excluded.permitido, atualizado_em=excluded.atualizado_em`);
+  const tx = db.transaction(() => {
+    for (const [mod, v] of Object.entries(mapa)) {
+      if (v === true || v === false) up.run(emp, req.params.id, mod, v ? 1 : 0);
+      else del.run(req.params.id, mod); // null/'padrao' = remove o desvio
+    }
+  });
+  tx();
+  const rows = db.prepare('SELECT modulo_id, permitido FROM colaborador_acessos WHERE empresa_id=? AND colaborador_id=?').all(emp, req.params.id);
+  const overrides = {}; rows.forEach(r => { overrides[r.modulo_id] = !!r.permitido; });
+  res.json({ mensagem: 'Acessos do colaborador salvos.', overrides });
+});
+
+// Configuração completa POR FUNÇÃO (só gestão máxima edita).
 const PODE = ['Gestor Geral', 'Diretor Geral'];
 router.get('/config', exigePerfil(...PODE), (req, res) => {
   const funcoes = db.prepare('SELECT nome FROM funcoes WHERE empresa_id=? AND ativa=1 ORDER BY nome').all(req.usuario.empresa_id).map(f => f.nome);

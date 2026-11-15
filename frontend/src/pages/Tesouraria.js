@@ -21,6 +21,7 @@ const hm = v => v ? String(v).slice(11, 16) : '';
 export default function Tesouraria({ embed, soControle, tabFixa } = {}) {
   const { API, usuario } = useAuth();
   const ehTesouraria = ['Tesouraria', 'Financeiro', 'Controladoria', 'Supervisor', 'Gestor Geral', 'Diretor Geral'].includes(usuario.funcao);
+  const diretoria = ['Diretor Geral', 'Gestor Geral'].includes(usuario.funcao); // só Diretoria edita meta/critério
   const [abaState, setAba] = useState('ranking');
   const aba = tabFixa || abaState;
   return (
@@ -34,6 +35,7 @@ export default function Tesouraria({ embed, soControle, tabFixa } = {}) {
         {ehTesouraria && <Tab a="atendimento" aba={aba} set={setAba}>🧾 Atendimento do caixa</Tab>}
         {ehTesouraria && <Tab a="conferencia" aba={aba} set={setAba}>✅ Conferência</Tab>}
         {ehTesouraria && <Tab a="debitos" aba={aba} set={setAba}>💵 Débitos por caixa</Tab>}
+        {ehTesouraria && <Tab a="exclusoes" aba={aba} set={setAba}>🗑️ Exclusões</Tab>}
         {!soControle && ehTesouraria && <Tab a="lancar" aba={aba} set={setAba}>Lançar</Tab>}
         {!soControle && <Tab a="justif" aba={aba} set={setAba}>{ehTesouraria ? 'Justificativas' : 'Minhas justificativas'}</Tab>}
         {!soControle && <Tab a="criterios" aba={aba} set={setAba}>Critérios</Tab>}
@@ -41,7 +43,8 @@ export default function Tesouraria({ embed, soControle, tabFixa } = {}) {
       {aba === 'ranking' && <Ranking API={API} usuario={usuario} ehTesouraria={ehTesouraria} />}
       {aba === 'quebras' && ehTesouraria && <QuebrasErp API={API} soControle={soControle} />}
       {aba === 'indicadores' && ehTesouraria && <IndicadoresSetor API={API} />}
-      {aba === 'metas' && ehTesouraria && <MetasSetorTab API={API} />}
+      {aba === 'metas' && ehTesouraria && <MetasSetorTab API={API} diretoria={diretoria} />}
+      {aba === 'exclusoes' && ehTesouraria && <ExclusoesDepositos API={API} />}
       {aba === 'saldos' && ehTesouraria && <SaldosBanco API={API} />}
       {aba === 'cancelamentos' && ehTesouraria && <CancelamentosPonto API={API} />}
       {aba === 'atendimento' && ehTesouraria && <AtendimentoCaixa API={API} />}
@@ -49,7 +52,7 @@ export default function Tesouraria({ embed, soControle, tabFixa } = {}) {
       {aba === 'conferencia' && ehTesouraria && <Conferencia API={API} />}
       {aba === 'lancar' && !soControle && ehTesouraria && <Lancar API={API} usuario={usuario} ehTesouraria={ehTesouraria} />}
       {aba === 'justif' && !soControle && <Justificativas API={API} />}
-      {aba === 'criterios' && !soControle && <CriteriosCaixa API={API} />}
+      {aba === 'criterios' && !soControle && <CriteriosCaixa API={API} diretoria={diretoria} />}
     </div>
   );
 }
@@ -58,7 +61,7 @@ function Tab({ a, aba, set, children }) {
   return <button onClick={() => set(a)} style={{ ...s.tab, ...(aba === a ? s.tabAtiva : {}) }}>{children}</button>;
 }
 
-function CriteriosCaixa({ API }) {
+function CriteriosCaixa({ API, diretoria = false }) {
   const [regra, setRegra] = useState(null);
   const [escala, setEscala] = useState([]);
   const [msg, setMsg] = useState('');
@@ -80,17 +83,17 @@ function CriteriosCaixa({ API }) {
       </div>
       {escala.map((f, i) => (
         <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 5 }}>
-          <input type="number" min="0" value={f.ate} onChange={e => setRow(i, 'ate', e.target.value)} style={{ ...s.inp, width: 120 }} />
+          <input type="number" min="0" value={f.ate} readOnly={!diretoria} onChange={e => setRow(i, 'ate', e.target.value)} style={{ ...s.inp, width: 120 }} />
           <span style={{ color: '#bbb' }}>→</span>
-          <input type="number" min="0" max="100" value={f.nota} onChange={e => setRow(i, 'nota', e.target.value)} style={{ ...s.inp, width: 80 }} />
-          <button onClick={() => setEscala(escala.filter((_, idx) => idx !== i))} style={{ ...btn, background: '#FCEBEB', color: '#993C1D' }}>✕</button>
+          <input type="number" min="0" max="100" value={f.nota} readOnly={!diretoria} onChange={e => setRow(i, 'nota', e.target.value)} style={{ ...s.inp, width: 80 }} />
+          {diretoria && <button onClick={() => setEscala(escala.filter((_, idx) => idx !== i))} style={{ ...btn, background: '#FCEBEB', color: '#993C1D' }}>✕</button>}
         </div>
       ))}
       <div style={{ fontSize: 11, color: '#999', margin: '4px 0 8px' }}>Acima da última faixa → nota 0.</div>
-      <div style={{ display: 'flex', gap: 6 }}>
+      {diretoria ? <div style={{ display: 'flex', gap: 6 }}>
         <button onClick={() => setEscala([...escala, { ate: '', nota: '' }])} style={{ ...btn, background: '#EEF2F7', color: '#334' }}>+ faixa</button>
         <button onClick={salvarEscala} style={{ ...btn, background: '#1E874B', color: '#fff' }}>Salvar escala</button>
-      </div>
+      </div> : <div style={{ fontSize: 11, color: '#999' }}>🔒 Só a Diretoria edita os critérios de avaliação.</div>}
       {msg && <div style={{ fontSize: 12, color: msg.startsWith('✅') ? '#3B6D11' : '#993C1D', marginTop: 6 }}>{msg}</div>}
       {regra && (
         <div style={{ marginTop: 12, borderTop: '1px solid #eee', paddingTop: 10 }}>
@@ -104,6 +107,74 @@ function CriteriosCaixa({ API }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// 🗑️ Exclusões de anexos (depósitos em destaque) — a Diretoria revê quem excluiu o quê (fila #8).
+function ExclusoesDepositos({ API }) {
+  const [ini, setIni] = useState(inicioMes());
+  const [fim, setFim] = useState(hojeISO());
+  const [tipo, setTipo] = useState('deposito');
+  const [d, setD] = useState(null);
+  const [carreg, setCarreg] = useState(false);
+  const carregar = useCallback(() => {
+    setCarreg(true);
+    const params = { ini, fim }; if (tipo) params.tipo = tipo;
+    API.get('/tesouraria/exclusoes', { params }).then(r => setD(r.data)).catch(() => setD(null)).finally(() => setCarreg(false));
+  }, [API, ini, fim, tipo]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const rows = d?.exclusoes || [];
+  const TIPO_LBL = { deposito: '💰 Depósito', despesa: '🧾 Despesa', recarga: '📲 Recarga', orcamento: '📊 Orçamento' };
+  return (
+    <div style={s.card}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
+        <div style={{ fontWeight: 800, fontSize: 15 }}>🗑️ Exclusões de anexos</div>
+        <label style={s.fld}>De<input type="date" value={ini} onChange={e => setIni(e.target.value)} style={s.inp} /></label>
+        <label style={s.fld}>Até<input type="date" value={fim} onChange={e => setFim(e.target.value)} style={s.inp} /></label>
+        <label style={s.fld}>Tipo<select value={tipo} onChange={e => setTipo(e.target.value)} style={s.inp}>
+          <option value="">Todos</option>
+          <option value="deposito">Depósito</option>
+          <option value="despesa">Despesa</option>
+          <option value="recarga">Recarga</option>
+          <option value="orcamento">Orçamento</option>
+        </select></label>
+        <button onClick={carregar} disabled={carreg} style={{ ...s.actGray, color: '#0d6b5e', borderColor: '#0d6b5e' }}>{carreg ? '⏳' : '🔄 Atualizar'}</button>
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ background: '#f8fafc', border: '1px solid #eef2f0', borderRadius: 10, padding: '8px 14px' }}>
+          <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>Exclusões</div>
+          <div style={{ fontSize: 18, fontWeight: 800 }}>{d?.total ?? '—'}</div>
+        </div>
+        <div style={{ background: '#FBEAEA', border: '1px solid #f3c9c9', borderRadius: 10, padding: '8px 14px' }}>
+          <div style={{ fontSize: 11, color: '#991b1b', fontWeight: 700 }}>Depósitos excluídos</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: '#991b1b' }}>{d?.qtdDepositos ?? 0} · {brl(d?.totalDepositos || 0)}</div>
+        </div>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+          <thead><tr style={{ textAlign: 'left', color: '#7a8a8c', borderBottom: '2px solid #eef1f4' }}>
+            {['Excluído em', 'Por', 'Tipo', 'Loja', 'Data do caixa', 'Valor', 'Descrição', 'Arquivo', 'Motivo'].map(h => <th key={h} style={s.th}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id} style={{ borderTop: '1px solid #f2f2f2' }}>
+                <td style={{ ...s.td, whiteSpace: 'nowrap' }}>{String(r.excluido_em || '').slice(0, 16).replace('T', ' ')}</td>
+                <td style={s.td}><b>{r.excluido_por || '—'}</b></td>
+                <td style={s.td}>{TIPO_LBL[r.tipo] || r.tipo}</td>
+                <td style={s.td}>{r.loja_nome || r.loja_id || '—'}</td>
+                <td style={{ ...s.td, whiteSpace: 'nowrap' }}>{r.data || '—'}</td>
+                <td style={{ ...s.td, fontWeight: 700, color: r.tipo === 'deposito' ? '#991b1b' : '#334' }}>{r.valor != null ? brl(r.valor) : '—'}</td>
+                <td style={{ ...s.td, maxWidth: 220, whiteSpace: 'normal' }}>{r.descricao || '—'}</td>
+                <td style={{ ...s.td, maxWidth: 140, whiteSpace: 'normal', color: '#64748b' }}>{r.nome_arquivo || '—'}</td>
+                <td style={{ ...s.td, maxWidth: 180, whiteSpace: 'normal' }}>{r.motivo || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+              </tr>
+            ))}
+            {!rows.length && <tr><td colSpan={9} style={{ ...s.td, color: '#94a3b8', textAlign: 'center', padding: 20 }}>Nenhuma exclusão no período.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <p style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 10 }}>Toda vez que um anexo é excluído, o sistema guarda a lápide (quem, quando, qual, valor). Depósitos aparecem em vermelho — é o que a Diretoria acompanha.</p>
     </div>
   );
 }
@@ -684,6 +755,7 @@ function QuebrasErp({ API, soControle }) {
 // Aba Saldos (banco): o financeiro anota, por conta, a data da última conciliação e o saldo (substitui a planilha).
 function SaldosBanco({ API }) {
   const [d, setD] = useState(null); const [msg, setMsg] = useState(''); const [ed, setEd] = useState({});
+  const [busca, setBusca] = useState(''); const [obsOpen, setObsOpen] = useState({});
   const carregar = useCallback(() => API.get('/tesouraria/saldos-banco').then(r => setD(r.data.contas || [])).catch(() => setD([])), [API]);
   useEffect(() => { carregar(); }, [carregar]);
   const setF = (id, k, v) => setEd(e => ({ ...e, [id]: { ...(e[id] || {}), [k]: v } }));
@@ -733,7 +805,7 @@ function SaldosBanco({ API }) {
 }
 
 // Aba Metas: seletor de CICLO DE FECHAMENTO (ou período livre) + painel de metas.
-function MetasSetorTab({ API }) {
+function MetasSetorTab({ API, diretoria = false }) {
   const lojas = useLojasTes(API);
   const [ini, setIni] = useState(inicioMes()); const [fim, setFim] = useState(hojeISO()); const [loja, setLoja] = useState('');
   const [ciclos, setCiclos] = useState([]); const [selCiclo, setSelCiclo] = useState('');
@@ -750,8 +822,8 @@ function MetasSetorTab({ API }) {
         <span style={{ fontSize: 11, color: '#94a3b8' }}>O ciclo (a cada N meses, dia de corte) é configurado no <b>Caixa Destaque → ⚙️ Ciclo</b>.</span>
       </div>
       <PeriodoTes ini={ini} setIni={manIni} fim={fim} setFim={manFim} loja={loja} setLoja={setLoja} lojas={lojas} />
-      <MetasSetor API={API} ini={ini} fim={fim} loja={loja} />
-      <FaixasPremio API={API} ini={ini} fim={fim} />
+      <MetasSetor API={API} ini={ini} fim={fim} loja={loja} diretoria={diretoria} />
+      <FaixasPremio API={API} ini={ini} fim={fim} diretoria={diretoria} />
     </>
   );
 }
@@ -759,7 +831,7 @@ function MetasSetorTab({ API }) {
 // Faixas do prêmio por pilar (Joe 2026-11-11): cada pilar vale até R$ teto; paga proporcional à nota,
 // e 100% paga teto + 50% (bônus, já que a nota não passa de 100). O valor é do CHEFE (fator 1); cada
 // pessoa vinculada recebe o total × o fator dela (estagiária 0,5 = metade). Cada um vê o seu na Minha área.
-function FaixasPremio({ API, ini, fim }) {
+function FaixasPremio({ API, ini, fim, diretoria = false }) {
   const [cfg, setCfg] = useState(null); const [ap, setAp] = useState(null); const [cols, setCols] = useState([]);
   const [teto, setTeto] = useState(''); const [bonus, setBonus] = useState(''); const [novo, setNovo] = useState({ colaborador_id: '', fator: 100 }); const [msg, setMsg] = useState('');
   const carregar = useCallback(() => {
@@ -793,11 +865,11 @@ function FaixasPremio({ API, ini, fim }) {
             <div style={{ fontSize: 14, fontWeight: 800 }}>{brl(tetoMax * 5)}</div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginLeft: 'auto' }}>
+        {diretoria && <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginLeft: 'auto' }}>
           <label style={s.fld}>Teto R$/pilar<input type="number" value={teto} onChange={e => setTeto(e.target.value)} style={{ ...s.inp, width: 90 }} /></label>
           <label style={s.fld}>Bônus 100% (%)<input type="number" min={0} value={bonus} onChange={e => setBonus(e.target.value)} style={{ ...s.inp, width: 80 }} title="Quanto paga a mais ao bater 100% no pilar" /></label>
           <button onClick={salvarTeto} style={s.actGreen}>Salvar</button>
-        </div>
+        </div>}
       </div>
       {ap?.premioTotalChefe != null && <div style={{ fontSize: 12.5, color: '#334', marginBottom: 8 }}>No ciclo selecionado o chefe faria <b style={{ color: '#0d6b5e' }}>{brl(ap.premioTotalChefe)}</b> (nota geral {ap.notaGeral ?? '—'}/100).</div>}
       <div style={{ overflowX: 'auto' }}>
@@ -809,14 +881,14 @@ function FaixasPremio({ API, ini, fim }) {
                 <td style={s.td}><b>{p.nome}</b></td>
                 <td style={s.td}>{Math.round(p.fator * 100)}%</td>
                 <td style={{ ...s.td, fontWeight: 700, color: '#0d6b5e' }}>{premioDe(p.colaborador_id) == null ? '—' : brl(premioDe(p.colaborador_id))}</td>
-                <td style={s.td}><button onClick={() => remover(p.colaborador_id)} style={{ ...s.mv, color: '#C0392B', borderColor: '#f1b4ab' }}>remover</button></td>
+                <td style={s.td}>{diretoria && <button onClick={() => remover(p.colaborador_id)} style={{ ...s.mv, color: '#C0392B', borderColor: '#f1b4ab' }}>remover</button>}</td>
               </tr>
             ))}
             {!(cfg?.pessoas || []).length && <tr><td colSpan={4} style={{ ...s.td, color: '#94a3b8' }}>Ninguém vinculado ainda. Adicione o chefe (100%) e o estagiário (50%).</td></tr>}
           </tbody>
         </table>
       </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 10, paddingTop: 10, borderTop: '1px dashed #e5e7eb' }}>
+      {diretoria && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 10, paddingTop: 10, borderTop: '1px dashed #e5e7eb' }}>
         <label style={s.fld}>Colaborador<select value={novo.colaborador_id} onChange={e => setNovo(n => ({ ...n, colaborador_id: e.target.value }))} style={{ ...s.inp, minWidth: 220 }}>
           <option value="">Selecione…</option>
           {disp.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
@@ -824,12 +896,13 @@ function FaixasPremio({ API, ini, fim }) {
         <label style={s.fld}>Fator (%)<input type="number" min={0} max={500} value={novo.fator} onChange={e => setNovo(n => ({ ...n, fator: e.target.value }))} style={{ ...s.inp, width: 90 }} /></label>
         <button onClick={addPessoa} style={s.actGreen}>+ Vincular</button>
         {msg && <span style={{ fontSize: 12.5, fontWeight: 600, color: msg.startsWith('⚠️') ? '#b91c1c' : '#15803d' }}>{msg}</span>}
-      </div>
+      </div>}
+      {!diretoria && <div style={{ fontSize: 11, color: '#999', marginTop: 10 }}>🔒 Só a Diretoria edita metas e premiação.</div>}
     </div>
   );
 }
 // Metas do setor Tesouraria — alvo cadastrável + realizado automático + farol (Joe 2026-11-11).
-function MetasSetor({ API, ini, fim, loja }) {
+function MetasSetor({ API, ini, fim, loja, diretoria = false }) {
   const [d, setD] = useState(null); const [carreg, setCarreg] = useState(false); const [edit, setEdit] = useState(false);
   const [sug, setSug] = useState(null); const [red, setRed] = useState(10); const [sugCarreg, setSugCarreg] = useState(false);
   const carregar = useCallback((forcar) => { setCarreg(true); API.get('/tesouraria/metas', { params: { ini, fim, loja, ...(forcar ? { forcar: 1 } : {}) } }).then(r => setD(r.data)).catch(() => setD(null)).finally(() => setCarreg(false)); }, [API, ini, fim, loja]);
@@ -848,7 +921,7 @@ function MetasSetor({ API, ini, fim, loja }) {
         {d?.cache?.atualizado_em && <span style={{ fontSize: 11, color: '#94a3b8' }}>salvo em {String(d.cache.atualizado_em).slice(0, 16).replace('T', ' ')}</span>}
         {d && <span style={{ display: 'flex', gap: 8, fontSize: 12.5 }}><b style={{ color: COR.verde }}>🟢 {R.verde || 0}</b><b style={{ color: COR.amarelo }}>🟡 {R.amarelo || 0}</b><b style={{ color: COR.vermelho }}>🔴 {R.vermelho || 0}</b>{R.sem ? <span style={{ color: COR.sem_dados }}>⚪ {R.sem}</span> : null}</span>}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          <button onClick={() => setEdit(v => !v)} style={s.mv}>{edit ? 'fechar' : '⚙️ metas'}</button>
+          {diretoria && <button onClick={() => setEdit(v => !v)} style={s.mv}>{edit ? 'fechar' : '⚙️ metas'}</button>}
           <button onClick={() => carregar(true)} disabled={carreg} style={{ ...s.actGray, color: '#0d6b5e', borderColor: '#0d6b5e' }}>{carreg ? '⏳' : '🔄 Atualizar'}</button>
         </div>
       </div>

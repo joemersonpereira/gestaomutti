@@ -116,10 +116,13 @@ function salvar(empresaId, lojaId, ano, cells) {
   return { ok: true, salvas: (cells || []).length };
 }
 
-// Geração assistida: base = média do realizado dos mesesBase (deste ano) × (1+fator%), aplicada aos mesesAlvo.
-async function gerar(empresaId, lojaId, ano, { mesesBase, mesesAlvo, fatorPct = 0 } = {}) {
+// Geração assistida: base = média do realizado dos mesesBase do ANO-BASE × (1+fator%), aplicada aos
+// mesesAlvo do ano orçado. anoBase default = ano; pra planejar o PRÓXIMO ano a base é o histórico do
+// ano anterior (ex.: gerar 2027 com base no realizado de 2026 + X%). Joe 2026-11-14.
+async function gerar(empresaId, lojaId, ano, { mesesBase, mesesAlvo, fatorPct = 0, anoBase } = {}) {
   if (!lojaId) return { ok: false, erro: 'Selecione uma loja para gerar.' };
-  const real = await realizadoAno(empresaId, ano, lojaId);
+  const base_ano = Number(anoBase) || ano;
+  const real = await realizadoAno(empresaId, base_ano, lojaId);
   const base = (mesesBase && mesesBase.length) ? mesesBase : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].filter(m => real.receita[m - 1] > 0);
   const alvo = (mesesAlvo && mesesAlvo.length) ? mesesAlvo : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   const fator = 1 + (Number(fatorPct) || 0) / 100;
@@ -135,7 +138,8 @@ async function gerar(empresaId, lojaId, ano, { mesesBase, mesesAlvo, fatorPct = 
     }
   }
   salvar(empresaId, lojaId, ano, cells);
-  return { ok: true, geradas: cells.length, base, alvo, fatorPct };
+  const semBase = (real.receita || []).every(v => !v);
+  return { ok: true, geradas: cells.length, base, alvo, fatorPct, anoBase: base_ano, semBase };
 }
 
 // ── Rateio de planos de contas entre lojas ───────────────────────────────

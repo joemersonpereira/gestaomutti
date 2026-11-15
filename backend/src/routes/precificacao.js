@@ -32,19 +32,21 @@ router.delete('/corrigir', exigePerfil(...GESTAO), pInval, (req, res) => res.jso
 // ── Meu Setor da Precificação (por COMPRADOR): pilares/metas/premiação ──────────────────────────
 const ms = require('../lib/precificacaoMeuSetor');
 const GESTAO_MS = ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Supervisor'];
+// Cadastro de META/PREMIAÇÃO do setor: só Diretoria (ninguém edita a própria meta).
+const DIRETORIA_META = ['Diretor Geral', 'Gestor Geral'];
 router.get('/meu-setor/compradores', (req, res) => res.json({ compradores: ms.compradores(req.usuario.empresa_id) }));
 router.get('/meu-setor/:comprador/apurar', async (req, res) => {
   try { res.json(await ms.apurar(req.usuario.empresa_id, req.params.comprador, { dias: Number(req.query.dias) || 30, ini: req.query.ini || '', fim: req.query.fim || '' })); }
   catch (e) { res.status(500).json({ erro: e.message }); }
 });
 router.get('/meu-setor/:comprador/config', (req, res) => res.json({ pilares: ms.PILARES, indicadores: ms.config(req.usuario.empresa_id, req.params.comprador) }));
-router.post('/meu-setor/:comprador/config', exigePerfil(...GESTAO_MS), (req, res) => {
+router.post('/meu-setor/:comprador/config', exigePerfil(...DIRETORIA_META), (req, res) => {
   try { res.json(ms.setConfig(req.usuario.empresa_id, req.params.comprador, req.body || {})); } catch (e) { res.status(400).json({ erro: e.message }); }
 });
 router.get('/meu-setor/premio', (req, res) => res.json({ premioValor: ms.premioPilar(req.usuario.empresa_id), bonusPct: ms.premioBonusPct(req.usuario.empresa_id) }));
-router.put('/meu-setor/premio', exigePerfil(...GESTAO_MS), (req, res) => { try { res.json(ms.setPremio(req.usuario.empresa_id, req.body || {})); } catch (e) { res.status(400).json({ erro: e.message }); } });
-router.post('/meu-setor/:comprador/pessoas', exigePerfil(...GESTAO_MS), (req, res) => { try { res.json(ms.addPessoa(req.usuario.empresa_id, req.params.comprador, req.body || {})); } catch (e) { res.status(400).json({ erro: e.message }); } });
-router.delete('/meu-setor/:comprador/pessoas/:id', exigePerfil(...GESTAO_MS), (req, res) => { try { res.json(ms.rmPessoa(req.usuario.empresa_id, req.params.comprador, req.params.id)); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.put('/meu-setor/premio', exigePerfil(...DIRETORIA_META), (req, res) => { try { res.json(ms.setPremio(req.usuario.empresa_id, req.body || {})); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.post('/meu-setor/:comprador/pessoas', exigePerfil(...DIRETORIA_META), (req, res) => { try { res.json(ms.addPessoa(req.usuario.empresa_id, req.params.comprador, req.body || {})); } catch (e) { res.status(400).json({ erro: e.message }); } });
+router.delete('/meu-setor/:comprador/pessoas/:id', exigePerfil(...DIRETORIA_META), (req, res) => { try { res.json(ms.rmPessoa(req.usuario.empresa_id, req.params.comprador, req.params.id)); } catch (e) { res.status(400).json({ erro: e.message }); } });
 
 // ── Pesquisa de Preço (Fase 1): listar produtos do ERP + gerar a planilha da empresa ──────────────
 const pq = require('../lib/pesquisaPrecoErp');
