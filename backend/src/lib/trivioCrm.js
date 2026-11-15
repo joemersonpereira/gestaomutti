@@ -120,6 +120,17 @@ async function listarCampanhas({ nome, from = 0, size = 100 } = {}) {
   return { erp: true, campanhas: (j.data || []).map(c => ({ id: c.id, name: c.name, active: c.active })) };
 }
 
+// ── Análise RFV: os 11 segmentos (Campeão, Perdido, Fidelizado…) com quantidade e % ──
+async function rfv() {
+  if (!habilitado()) return { erp: false };
+  const j = await trivioGet('/api/v2/customers/rfm/summary', '');
+  const info = j.rfmProcessInfo || {};
+  return {
+    erp: true, total: info.count || 0, de: info.initialDate, ate: info.finalDate,
+    segmentos: (j.data || []).map(s => ({ nome: s.name, tag: s.tagFormattedName, qtd: s.amount || 0, perc: s.perc || 0, ticket: s.averageTicket || 0 })),
+  };
+}
+
 // ── Retenção (retenção %, churn, receita, ticket, frequência) ──
 async function retencao({ periodType = 0, windowType = 2, merchantIds = '', merchantGroupIds = '' } = {}) {
   if (!habilitado()) return { erp: false };
@@ -128,4 +139,4 @@ async function retencao({ periodType = 0, windowType = 2, merchantIds = '', merc
   return { erp: true, ...j };
 }
 
-module.exports = { habilitado, campanhasOverview, campanhaVendas, auditoriaEnvios, envioDetalhe, listarCampanhas, retencao, fidelizacao, sugestao, filipetas };
+module.exports = { habilitado, campanhasOverview, campanhaVendas, auditoriaEnvios, envioDetalhe, listarCampanhas, retencao, rfv, fidelizacao, sugestao, filipetas };

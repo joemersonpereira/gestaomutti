@@ -41,7 +41,7 @@ export default function CRM() {
       {aba === 'retencao' && <Retencao />}
       {aba === 'filipeta' && <Filipetas />}
       {aba === 'sugestao' && <Sugestao />}
-      {aba === 'rfv' && <EmBreve titulo="Análise RFV" desc="Segmentação da base por Recência/Frequência/Valor: Campeão, Fidelizado, Em risco, Hibernando, Perdido… com quantidade, % e valor de cada segmento. (O endpoint da segmentação completa dos 11 segmentos não está na integração atual — fica como próxima fatia; por ora use a aba Fidelização.)" />}
+      {aba === 'rfv' && <Rfv />}
       {aba === 'fidelizacao' && <Fidelizacao />}
     </div>
   );
@@ -407,6 +407,37 @@ function Sugestao() {
             </tr>); })}</tbody>
         </table></div>
       </div>
+      </>}
+    </div>
+  );
+}
+
+// ── Análise RFV: os 11 segmentos (Campeão, Perdido…) com quantidade, % e barra ──
+function Rfv() {
+  const { API } = useAuth();
+  const [d, setD] = useState(null); const [est, setEst] = useState('carregando');
+  useEffect(() => { API.get('/crm/rfv').then(r => { setD(r.data); setEst(r.data && r.data.erp === false ? 'offline' : 'ok'); }).catch(() => setEst('erro')); }, [API]);
+  const segs = ((d && d.segmentos) || []).slice().sort((a, b) => b.qtd - a.qtd);
+  const maxQ = Math.max(1, ...segs.map(s => s.qtd));
+  return (
+    <div>
+      {est === 'offline' && offline}{est === 'erro' && erroBox}{est === 'carregando' && <div style={{ color: '#94a3b8', padding: 16 }}>carregando…</div>}
+      {est === 'ok' && <>
+        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>Base de <b style={{ color: '#1c2a2e' }}>{n0(d.total)}</b> clientes · período {soData(d.de)} a {soData(d.ate)} · segmentação RFV (Recência / Frequência / Valor)</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10 }}>
+          {segs.map(s => { const cor = RFV_COR[s.nome] || '#94a3b8'; return (
+            <div key={s.nome} style={{ background: '#fff', border: '1px solid #eef1f4', borderRadius: 12, padding: 14, borderLeft: '5px solid ' + cor }}>
+              <div style={{ fontWeight: 800, fontSize: 13.5 }}>{s.nome}</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
+                <span style={{ fontSize: 22, fontWeight: 800, color: cor }}>{n0(s.qtd)}</span>
+                <span style={{ fontSize: 13, color: '#64748b', fontWeight: 700 }}>{s.perc}%</span>
+              </div>
+              <div style={{ height: 8, background: '#f1f5f9', borderRadius: 5, overflow: 'hidden', marginTop: 8 }}>
+                <div style={{ width: (s.qtd / maxQ * 100) + '%', height: '100%', background: cor, borderRadius: 5 }} />
+              </div>
+            </div>
+          ); })}
+        </div>
       </>}
     </div>
   );

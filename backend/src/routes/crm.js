@@ -56,6 +56,13 @@ router.get('/retencao', async (req, res) => {
   catch (e) { res.status(502).json({ erro: e.message }); }
 });
 
+// Análise RFV: os 11 segmentos com quantidade e %.
+router.get('/rfv', async (req, res) => {
+  if (!crm.habilitado()) return off(res);
+  try { res.json(await crm.rfv()); }
+  catch (e) { res.status(502).json({ erro: e.message }); }
+});
+
 // Fidelização ao longo do tempo (Fiel/Potencial/Ocasional).
 router.get('/fidelizacao', async (req, res) => {
   if (!crm.habilitado()) return off(res);
