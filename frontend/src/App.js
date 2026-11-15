@@ -20,6 +20,7 @@ import Auditoria from './pages/Auditoria';
 import Avaliacoes from './pages/Avaliacoes'; // eslint-disable-line no-unused-vars
 import AvaliacaoAdmin from './pages/AvaliacaoAdmin';
 import Marketing from './pages/Marketing';
+import CRM from './pages/CRM';
 import PainelSupervisor from './pages/PainelSupervisor';
 import PainelDiretoria from './pages/PainelDiretoria';
 import PremiacaoEquipe from './pages/PremiacaoEquipe';
@@ -119,6 +120,7 @@ const MODULOS = [
   { id: 'auditoria', label: '🔎 Checklist de Supervisão', C: Auditoria, perfis: [...GESTAO] },
   { id: 'avaliacao-admin', label: '⭐ Avaliações do setor', C: AvaliacaoAdmin, perfis: ['Suporte', 'Tesouraria', ...GESTAO] },
   { id: 'marketing', label: '📣 Marketing', C: Marketing, perfis: ['Marketing', 'Gestor Geral', 'Diretor Geral', 'Gerente', 'Vendedor', 'Caixa'] },
+  { id: 'crm', label: '💙 CRM', C: CRM, perfis: ['Marketing', 'Gestor Geral', 'Diretor Geral', 'Supervisor', 'Controladoria'] },
   { id: 'faltas', label: '📝 Lista de faltas', C: Faltas, perfis: ['Vendedor', 'Gerente', 'Subgerente', 'Supervisor', 'Comprador Beleza', 'Comprador Bem-estar', 'Suporte', 'Gestor Geral', 'Diretor Geral', 'Operador de Loja'] },
   { id: 'painel-compras', label: '🧮 Compras', C: PainelCompras, perfis: ['Comprador Beleza', 'Comprador Bem-estar', 'Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Gerente', 'Subgerente'] },
   { id: 'faturamento', label: '📊 Faturamento', C: Faturamento, perfis: ['Supervisor', 'Gestor Geral', 'Diretor Geral', 'Controladoria', 'Financeiro', 'Gerente', 'Subgerente'] },
@@ -225,7 +227,7 @@ const NAV = [
   { camada: 'Departamentos', grupos: [
     { nome: 'Operacional', itens: ['gerente', 'checklist-gerente', 'checklist', 'satisfacao', 'calendario', 'formulas', 'servicos-farmaceuticos', 'etiquetas', 'faltas', 'mercado', 'patrimonio'] },
     { nome: 'Comercial', itens: ['painel-compras', 'precificacao', 'faturamento', 'online', 'acordos', 'trademkt'] },
-    { nome: 'Marketing', itens: ['marketing', 'mkt-calendario'] },
+    { nome: 'Marketing', itens: ['marketing', 'mkt-calendario', 'crm'] },
     { nome: 'Gente & Gestão', itens: ['cadastros', 'visao360', 'capacitacao', 'indicadores-colab', 'afastamentos', 'ponto', 'ponto-repp', 'ocorrencias', 'documentos-rh', 'beneficios', 'clima', 'desligamentos', 'canal-escuta', 'painel-rh', 'estagio-rh', 'banco-talentos'] },
     { nome: 'Financeiro', itens: ['validacao-financeira', 'financeiro', 'planejamento', 'contas-receber'], subs: [
       { nome: 'Controladoria', itens: ['controladoria'] },

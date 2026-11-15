@@ -76,6 +76,7 @@ app.use('/api/suporte-loja', require('./routes/suporteLoja'));
 app.use('/api/meu-setor-area', require('./routes/meuSetorArea'));
 app.use('/api/setor-obs', require('./routes/setorObs'));
 app.use('/api/hoptodesk', require('./routes/hoptodesk'));
+app.use('/api/crm', require('./routes/crm'));
 app.use('/api/financeiro', require('./routes/financeiro'));
 app.use('/api/tesouraria', require('./routes/tesouraria'));
 app.use('/api/diretoria', require('./routes/diretoria'));

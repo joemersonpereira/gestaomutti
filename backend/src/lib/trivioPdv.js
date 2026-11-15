@@ -222,6 +222,24 @@ async function prewarmFilipeta(mes, ano) {
     cacheFil.set(k, { at: Date.now() - TTL + 60000, data: (hit && hit.data) || {}, disponivel: false, erro: e.message });
   }
 }
+// Linhas CRUAS do card da filipeta no mês (todas as lojas, como o Trivio mostra) — p/ o CRM.
+async function fetchFilipeta(mes, ano) {
+  const tok = await embedTokenFor(FIL_DASH);
+  const mm = String(mes).padStart(2, '0');
+  const fimD = String(new Date(ano, mes, 0).getDate()).padStart(2, '0');
+  const params = {}; params['per%C3%ADodo'] = `${ano}-${mm}-01~${ano}-${mm}-${fimD}`; params['loja'] = null; params['pesquisar_oferta_ou_nome_interno'] = null;
+  const url = `${DASH}/api/embed/dashboard/${tok}/dashcard/${FIL_DASHCARD}/card/${FIL_CARD}?parameters=${encodeURIComponent(JSON.stringify(params))}`;
+  const r = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!r.ok) throw new Error(`Trivio filipeta HTTP ${r.status}`);
+  const j = await r.json();
+  const cols = (j.data && j.data.cols || []).map(c => c.name || c.display_name); const idx = n => cols.indexOf(n);
+  const iLoja = idx('Loja'), iImp = idx('Qtde filipetas impressas (Venda)'), iConv = idx('Filipetas convertidas (Venda)'), iTot = idx('Total vendido (R$)'), iItens = idx('Qtde de itens vendidos'), iOf = idx('Qtde ofertas impressas (Venda)');
+  return (j.data && j.data.rows || []).map(row => {
+    const imp = Number(row[iImp]) || 0, conv = Number(row[iConv]) || 0;
+    return { loja: String(row[iLoja] || '').replace(/\s*\([^)]*\)\s*$/, ''), ofertas: Number(row[iOf]) || 0, impressas: imp, convertidas: conv, conversao: imp ? Math.round((conv / imp) * 1000) / 10 : 0, itens: Number(row[iItens]) || 0, totalVendido: Math.round(Number(row[iTot]) || 0) };
+  });
+}
+
 // Filipeta da loja no mês: { conversao%, convertidas, totalVendido } ou null.
 function filipetaLojaSync(lojaId, mes, ano) {
   if (!ENABLED) return null;
@@ -230,4 +248,7 @@ function filipetaLojaSync(lojaId, mes, ano) {
   return hit.data[lojaId] || null;
 }
 
-module.exports = { habilitado, prewarmPdv, pdvConversaoSync, conversaoLojaSync, fetchRankingVendedores, prewarmFilipeta, filipetaLojaSync };
+// Credenciais presentes? (o CRM usa login mesmo que o indicador PDV+ esteja desligado)
+function temCredenciais() { return !!EMAIL && !!SENHA; }
+
+module.exports = { habilitado, temCredenciais, sessionToken, API: () => API, prewarmPdv, pdvConversaoSync, conversaoLojaSync, fetchRankingVendedores, prewarmFilipeta, filipetaLojaSync, fetchFilipeta };
