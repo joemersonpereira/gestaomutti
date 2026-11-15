@@ -1899,7 +1899,11 @@ function MetasCompras({ API, gestao }) {
   const [comps, setComps] = useState([]); const [comp, setComp] = useState('');
   const [d, setD] = useState(null); const [sugMsg, setSugMsg] = useState('');
   const [sugMeses, setSugMeses] = useState(3);
-  const [sugPrev, setSugPrev] = useState(null); // preview da sugestão (não aplica até clicar Aplicar)
+  const [sugPrev, setSugPrev] = useState(null); // sugestões da análise (renderizadas INLINE na coluna Sugerido)
+  const [cfgAberto, setCfgAberto] = useState(false); // config de pilares/tetos colapsada (Joe: tirar do topo)
+  const [exp, setExp] = useState({}); // quais indicadores mostram o texto longo (ⓘ) — padrão colapsado
+  const toggleExp = k => setExp(e => ({ ...e, [k]: !e[k] }));
+  const sugByChave = React.useMemo(() => Object.fromEntries((sugPrev || []).map(r => [r.chave, r])), [sugPrev]);
   const [salvoFlash, setSalvoFlash] = useState('');
   // As células salvam sozinhas ao sair do campo; este botão confirma (comita o campo em foco) e dá retorno visual.
   const salvarTudo = () => { try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) {} setTimeout(() => { setSalvoFlash('✓ Alterações salvas'); setTimeout(() => setSalvoFlash(''), 2800); }, 120); };
@@ -1917,7 +1921,12 @@ function MetasCompras({ API, gestao }) {
   useEffect(() => { setSugPrev(null); setSugMsg(''); }, [comp, sel]);
   const carregarPil = useCallback(() => API.get('/compras/meu-setor/pilares').then(r => setPilCfg({ pilares: r.data.pilares || [], bonus: r.data.bonus ?? 50 })).catch(() => {}), [API]);
   useEffect(() => { carregarPil(); }, [carregarPil]);
-  const salvarCfg = (chave, patch) => API.put('/compras/meu-setor/config', { chave, comprador_id: comp, ...patch }).then(carregar).catch(() => {});
+  // Atualiza o estado local NA HORA (otimista) — evita a corrida com o cache serve-stale do ERP, que
+  // devolvia o valor velho logo após salvar (bug do "66 vira 62"). O PUT persiste; a tela já reflete.
+  const patchLocal = (chave, patch) => setD(prev => prev ? { ...prev,
+    metas: (prev.metas || []).map(m => m.chave === chave ? { ...m, ...patch } : m),
+    metasInativas: (prev.metasInativas || []).map(m => m.chave === chave ? { ...m, ...patch } : m) } : prev);
+  const salvarCfg = (chave, patch) => { patchLocal(chave, patch); return API.put('/compras/meu-setor/config', { chave, comprador_id: comp, ...patch }).catch(() => {}); };
   const salvarPilar = (pilar, patch) => API.put('/compras/meu-setor/pilar', { pilar, ...patch }).then(() => { carregarPil(); carregar(); }).catch(() => {});
   const addPilar = () => { const p = novoPilar.trim(); if (!p) return; if (pilCfg.pilares.length >= 5) { setSugMsg('Máximo de 5 pilares.'); setTimeout(() => setSugMsg(''), 3000); return; } salvarPilar(p, { teto: 100, ordem: pilCfg.pilares.length }); setNovoPilar(''); };
   const delPilar = pilar => API.delete('/compras/meu-setor/pilar', { params: { pilar } }).then(() => { carregarPil(); carregar(); }).catch(() => {});
@@ -1962,9 +1971,11 @@ function MetasCompras({ API, gestao }) {
   const aplicarSugestoes = async () => {
     if (!sugPrev) return;
     setSugMsg('⏳ aplicando…');
-    await Promise.all(sugPrev.filter(r => r.sugerido != null).map(r => API.put('/compras/meu-setor/config', { chave: r.chave, meta: r.sugerido, ativo: true, comprador_id: comp }).catch(() => {})));
-    setSugPrev(null); carregar();
-    setSugMsg(`✅ ${sugPrev.length} meta(s) aplicada(s) pela média de ${sugMeses} ${sugMeses === 1 ? 'mês' : 'meses'}.`);
+    const aplicaveis = sugPrev.filter(r => r.sugerido != null);
+    await Promise.all(aplicaveis.map(r => API.put('/compras/meu-setor/config', { chave: r.chave, meta: r.sugerido, ativo: true, comprador_id: comp }).catch(() => {})));
+    aplicaveis.forEach(r => patchLocal(r.chave, { meta: r.sugerido, ativo: true })); // otimista (sem corrida com o cache)
+    setSugPrev(null);
+    setSugMsg(`✅ ${aplicaveis.length} meta(s) aplicada(s) pela média de ${sugMeses} ${sugMeses === 1 ? 'mês' : 'meses'}.`);
     setTimeout(() => setSugMsg(''), 4000);
   };
   // Replicar TODAS as metas deste comprador para outro (meta/direção/peso/ativo). Útil p/ compradores da mesma área.
@@ -1991,30 +2002,6 @@ function MetasCompras({ API, gestao }) {
           {meses.map(m => <option key={m.ano + '-' + m.mes} value={m.ano + '-' + m.mes}>{m.label}</option>)}
         </select></label>
       </div>
-      <div style={{ ...s.card, background: '#f0f7f4', border: '1px solid #cdeadd', fontSize: 12.5, color: '#334' }}>
-        <b>Como a premiação funciona (por pilares, igual Tesouraria):</b> cada indicador entra num <b>pilar</b> e tem um <b>peso</b>. Nota do pilar = Σ peso batido ÷ Σ peso ativo × 100. Prêmio do pilar = nota × teto/100; bater <b>100%</b> paga o teto + <b>bônus</b> (padrão +{pilCfg.bonus}%). A premiação do comprador é a <b>soma dos pilares</b>.
-      </div>
-      <div style={{ ...s.card }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-          <div style={{ fontWeight: 700, fontSize: 13.5 }}>🧱 Pilares &amp; tetos <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>(até 5)</span></div>
-          <label style={{ fontSize: 12, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 5, marginLeft: 'auto' }}>Bônus a 100%
-            <input type="number" defaultValue={pilCfg.bonus} key={'b' + pilCfg.bonus} onBlur={e => salvarBonus(e.target.value)} style={{ ...inpSm, width: 60 }} />%</label>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {pilCfg.pilares.map(p => (
-            <div key={p.pilar} style={{ border: '1px solid #e3e8ea', borderRadius: 10, padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <b style={{ fontSize: 12.5 }}>{p.pilar}</b>
-              <label style={{ fontSize: 11, color: '#94a3b8', display: 'inline-flex', alignItems: 'center', gap: 3 }}>teto R$
-                <input type="number" defaultValue={p.teto} key={p.pilar + p.teto} onBlur={e => salvarPilar(p.pilar, { teto: e.target.value })} style={{ ...inpSm, width: 64 }} /></label>
-              <button onClick={() => delPilar(p.pilar)} title="remover" style={{ border: 'none', background: 'none', color: '#c0392b', cursor: 'pointer', fontSize: 13 }}>✕</button>
-            </div>
-          ))}
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-            <input value={novoPilar} onChange={e => setNovoPilar(e.target.value)} placeholder="novo pilar…" style={{ ...inpSm, width: 120 }} />
-            <button onClick={addPilar} style={{ background: '#0d6b5e', color: '#fff', border: 'none', borderRadius: 7, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>+ pilar</button>
-          </div>
-        </div>
-      </div>
       <div style={{ ...s.card }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
           <div style={{ fontWeight: 700, fontSize: 13.5 }}>Indicadores &amp; alvos</div>
@@ -2023,7 +2010,9 @@ function MetasCompras({ API, gestao }) {
               <option value={1}>mês selecionado</option>
               {[3, 6, 12].map(n => <option key={n} value={n}>média de {n} meses</option>)}
             </select></label>
-          <button onClick={sugerirMetas} style={{ background: '#fff', color: '#0d6b5e', border: '1px solid #0d6b5e', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>💡 Buscar histórico &amp; sugerir</button>
+          <button onClick={sugerirMetas} style={{ background: '#0d6b5e', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>🔍 Buscar análise do período</button>
+          {sugPrev && <button onClick={aplicarSugestoes} title="Copia TODOS os valores sugeridos para a coluna Meta/alvo de uma vez" style={{ background: '#185FA5', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>✓ Aplicar todas</button>}
+          {sugPrev && <button onClick={() => setSugPrev(null)} style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 12, cursor: 'pointer' }}>limpar sugestões</button>}
           {comps.filter(c => c.id !== comp).length > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#64748b' }} title="Copia TODAS as metas deste comprador para outro (útil quando dois compradores da mesma área têm a meta igual)">
             <span>📋 Replicar p/</span>
             <select value={repComp} onChange={e => setRepComp(e.target.value)} style={inpSm}>
@@ -2036,55 +2025,76 @@ function MetasCompras({ API, gestao }) {
           {salvoFlash && <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>{salvoFlash}</span>}
           {sugMsg && <span style={{ fontSize: 12, fontWeight: 600, color: sugMsg.startsWith('Sem') || sugMsg.startsWith('Erro') ? '#b45309' : '#15803d' }}>{sugMsg}</span>}
         </div>
-        <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>As alterações já salvam ao sair do campo; o botão <b>Salvar</b> apenas confirma.</div>
-        {sugPrev && <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 10, padding: 10, marginBottom: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 700 }}>📊 Base histórica ({sugMeses === 1 ? 'mês selecionado' : 'média de ' + sugMeses + ' meses'}) — revise antes de aplicar</div>
-            <button onClick={aplicarSugestoes} style={{ marginLeft: 'auto', background: '#0d6b5e', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>✓ Aplicar sugestões</button>
-            <button onClick={() => setSugPrev(null)} style={{ background: '#fff', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 12, cursor: 'pointer' }}>descartar</button>
-          </div>
-          <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead><tr style={{ textAlign: 'left', color: '#7a8a8c' }}>{['Indicador', 'Média histórica', 'Alvo atual', 'Sugerido'].map(h => <th key={h} style={{ padding: '6px 8px' }}>{h}</th>)}</tr></thead>
-            <tbody>{sugPrev.map(r => (
-              <tr key={r.chave} style={{ borderTop: '1px solid #eef1f4' }}>
-                <td style={{ padding: '6px 8px', fontWeight: 600 }}>{r.nome}{r.fonteCmv && <span style={{ display: 'block', fontSize: 10, fontWeight: 400, color: '#2563eb' }}>🏬 {r.fonteCmv}</span>}</td>
-                <td style={{ padding: '6px 8px', color: '#64748b' }}>{fmtU(r.media, r.unidade)}</td>
-                <td style={{ padding: '6px 8px', color: '#94a3b8' }}>{r.alvoAtual == null ? '—' : (r.direcao === 'menor' ? '≤ ' : '≥ ') + fmtU(r.alvoAtual, r.unidade)}</td>
-                <td style={{ padding: '6px 8px' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ color: '#94a3b8', fontSize: 12 }}>{r.direcao === 'menor' ? '≤' : '≥'}</span>
-                    <input type="number" value={r.sugerido == null ? '' : r.sugerido} placeholder="—"
-                      onChange={e => { const v = e.target.value; setSugPrev(prev => prev.map(x => x.chave === r.chave ? { ...x, sugerido: v === '' ? null : Number(v) } : x)); }}
-                      style={{ width: 80, fontSize: 12.5, fontWeight: 700, color: '#0d6b5e', border: '1px solid #cfe3da', borderRadius: 6, padding: '3px 7px', background: '#f3fbf7' }} />
-                    <b style={{ color: '#0d6b5e', fontSize: 11 }}>{UNI_ROT[r.unidade] || r.unidade || ''}</b>
-                  </span>
-                </td>
-              </tr>))}</tbody>
-          </table></div>
-        </div>}
+        <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 8 }}>Escolha o <b>período</b> e clique <b>🔍 Buscar análise</b> — a coluna <b>Sugerido</b> enche com a média do período (o <b>CMV</b> pela <b>média das lojas</b> dos grupos do comprador). Clique <b>← usar</b> numa linha, ou <b>✓ Aplicar todas</b> pra jogar tudo pra Meta de uma vez. Salva na hora.{sugPrev && <b style={{ color: '#185FA5' }}> — análise de {sugMeses === 1 ? 'o mês selecionado' : 'média de ' + sugMeses + ' meses'} carregada.</b>}</div>
         <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-          <thead><tr style={{ textAlign: 'left', color: '#64748b', background: '#f8fafc', borderBottom: '2px solid #eef1f4' }}>{['Indicador', 'Pilar', 'Peso', 'Direção', 'Meta/alvo', 'Fonte', 'Ativo'].map(h => <th key={h} style={{ padding: '9px 10px' }}>{h}</th>)}</tr></thead>
-          <tbody>{linhas.length === 0 && <tr><td colSpan={7} style={{ padding: 14, color: '#94a3b8' }}>Selecione um comprador para carregar os indicadores.</td></tr>}
-            {linhas.map(m => (
+          <thead><tr style={{ textAlign: 'left', color: '#64748b', background: '#f8fafc', borderBottom: '2px solid #eef1f4' }}>{['Indicador', 'Pilar', 'Peso', 'Direção', 'Meta/alvo', 'Sugerido (análise)', 'Fonte', 'Ativo'].map(h => <th key={h} style={{ padding: '9px 10px' }}>{h}</th>)}</tr></thead>
+          <tbody>{linhas.length === 0 && <tr><td colSpan={8} style={{ padding: 14, color: '#94a3b8' }}>Selecione um comprador para carregar os indicadores.</td></tr>}
+            {linhas.map(m => { const sg = sugByChave[m.chave]; return (
             <tr key={m.chave} style={{ borderTop: '1px solid #f1f3f5' }}>
-              <td style={{ padding: '9px 10px' }}><b>{m.nome}</b> <span style={{ fontSize: 10.5, fontWeight: 700, color: '#0d6b5e', background: '#eef7f2', borderRadius: 6, padding: '1px 6px' }}>{UNI_ROT[m.unidade] || m.unidade || '—'}</span>
-                <div style={{ fontSize: 11, color: '#94a3b8', maxWidth: 440, whiteSpace: 'normal' }}>{m.desc || ''}</div>
-                {m.calc && <div style={{ fontSize: 10.5, color: '#b0b8ba', maxWidth: 480, whiteSpace: 'normal', marginTop: 1 }}>📐 {m.calc}</div>}
-                {m.acesso && <div style={{ fontSize: 10.5, color: '#b0b8ba', maxWidth: 480, whiteSpace: 'normal' }}>🔎 {m.acesso}</div>}
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, marginTop: 2 }}>
-                  <span style={{ fontSize: 10.5, color: '#2563eb', whiteSpace: 'nowrap' }}>📈 Mercado:</span>
-                  <input defaultValue={m.mercado || ''} placeholder="referência de mercado (editável)…" onBlur={e => { if ((e.target.value || '') !== (m.mercado || '')) salvarCfg(m.chave, { mercado: e.target.value }); }}
-                    style={{ flex: 1, minWidth: 220, maxWidth: 460, fontSize: 10.5, color: '#2563eb', border: '1px solid #e3e8ea', borderRadius: 6, padding: '3px 7px', background: '#f8fbff' }} />
-                </div></td>
-              <td style={{ padding: '9px 10px' }}><select value={m.pilar || ''} onChange={e => salvarCfg(m.chave, { pilar: e.target.value, ativo: true })} style={inpSm}>{(pilCfg.pilares || []).map(p => <option key={p.pilar} value={p.pilar}>{p.pilar}</option>)}{!(pilCfg.pilares || []).some(p => p.pilar === m.pilar) && m.pilar && <option value={m.pilar}>{m.pilar}</option>}</select></td>
-              <td style={{ padding: '9px 10px' }}><input type="number" defaultValue={m.peso} onBlur={e => salvarCfg(m.chave, { peso: e.target.value, ativo: true })} style={{ ...inpSm, width: 56 }} /></td>
-              <td style={{ padding: '9px 10px' }}><select defaultValue={m.direcao} onChange={e => salvarCfg(m.chave, { direcao: e.target.value, ativo: true })} style={inpSm}><option value="menor">≤ teto</option><option value="maior">≥ piso</option></select></td>
-              <td style={{ padding: '9px 10px', whiteSpace: 'nowrap' }}><span style={{ color: '#94a3b8', fontSize: 12, marginRight: 2 }}>{m.direcao === 'menor' ? '≤' : '≥'}</span><input type="number" defaultValue={m.meta ?? ''} placeholder="—" onBlur={e => salvarCfg(m.chave, { meta: e.target.value, ativo: true })} style={{ ...inpSm, width: 74 }} /> <b style={{ color: '#0d6b5e', fontSize: 12 }}>{UNI_ROT[m.unidade] || m.unidade}</b></td>
-              <td style={{ padding: '9px 10px', color: '#94a3b8' }}>{m.fonte === 'auto' ? '⚙️ auto' : '✍️ manual'}</td>
-              <td style={{ padding: '9px 10px' }}><input type="checkbox" defaultChecked={m.ativo !== false} onChange={e => salvarCfg(m.chave, { ativo: e.target.checked })} /></td>
-            </tr>))}</tbody>
+              <td style={{ padding: '9px 10px', verticalAlign: 'top' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <b>{m.nome}</b>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: '#0d6b5e', background: '#eef7f2', borderRadius: 6, padding: '1px 6px' }}>{UNI_ROT[m.unidade] || m.unidade || '—'}</span>
+                  <button onClick={() => toggleExp(m.chave)} title="o que é / como é calculado" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 12, color: '#94a3b8', padding: 0 }}>{exp[m.chave] ? '▲' : 'ⓘ'}</button>
+                </span>
+                {exp[m.chave] && <div style={{ marginTop: 4 }}>
+                  <div style={{ fontSize: 11, color: '#94a3b8', maxWidth: 440, whiteSpace: 'normal' }}>{m.desc || ''}</div>
+                  {m.calc && <div style={{ fontSize: 10.5, color: '#b0b8ba', maxWidth: 480, whiteSpace: 'normal', marginTop: 1 }}>📐 {m.calc}</div>}
+                  {m.acesso && <div style={{ fontSize: 10.5, color: '#b0b8ba', maxWidth: 480, whiteSpace: 'normal' }}>🔎 {m.acesso}</div>}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, marginTop: 2 }}>
+                    <span style={{ fontSize: 10.5, color: '#2563eb', whiteSpace: 'nowrap' }}>📈 Mercado:</span>
+                    <input defaultValue={m.mercado || ''} placeholder="referência de mercado (editável)…" onBlur={e => { if ((e.target.value || '') !== (m.mercado || '')) salvarCfg(m.chave, { mercado: e.target.value }); }}
+                      style={{ flex: 1, minWidth: 220, maxWidth: 460, fontSize: 10.5, color: '#2563eb', border: '1px solid #e3e8ea', borderRadius: 6, padding: '3px 7px', background: '#f8fbff' }} />
+                  </div>
+                </div>}
+              </td>
+              <td style={{ padding: '9px 10px', verticalAlign: 'top' }}><select value={m.pilar || ''} onChange={e => salvarCfg(m.chave, { pilar: e.target.value, ativo: true })} style={inpSm}>{(pilCfg.pilares || []).map(p => <option key={p.pilar} value={p.pilar}>{p.pilar}</option>)}{!(pilCfg.pilares || []).some(p => p.pilar === m.pilar) && m.pilar && <option value={m.pilar}>{m.pilar}</option>}</select></td>
+              <td style={{ padding: '9px 10px', verticalAlign: 'top' }}><input type="number" defaultValue={m.peso} key={m.chave + '-p-' + m.peso} onBlur={e => salvarCfg(m.chave, { peso: e.target.value, ativo: true })} style={{ ...inpSm, width: 56 }} /></td>
+              <td style={{ padding: '9px 10px', verticalAlign: 'top' }}><select value={m.direcao} onChange={e => salvarCfg(m.chave, { direcao: e.target.value, ativo: true })} style={inpSm}><option value="menor">≤ teto</option><option value="maior">≥ piso</option></select></td>
+              <td style={{ padding: '9px 10px', whiteSpace: 'nowrap', verticalAlign: 'top' }}><span style={{ color: '#94a3b8', fontSize: 12, marginRight: 2 }}>{m.direcao === 'menor' ? '≤' : '≥'}</span><input type="number" defaultValue={m.meta ?? ''} key={m.chave + '-m-' + (m.meta ?? '')} placeholder="—" onBlur={e => salvarCfg(m.chave, { meta: e.target.value, ativo: true })} style={{ ...inpSm, width: 74 }} /> <b style={{ color: '#0d6b5e', fontSize: 12 }}>{UNI_ROT[m.unidade] || m.unidade}</b></td>
+              <td style={{ padding: '9px 10px', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{sg && sg.sugerido != null ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ fontWeight: 700, color: '#0d6b5e' }}>{m.direcao === 'menor' ? '≤ ' : '≥ '}{fmtU(sg.sugerido, m.unidade)}</span>
+                  <button onClick={() => salvarCfg(m.chave, { meta: sg.sugerido, ativo: true })} title="usar esta sugestão como meta" style={{ background: '#eaf2fb', color: '#185FA5', border: '1px solid #cfe0f5', borderRadius: 6, padding: '2px 7px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>← usar</button>
+                  {sg.fonteCmv && <span title={sg.fonteCmv} style={{ fontSize: 10, color: '#2563eb' }}>🏬</span>}
+                </span>
+              ) : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+              <td style={{ padding: '9px 10px', color: '#94a3b8', verticalAlign: 'top' }}>{m.fonte === 'auto' ? '⚙️ auto' : '✍️ manual'}</td>
+              <td style={{ padding: '9px 10px', verticalAlign: 'top' }}><input type="checkbox" defaultChecked={m.ativo !== false} key={m.chave + '-a-' + (m.ativo !== false)} onChange={e => salvarCfg(m.chave, { ativo: e.target.checked })} /></td>
+            </tr>); })}</tbody>
         </table></div>
-        <p style={{ fontSize: 11.5, color: '#64748b', marginTop: 8 }}>💡 Indicadores <b>⚙️ auto</b> vêm do sistema (cobertura, curva D, saldo, acordos validados, conversão de itens novos, retorno do falteiro). Os <b>✍️ manuais</b> o gestor lança por mês em 🏆 Meu Setor (CMV, vencidos, orçamento). "Sugerir" usa o realizado do comprador (mês selecionado ou média de 3/6/12 meses). <b>Exceção: o CMV</b> é sugerido pela <b>média das lojas</b> dos produtos dos grupos do comprador (cada loja pesa igual) — o mesmo cálculo da tabela de CMV por grupo abaixo.</p>
+        <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>⚙️ auto = vem do ERP · ✍️ manual = lançado em 🏆 Meu Setor. O <b>CMV</b> é sugerido pela <b>média das lojas</b> dos grupos do comprador; os demais pela média do realizado. Clique no <b>ⓘ</b> de cada indicador pra ver o que é e como é calculado.</p>
+      </div>
+      <div style={{ ...s.card }}>
+        <button onClick={() => setCfgAberto(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left' }}>
+          <span style={{ fontWeight: 700, fontSize: 13 }}>⚙️ Configurar pilares, tetos e bônus</span>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>(avançado)</span>
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#94a3b8' }}>{cfgAberto ? 'recolher ▲' : 'abrir ▼'}</span>
+        </button>
+        {cfgAberto && <div style={{ marginTop: 10 }}>
+          <div style={{ background: '#f0f7f4', border: '1px solid #cdeadd', borderRadius: 8, padding: 10, fontSize: 12, color: '#334', marginBottom: 10 }}>
+            Cada indicador entra num <b>pilar</b> com um <b>peso</b>. Nota do pilar = Σ peso batido ÷ Σ peso ativo × 100. Prêmio = nota × teto/100; bater <b>100%</b> paga o teto + <b>bônus</b>. A premiação do comprador é a soma dos pilares.
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+            <div style={{ fontWeight: 700, fontSize: 12.5 }}>🧱 Pilares &amp; tetos <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>(até 5)</span></div>
+            <label style={{ fontSize: 12, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 5, marginLeft: 'auto' }}>Bônus a 100%
+              <input type="number" defaultValue={pilCfg.bonus} key={'b' + pilCfg.bonus} onBlur={e => salvarBonus(e.target.value)} style={{ ...inpSm, width: 60 }} />%</label>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {pilCfg.pilares.map(p => (
+              <div key={p.pilar} style={{ border: '1px solid #e3e8ea', borderRadius: 10, padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <b style={{ fontSize: 12.5 }}>{p.pilar}</b>
+                <label style={{ fontSize: 11, color: '#94a3b8', display: 'inline-flex', alignItems: 'center', gap: 3 }}>teto R$
+                  <input type="number" defaultValue={p.teto} key={p.pilar + p.teto} onBlur={e => salvarPilar(p.pilar, { teto: e.target.value })} style={{ ...inpSm, width: 64 }} /></label>
+                <button onClick={() => delPilar(p.pilar)} title="remover" style={{ border: 'none', background: 'none', color: '#c0392b', cursor: 'pointer', fontSize: 13 }}>✕</button>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              <input value={novoPilar} onChange={e => setNovoPilar(e.target.value)} placeholder="novo pilar…" style={{ ...inpSm, width: 120 }} />
+              <button onClick={addPilar} style={{ background: '#0d6b5e', color: '#fff', border: 'none', borderRadius: 7, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>+ pilar</button>
+            </div>
+          </div>
+        </div>}
       </div>
       {d && <FaixasPremioCompras d={d} gestao={false} />}
       {d && <PessoasPremioCompras API={API} comp={comp} d={d} gestao={gestao} />}
