@@ -313,11 +313,38 @@ function Sugestao() {
   const carregar = useCallback(() => { setEst('carregando'); API.get('/crm/sugestao', { params: { mes, ano } }).then(r => { setD(r.data); setEst(r.data && r.data.erp === false ? 'offline' : 'ok'); }).catch(() => setEst('erro')); }, [API, mes, ano]);
   useEffect(() => { carregar(); }, [carregar]);
   const vend = ((d && d.vendedores) || []).slice().sort((a, b) => (b.taxa || 0) - (a.taxa || 0));
+  // Agregado por LOJA (soma exibidas/convertidas — não deixa amostra pequena distorcer).
+  const porLoja = React.useMemo(() => {
+    const m = {};
+    ((d && d.vendedores) || []).forEach(v => {
+      const l = String(v.loja || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || '—';
+      const a = (m[l] = m[l] || { loja: l, exibidas: 0, convertidas: 0, n: 0 });
+      a.exibidas += v.exibidas; a.convertidas += v.convertidas; a.n += 1;
+    });
+    return Object.values(m).map(a => ({ ...a, taxa: a.exibidas ? a.convertidas / a.exibidas : 0 })).sort((a, b) => b.taxa - a.taxa);
+  }, [d]);
+  const maxTaxa = Math.max(0.01, ...porLoja.map(l => l.taxa));
+  const barCor = p => p >= 0.1 ? '#0E7C5A' : p >= 0.05 ? '#B7791F' : '#C0392B';
   return (
     <div>
       <BarraMesAno {...{ mes, setMes, ano, setAno }} onBuscar={carregar} />
       {est === 'offline' && offline}{est === 'erro' && erroBox}{est === 'carregando' && <div style={{ color: '#94a3b8', padding: 16 }}>carregando…</div>}
-      {est === 'ok' && <div style={{ background: '#fff', border: '1px solid #eef1f4', borderRadius: 12, overflow: 'hidden' }}>
+      {est === 'ok' && <>
+      <div style={{ background: '#fff', border: '1px solid #eef1f4', borderRadius: 12, padding: 16, marginBottom: 12 }}>
+        <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 12 }}>📊 Conversão do PDV+ por loja</div>
+        {porLoja.map(l => { const pct = Math.round(l.taxa * 1000) / 10; return (
+          <div key={l.loja} style={{ marginBottom: 9 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 3 }}>
+              <span style={{ fontWeight: 600 }}>{l.loja}</span>
+              <span style={{ color: '#64748b' }}><b style={{ color: barCor(l.taxa) }}>{pct}%</b> · {n0(l.convertidas)}/{n0(l.exibidas)} · {l.n} vend</span>
+            </div>
+            <div style={{ height: 14, background: '#f1f5f9', borderRadius: 7, overflow: 'hidden' }}>
+              <div style={{ width: (l.taxa / maxTaxa * 100) + '%', height: '100%', background: barCor(l.taxa), borderRadius: 7, transition: 'width .3s' }} />
+            </div>
+          </div>
+        ); })}
+      </div>
+      <div style={{ background: '#fff', border: '1px solid #eef1f4', borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ padding: '8px 12px', fontSize: 12, color: '#64748b', borderBottom: '1px solid #f1f3f5' }}>Taxa de conversão das sugestões do PDV+ por vendedor · {n0(vend.length)} vendedores</div>
         <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
           <thead><tr style={{ textAlign: 'left', color: '#64748b', background: '#f8fafc' }}>{['#', 'Vendedor', 'Loja', 'Exibidas', 'Convertidas', 'Conversão'].map(h => <th key={h} style={{ padding: '9px 10px', fontWeight: 700 }}>{h}</th>)}</tr></thead>
@@ -331,7 +358,8 @@ function Sugestao() {
               <td style={{ padding: '7px 10px', fontWeight: 800, color: pct >= 10 ? '#15803d' : pct >= 5 ? '#B7791F' : '#C0392B' }}>{pct}%</td>
             </tr>); })}</tbody>
         </table></div>
-      </div>}
+      </div>
+      </>}
     </div>
   );
 }
