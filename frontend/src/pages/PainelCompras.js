@@ -1954,6 +1954,16 @@ function MetasCompras({ API, gestao }) {
     setSugMsg(`✅ ${sugPrev.length} meta(s) aplicada(s) pela média de ${sugMeses} ${sugMeses === 1 ? 'mês' : 'meses'}.`);
     setTimeout(() => setSugMsg(''), 4000);
   };
+  // Replicar TODAS as metas deste comprador para outro (meta/direção/peso/ativo). Útil p/ compradores da mesma área.
+  const [repComp, setRepComp] = useState('');
+  const replicarMetas = async () => {
+    if (!repComp || !d || !d.metas) return;
+    setSugMsg('⏳ replicando metas…');
+    await Promise.all(d.metas.map(m => API.put('/compras/meu-setor/config', { chave: m.chave, comprador_id: repComp, meta: m.meta, direcao: m.direcao, peso: m.peso, ativo: m.ativo !== false }).catch(() => {})));
+    const nome = comps.find(c => c.id === repComp)?.nome || 'comprador';
+    setRepComp(''); setSugMsg('✅ Metas replicadas para ' + nome + '.');
+    setTimeout(() => setSugMsg(''), 4500);
+  };
   const fmtU = (v, u) => v == null ? '—' : (u === 'R$' ? fmtVal(v, 'R$') : u === '%' ? v + '%' : v + (u ? ' ' + u : ''));
   if (!gestao) return <div style={s.card}>🎯 As metas do setor são cadastradas pela gestão. Veja a sua apuração em <b>🏆 Meu Setor</b>.</div>;
   const linhas = (d?.metas || []).concat((d && d.metasInativas) || []);
@@ -2001,6 +2011,14 @@ function MetasCompras({ API, gestao }) {
               {[3, 6, 12].map(n => <option key={n} value={n}>média de {n} meses</option>)}
             </select></label>
           <button onClick={sugerirMetas} style={{ background: '#fff', color: '#0d6b5e', border: '1px solid #0d6b5e', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>💡 Buscar histórico &amp; sugerir</button>
+          {comps.filter(c => c.id !== comp).length > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#64748b' }} title="Copia TODAS as metas deste comprador para outro (útil quando dois compradores da mesma área têm a meta igual)">
+            <span>📋 Replicar p/</span>
+            <select value={repComp} onChange={e => setRepComp(e.target.value)} style={inpSm}>
+              <option value="">outro comprador…</option>
+              {comps.filter(c => c.id !== comp).map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+            <button onClick={replicarMetas} disabled={!repComp} style={{ background: repComp ? '#185FA5' : '#cbd5e1', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 700, cursor: repComp ? 'pointer' : 'default' }}>Replicar</button>
+          </span>}
           <button onClick={salvarTudo} style={{ marginLeft: 'auto', background: '#0d6b5e', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>💾 Salvar</button>
           {salvoFlash && <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>{salvoFlash}</span>}
           {sugMsg && <span style={{ fontSize: 12, fontWeight: 600, color: sugMsg.startsWith('Sem') || sugMsg.startsWith('Erro') ? '#b45309' : '#15803d' }}>{sugMsg}</span>}
@@ -2019,7 +2037,15 @@ function MetasCompras({ API, gestao }) {
                 <td style={{ padding: '6px 8px', fontWeight: 600 }}>{r.nome}</td>
                 <td style={{ padding: '6px 8px', color: '#64748b' }}>{fmtU(r.media, r.unidade)}</td>
                 <td style={{ padding: '6px 8px', color: '#94a3b8' }}>{r.alvoAtual == null ? '—' : (r.direcao === 'menor' ? '≤ ' : '≥ ') + fmtU(r.alvoAtual, r.unidade)}</td>
-                <td style={{ padding: '6px 8px', fontWeight: 700, color: '#0d6b5e' }}>{r.sugerido == null ? '—' : (r.direcao === 'menor' ? '≤ ' : '≥ ') + fmtU(r.sugerido, r.unidade)}</td>
+                <td style={{ padding: '6px 8px' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ color: '#94a3b8', fontSize: 12 }}>{r.direcao === 'menor' ? '≤' : '≥'}</span>
+                    <input type="number" value={r.sugerido == null ? '' : r.sugerido} placeholder="—"
+                      onChange={e => { const v = e.target.value; setSugPrev(prev => prev.map(x => x.chave === r.chave ? { ...x, sugerido: v === '' ? null : Number(v) } : x)); }}
+                      style={{ width: 80, fontSize: 12.5, fontWeight: 700, color: '#0d6b5e', border: '1px solid #cfe3da', borderRadius: 6, padding: '3px 7px', background: '#f3fbf7' }} />
+                    <b style={{ color: '#0d6b5e', fontSize: 11 }}>{UNI_ROT[r.unidade] || r.unidade || ''}</b>
+                  </span>
+                </td>
               </tr>))}</tbody>
           </table></div>
         </div>}
@@ -2068,10 +2094,11 @@ function CmvPorGrupo({ API }) {
   const gerar = () => {
     setBusy(true); flash('⏳ analisando os últimos ' + meses + ' meses…', 8000);
     API.get('/compras/cmv-metas/sugerir', { params: { loja, meses } }).then(r => {
-      const g = (r.data.grupos || []).map(x => ({ ...x, usar: base === 'simples' ? x.cmvSimples : x.cmvPond })).filter(x => x.usar != null);
+      const g = (r.data.grupos || []).map(x => ({ ...x, usar: base === 'simples' ? x.cmvSimples : base === 'lojas' ? x.cmvLojas : x.cmvPond })).filter(x => x.usar != null);
       if (!g.length) { setBusy(false); return flash('Sem venda no período para gerar.'); }
+      const nomeBase = base === 'simples' ? 'simples' : base === 'lojas' ? 'das lojas' : 'ponderada';
       Promise.all(g.map(x => API.put('/compras/cmv-metas', { loja_id: loja, grupo: x.grupo, meta: x.usar }).catch(() => {})))
-        .then(() => { carregar(); setBusy(false); flash(`✅ ${g.length} metas geradas pela média ${base === 'simples' ? 'simples' : 'ponderada'} de ${meses} meses — revise e ajuste.`, 4500); });
+        .then(() => { carregar(); setBusy(false); flash(`✅ ${g.length} metas geradas pela média ${nomeBase} de ${meses} meses — revise e ajuste.`, 4500); });
     }).catch(() => { setBusy(false); flash('⚠️ erro ao analisar.'); });
   };
   const escopo = loja ? (lojas.find(l => l.id === loja)?.nome || 'loja') : 'TODAS as lojas';
@@ -2093,19 +2120,21 @@ function CmvPorGrupo({ API }) {
         <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>Meta pela média:</span>
         {tabBtn('pond', '⚖️ Ponderada')}
         {tabBtn('simples', '➗ Simples')}
-        <span style={{ fontSize: 11.5, color: '#94a3b8' }}>{base === 'pond' ? 'Σcusto ÷ Σvenda do período (mês de mais venda pesa mais).' : 'média dos CMV de cada mês (cada mês conta igual).'}</span>
+        {loja === '' && tabBtn('lojas', '🏬 Média das lojas')}
+        <span style={{ fontSize: 11.5, color: '#94a3b8' }}>{base === 'pond' ? 'Σcusto ÷ Σvenda do período (loja/mês de mais venda pesa mais).' : base === 'lojas' ? 'média do CMV de cada loja (cada loja conta igual, independe do tamanho).' : 'média dos CMV de cada mês (cada mês conta igual).'}</span>
       </div>
-      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>Definindo para <b>{escopo}</b>. Cada grupo (PERFUMARIA, GENÉRICO, PROPAGADO…) tem seu CMV próprio. A meta já vem <b>pré-preenchida</b> com a média <b>{base === 'pond' ? 'ponderada' : 'simples'}</b> dos últimos {meses} {meses === 1 ? 'mês' : 'meses'} — é só ajustar e sair do campo pra fixar. As duas médias ficam à mostra pra você comparar. Uma meta por loja <b>sobrepõe</b> a de "Todas".</div>
+      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>Definindo para <b>{escopo}</b>. Cada grupo (PERFUMARIA, GENÉRICO, PROPAGADO…) tem seu CMV próprio. A meta já vem <b>pré-preenchida</b> com a média <b>{base === 'pond' ? 'ponderada' : base === 'lojas' ? 'das lojas' : 'simples'}</b> dos últimos {meses} {meses === 1 ? 'mês' : 'meses'} — é só ajustar e sair do campo pra fixar. As médias ficam todas à mostra pra você comparar. Uma meta por loja <b>sobrepõe</b> a de "Todas".</div>
       {msg && <div style={{ fontSize: 12.5, fontWeight: 600, color: msg.startsWith('⚠️') || msg.startsWith('Sem') ? '#b45309' : '#15803d', marginBottom: 8 }}>{msg}</div>}
       <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-        <thead><tr style={{ textAlign: 'left', color: '#64748b', background: '#f8fafc', borderBottom: '2px solid #eef1f4' }}>{['Grupo principal', '⚖️ CMV ponderado', '➗ CMV simples', 'Venda (período)', 'Meta (%)', ''].map(h => <th key={h} style={{ padding: '9px 10px' }}>{h}</th>)}</tr></thead>
+        <thead><tr style={{ textAlign: 'left', color: '#64748b', background: '#f8fafc', borderBottom: '2px solid #eef1f4' }}>{['Grupo principal', '⚖️ CMV ponderado', '➗ CMV simples', ...(loja === '' ? ['🏬 CMV lojas'] : []), 'Venda (período)', 'Meta (%)', ''].map(h => <th key={h} style={{ padding: '9px 10px' }}>{h}</th>)}</tr></thead>
         <tbody>
-          {(!d || !(d.grupos || []).length) && <tr><td colSpan={6} style={{ padding: 14, color: '#94a3b8' }}>{d ? 'Sem venda no período.' : '⏳ carregando…'}</td></tr>}
+          {(!d || !(d.grupos || []).length) && <tr><td colSpan={loja === '' ? 7 : 6} style={{ padding: 14, color: '#94a3b8' }}>{d ? 'Sem venda no período.' : '⏳ carregando…'}</td></tr>}
           {(d?.grupos || []).map(g => (
             <tr key={g.grupo} style={{ borderTop: '1px solid #f1f3f5' }}>
               <td style={{ padding: '9px 10px', fontWeight: 600 }}>{g.grupo} <span style={{ fontSize: 10, color: '#cbd5e1', fontWeight: 400 }}>{g.meses ? g.meses + 'm' : ''}</span></td>
               <td style={{ padding: '9px 10px', fontWeight: base === 'pond' ? 700 : 400, color: base === 'pond' ? (g.salvo ? (CMV_COR[g.farol] || '#334') : '#334') : '#94a3b8' }}>{g.cmvPond != null ? g.cmvPond + '%' : '—'}</td>
               <td style={{ padding: '9px 10px', fontWeight: base === 'simples' ? 700 : 400, color: base === 'simples' ? '#334' : '#94a3b8' }}>{g.cmvSimples != null ? g.cmvSimples + '%' : '—'}</td>
+              {loja === '' && <td style={{ padding: '9px 10px', fontWeight: base === 'lojas' ? 700 : 400, color: base === 'lojas' ? '#334' : '#94a3b8' }}>{g.cmvLojas != null ? g.cmvLojas + '%' : '—'}<span style={{ fontSize: 10, color: '#cbd5e1' }}>{g.lojas_n ? ' ' + g.lojas_n + 'lj' : ''}</span></td>}
               <td style={{ padding: '9px 10px', color: '#64748b' }}>{'R$ ' + (g.venda || 0).toLocaleString('pt-BR')}</td>
               <td style={{ padding: '9px 10px' }}><input type="number" step="0.1" defaultValue={g.meta ?? ''} key={g.grupo + '|' + (g.meta ?? 'x') + '|' + g.origem + '|' + base} placeholder="—" onBlur={e => salvar(g.grupo, e.target.value)} style={{ ...inpSm, width: 80, borderColor: g.salvo ? '#cdeadd' : '#e3e8ea', background: g.salvo ? '#f6fcf9' : '#fff' }} />{!g.salvo ? <span style={{ fontSize: 10, color: '#94a3b8' }} title="pré-preenchido com a média escolhida — ajuste e saia do campo p/ fixar"> (média)</span> : (g.origem === 'global' && loja ? <span style={{ fontSize: 10, color: '#94a3b8' }} title="herdada de Todas as lojas"> (global)</span> : '')}</td>
               <td style={{ padding: '9px 10px' }}>{g.salvo && <span style={{ fontSize: 11, fontWeight: 700, color: CMV_COR[g.farol] }}>{g.farol === 'verde' ? '✓ no alvo' : g.farol === 'amarelo' ? '≈ no limite' : g.farol === 'vermelho' ? '▲ acima' : ''}</span>}</td>

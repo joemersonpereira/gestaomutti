@@ -76,6 +76,7 @@ import EstagioRH from './pages/EstagioRH';
 import Contabilidade from './pages/Contabilidade';
 import Fiscal from './pages/Fiscal';
 import SuporteLoja from './pages/SuporteLoja';
+import AcessoRemoto from './pages/AcessoRemoto';
 import BancoTalentos from './pages/BancoTalentos';
 import Fornecedores from './pages/Fornecedores';
 import AuditoriaContabil from './pages/AuditoriaContabil';
@@ -158,6 +159,7 @@ const MODULOS = [
   { id: 'contabilidade', label: '🧮 Contabilidade', C: Contabilidade, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'] },
   { id: 'fiscal', label: '📋 Fiscal', C: Fiscal, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Suporte'] },
   { id: 'suporte-loja', label: '🛟 Suporte Loja', C: SuporteLoja, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Suporte'] },
+  { id: 'acesso-remoto', label: '🖥️ Acesso remoto', C: AcessoRemoto, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Supervisor', 'Suporte'] },
   { id: 'fornecedores', label: '🏭 Fornecedores', C: Fornecedores, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Financeiro'] },
   { id: 'auditoria-contabil', label: '🔎 Auditoria', C: AuditoriaContabil, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'] },
   { id: 'tesouraria', label: '💰 Caixa', C: TesourariaHub, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Gerente', 'Subgerente'] },
@@ -230,7 +232,7 @@ const NAV = [
     ] },
     { nome: 'Tesouraria', itens: ['tesouraria', 'conciliacao-cartao', 'estagios', 'convenio'] },
     { nome: 'Contabilidade', itens: ['contabilidade', 'fornecedores'] },
-    { nome: 'Suporte', itens: ['fiscal', 'suporte-loja'] },
+    { nome: 'Suporte', itens: ['fiscal', 'suporte-loja', 'acesso-remoto'] },
     { nome: 'Logística', itens: ['conferentes', 'devolucoes', 'almoxarifado'] },
   ] },
   { camada: 'Gestão', grupos: [

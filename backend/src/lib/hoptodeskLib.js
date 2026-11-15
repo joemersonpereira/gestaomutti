@@ -118,4 +118,36 @@ function semearExemplo() {
   ex.forEach(upsert); return { ok: true, n: ex.length };
 }
 
-module.exports = { assinaturaOk, processarEvento, listar, resumo, sincronizar, semearExemplo, CONCLUIDO, ABERTO };
+// ── Dispositivos (computadores) p/ Acesso remoto ──────────────────────────
+// Parser simples de CSV (lida com campos entre aspas e vírgula dentro). 1ª linha = cabeçalho.
+function parseCsv(txt) {
+  const linhas = String(txt || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.length);
+  if (!linhas.length) return [];
+  const campo = (l) => { const out = []; let cur = '', dentro = false; for (let i = 0; i < l.length; i++) { const c = l[i]; if (c === '"') { if (dentro && l[i + 1] === '"') { cur += '"'; i++; } else dentro = !dentro; } else if (c === ',' && !dentro) { out.push(cur); cur = ''; } else cur += c; } out.push(cur); return out; };
+  const head = campo(linhas[0]).map(h => h.trim().toLowerCase());
+  const idx = (nome) => head.findIndex(h => h === nome);
+  const iNome = idx('name'), iId = idx('device id'), iStatus = idx('status'), iOs = idx('os'), iComp = idx('computer name'), iIp = idx('ip address'), iGrupo = head.findIndex(h => h.includes('group') || h.includes('grupo')), iSeen = idx('last seen'), iSess = idx('remote sessions');
+  const rows = [];
+  for (let k = 1; k < linhas.length; k++) {
+    const c = campo(linhas[k]);
+    const device_id = (c[iId] || '').replace(/\s+/g, '').trim();
+    if (!device_id) continue;
+    rows.push({ device_id, nome: (c[iNome] || '').trim(), computer_name: iComp >= 0 ? (c[iComp] || '').trim() : '', status: (c[iStatus] || '').trim().toLowerCase(), so: iOs >= 0 ? (c[iOs] || '').trim() : '', grupo: iGrupo >= 0 ? (c[iGrupo] || '').trim() : '', ip: iIp >= 0 ? (c[iIp] || '').trim() : '', last_seen: iSeen >= 0 ? (c[iSeen] || '').trim() : '', sessoes: iSess >= 0 ? (parseInt(c[iSess], 10) || 0) : 0 });
+  }
+  return rows;
+}
+function importarDispositivos(empresaId, csvText) {
+  const rows = parseCsv(csvText);
+  if (!rows.length) return { ok: false, importados: 0, erro: 'CSV vazio ou sem a coluna "Device ID".' };
+  const up = db.prepare(`INSERT INTO hoptodesk_device (empresa_id, device_id, nome, computer_name, status, so, grupo, ip, last_seen, sessoes, atualizado_em)
+    VALUES (?,?,?,?,?,?,?,?,?,?, datetime('now'))
+    ON CONFLICT(empresa_id, device_id) DO UPDATE SET nome=excluded.nome, computer_name=excluded.computer_name, status=excluded.status, so=excluded.so, grupo=COALESCE(NULLIF(excluded.grupo,''), hoptodesk_device.grupo), ip=excluded.ip, last_seen=excluded.last_seen, sessoes=excluded.sessoes, atualizado_em=excluded.atualizado_em`);
+  const tx = db.transaction(() => { rows.forEach(r => up.run(empresaId, r.device_id, r.nome, r.computer_name, r.status, r.so, r.grupo, r.ip, r.last_seen, r.sessoes)); });
+  tx();
+  return { ok: true, importados: rows.length };
+}
+function listarDispositivos(empresaId) {
+  return db.prepare('SELECT device_id, nome, computer_name, status, so, grupo, ip, last_seen, sessoes, atualizado_em FROM hoptodesk_device WHERE empresa_id=? ORDER BY (status=\'online\') DESC, nome').all(empresaId);
+}
+
+module.exports = { assinaturaOk, processarEvento, listar, resumo, sincronizar, semearExemplo, importarDispositivos, listarDispositivos, CONCLUIDO, ABERTO };

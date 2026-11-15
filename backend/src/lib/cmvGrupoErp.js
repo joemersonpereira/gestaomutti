@@ -23,9 +23,13 @@ async function cmvPorGrupo(empresaId, { lojaId = '', meses = 3 } = {}) {
   const unis = unisEmpresa(empresaId, lojaId);
   if (!unis.length) return { erp: true, erro: 'Nenhuma loja vinculada ao ERP.', grupos: [] };
   const m = Math.max(1, Math.min(12, Number(meses) || 3));
+  // base por grupo × mês × loja — daí saem as três médias (Joe 2026-11-15):
+  //  • pond    = Σcusto ÷ Σvenda do bolo todo (loja/mês de mais venda pesa mais).
+  //  • simples = média dos CMV de cada MÊS (cada mês conta igual, lojas somadas).
+  //  • lojas   = média dos CMV de cada LOJA (cada loja conta igual, independe do tamanho).
   const rows = await erpQuery(`${PG_CTE},
-    mensal AS (
-      SELECT pg.grupo, date_trunc('month', v.datahorafechamento) mes,
+    base AS (
+      SELECT pg.grupo, date_trunc('month', v.datahorafechamento) mes, v.unidadenegocioid uni,
         sum(iv.valortotal) venda, sum(me.custo*abs(me.quantidade)) custo
       FROM itemvenda iv
       JOIN venda v ON v.id=iv.vendaid
@@ -35,23 +39,28 @@ async function cmvPorGrupo(empresaId, { lojaId = '', meses = 3 } = {}) {
       WHERE v.status IN ('F','D') AND iv.status='F'
         AND v.unidadenegocioid = ANY($1::bigint[])
         AND v.datahorafechamento >= date_trunc('month', now()) - (($2-1) || ' months')::interval
-      GROUP BY pg.grupo, date_trunc('month', v.datahorafechamento))
-    SELECT grupo,
-      sum(venda) venda, sum(custo) custo,
-      sum(custo)/NULLIF(sum(venda),0)*100 cmv_pond,
-      avg(CASE WHEN venda > 0 THEN custo/venda*100 END) cmv_simples,
-      count(*) FILTER (WHERE venda > 0) meses_com_venda
-    FROM mensal
-    WHERE grupo IS NOT NULL
-    GROUP BY grupo
-    HAVING sum(venda) > 0
-    ORDER BY sum(venda) DESC`, [unis, m]);
+      GROUP BY pg.grupo, date_trunc('month', v.datahorafechamento), v.unidadenegocioid),
+    por_mes AS (SELECT grupo, mes, sum(custo)/NULLIF(sum(venda),0)*100 cmv FROM base GROUP BY grupo, mes),
+    por_loja AS (SELECT grupo, uni, sum(custo)/NULLIF(sum(venda),0)*100 cmv FROM base GROUP BY grupo, uni)
+    SELECT b.grupo,
+      sum(b.venda) venda, sum(b.custo) custo,
+      sum(b.custo)/NULLIF(sum(b.venda),0)*100 cmv_pond,
+      (SELECT avg(cmv) FROM por_mes pm WHERE pm.grupo=b.grupo AND cmv IS NOT NULL) cmv_simples,
+      (SELECT avg(cmv) FROM por_loja pl WHERE pl.grupo=b.grupo AND cmv IS NOT NULL) cmv_lojas,
+      count(DISTINCT b.mes) FILTER (WHERE b.venda > 0) meses_com_venda,
+      count(DISTINCT b.uni) FILTER (WHERE b.venda > 0) lojas_com_venda
+    FROM base b
+    WHERE b.grupo IS NOT NULL
+    GROUP BY b.grupo
+    HAVING sum(b.venda) > 0
+    ORDER BY sum(b.venda) DESC`, [unis, m]);
   const r1 = v => v == null ? null : Math.round(Number(v) * 10) / 10;
   const EXCLUIR = new Set(['SERVICOS', 'SERVIÇOS', 'USO E CONSUMO']); // não são revenda — fora do orçamento (Joe 2026-11-12)
   const grupos = rows.filter(r => r.grupo && !EXCLUIR.has(String(r.grupo).toUpperCase())).map(r => {
-    const pond = r1(r.cmv_pond), simples = r1(r.cmv_simples);
+    const pond = r1(r.cmv_pond), simples = r1(r.cmv_simples), lojas = r1(r.cmv_lojas);
     return { grupo: r.grupo, venda: Math.round(Number(r.venda) || 0), custo: Math.round(Number(r.custo) || 0),
-      cmvPond: pond, cmvSimples: simples, cmv: pond, meses: Number(r.meses_com_venda) || 0 };
+      cmvPond: pond, cmvSimples: simples, cmvLojas: lojas, cmv: pond,
+      meses: Number(r.meses_com_venda) || 0, lojas_n: Number(r.lojas_com_venda) || 0 };
   });
   return { erp: true, meses: m, lojaId: lojaId || '', grupos };
 }
@@ -90,7 +99,7 @@ async function painelCmv(empresaId, { lojaId = '', meses = 3, base = 'pond' } = 
   listarMetas(empresaId).forEach(r => { metasLoja[(r.loja_id || '') + '|' + r.grupo] = r.meta; });
   const glob = k => metasLoja['|' + k];
   const grupos = (real.grupos || []).map(g => {
-    const baseCmv = base === 'simples' ? g.cmvSimples : g.cmvPond;
+    const baseCmv = base === 'simples' ? g.cmvSimples : base === 'lojas' ? g.cmvLojas : g.cmvPond;
     const metaEsp = metasLoja[(lojaId || '') + '|' + g.grupo];
     const saved = (metaEsp != null) ? metaEsp : (glob(g.grupo) != null ? glob(g.grupo) : null);
     const salvo = saved != null;
