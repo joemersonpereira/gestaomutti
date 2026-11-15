@@ -168,25 +168,33 @@ function DrillVendas({ id, nome, de, ate, onFechar }) {
 function Envios() {
   const { API } = useAuth();
   const { de, setDe, ate, setAte } = usePeriodo();
-  const [busca, setBusca] = useState(''); const [falhas, setFalhas] = useState(false);
+  const [busca, setBusca] = useState(''); const [falhas, setFalhas] = useState(false); const [respondidas, setRespondidas] = useState(false);
+  const [campanhas, setCampanhas] = useState([]); const [campSel, setCampSel] = useState('');
   const [d, setD] = useState(null); const [est, setEst] = useState('idle');
+  useEffect(() => { API.get('/crm/campanhas/lista').then(r => setCampanhas(r.data.campanhas || [])).catch(() => {}); }, [API]);
   const carregar = useCallback(() => {
     setEst('carregando');
-    API.get('/crm/envios', { params: { de, ate, busca: busca || undefined, falhas: falhas ? 1 : undefined, size: 200 } })
+    API.get('/crm/envios', { params: { de, ate, busca: busca || undefined, falhas: falhas ? 1 : undefined, respondidas: respondidas ? 1 : undefined, campanha: campSel || undefined, size: 200 } })
       .then(r => { setD(r.data); setEst(r.data && r.data.erp === false ? 'offline' : 'ok'); })
       .catch(() => setEst('erro'));
-  }, [API, de, ate, busca, falhas]);
-  useEffect(() => { carregar(); }, [de, ate, falhas]); // eslint-disable-line
+  }, [API, de, ate, busca, falhas, respondidas, campSel]);
+  useEffect(() => { carregar(); }, [de, ate, falhas, respondidas, campSel]); // eslint-disable-line
   const rows = (d && d.data) || [];
+  const stLabel = s => s === 2 ? 'Entregue' : s === 1 ? 'Enviada' : 'Não enviada';
   const stCor = s => s === 2 ? { c: '#15803d', b: '#eafaf0' } : s === 1 ? { c: '#B7791F', b: '#fcf7ea' } : { c: '#C0392B', b: '#fbeaea' };
   return (
     <div>
       <BarraPeriodo {...{ de, setDe, ate, setAte }} onBuscar={carregar}
         extra={<>
-          <label style={{ fontSize: 12, color: '#64748b' }}>Buscar<br /><input value={busca} onChange={e => setBusca(e.target.value)} onKeyDown={e => e.key === 'Enter' && carregar()} placeholder="nome, CPF, celular…" style={{ ...inp, width: 190 }} /></label>
-          <label style={{ fontSize: 12.5, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 5, paddingBottom: 8 }}><input type="checkbox" checked={falhas} onChange={e => setFalhas(e.target.checked)} /> só falhas</label>
+          <label style={{ fontSize: 12, color: '#64748b' }}>Campanha<br /><select value={campSel} onChange={e => setCampSel(e.target.value)} style={{ ...inp, maxWidth: 230 }}>
+            <option value="">Todas as campanhas</option>
+            {campanhas.map(c => <option key={c.id} value={c.id}>{c.name}{c.active ? '' : ' (inativa)'}</option>)}
+          </select></label>
+          <label style={{ fontSize: 12, color: '#64748b' }}>Buscar<br /><input value={busca} onChange={e => setBusca(e.target.value)} onKeyDown={e => e.key === 'Enter' && carregar()} placeholder="nome, CPF, celular…" style={{ ...inp, width: 170 }} /></label>
+          <label style={{ fontSize: 12.5, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 5, paddingBottom: 8 }}><input type="checkbox" checked={respondidas} onChange={e => { setRespondidas(e.target.checked); if (e.target.checked) setFalhas(false); }} /> <b style={{ color: '#185FA5' }}>só respondidas</b></label>
+          <label style={{ fontSize: 12.5, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 5, paddingBottom: 8 }}><input type="checkbox" checked={falhas} onChange={e => { setFalhas(e.target.checked); if (e.target.checked) setRespondidas(false); }} /> só não entregues</label>
         </>} />
-      <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 8 }}>Esta auditoria traz o <b>status de entrega</b> (Entregue / Enviado / Falha). O <b>número de respostas</b> de cada campanha aparece na aba <b>🚀 Campanhas</b> (coluna Respostas). A lista por cliente de <b>quem respondeu</b> entra assim que eu ligar a fonte de respostas.</div>
+      <div style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 8 }}>Status de entrega (Entregue / Enviada / Não enviada) + <b>quem respondeu</b> ao SMS (filtro "só respondidas"). Dá pra filtrar por campanha (inclui inativas). <i>O texto da resposta entra assim que eu ligar o endpoint de conversa do Trivio.</i></div>
       {est === 'offline' && offline}{est === 'erro' && erroBox}{est === 'carregando' && <div style={{ color: '#94a3b8', padding: 16 }}>carregando…</div>}
       {est === 'ok' && <div style={{ background: '#fff', border: '1px solid #eef1f4', borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ padding: '8px 12px', fontSize: 12, color: '#64748b', borderBottom: '1px solid #f1f3f5' }}>{n0(rows.length)} envio(s){(d.page && d.page.total) ? ` de ${n0(d.page.total)}` : ''}</div>
@@ -201,7 +209,7 @@ function Envios() {
               <td style={{ padding: '7px 10px', color: '#475569' }}>{r.campaign}</td>
               <td style={{ padding: '7px 10px', color: '#94a3b8', whiteSpace: 'nowrap' }}>{dataBr(r.sentDate)}</td>
               <td style={{ padding: '7px 10px', color: '#64748b' }}>{r.messageTypeLabel || r.messageTypeString}</td>
-              <td style={{ padding: '7px 10px' }}><span style={{ fontSize: 10.5, fontWeight: 700, color: c.c, background: c.b, borderRadius: 10, padding: '2px 9px' }}>{r.messageStatusLabel || (r.messageStatus === 2 ? 'Entregue' : r.messageStatus === 1 ? 'Enviado' : 'Falha')}</span></td>
+              <td style={{ padding: '7px 10px' }}><span style={{ fontSize: 10.5, fontWeight: 700, color: c.c, background: c.b, borderRadius: 10, padding: '2px 9px' }}>{r.messageStatusLabel || stLabel(r.messageStatus)}</span></td>
             </tr>); })}</tbody>
         </table></div>
       </div>}

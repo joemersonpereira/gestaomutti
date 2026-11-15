@@ -90,11 +90,12 @@ async function campanhaVendas(campaignId, { de, ate, campaignDigitalId, from = 0
 }
 
 // ── Auditoria de envios: quem recebeu cada campanha, status (entregue/erro), respostas ──
-async function auditoriaEnvios({ de, ate, busca, campaignDigitalId, onlyFailed, from = 0, size = 50 } = {}) {
+async function auditoriaEnvios({ de, ate, busca, campaignDigitalId, onlyFailed, onlyAnswered, from = 0, size = 50 } = {}) {
   if (!habilitado()) return { erp: false };
   const qs = listQuery({
     SearchInput: busca, CampaignDigitalId: campaignDigitalId, StartDate: de, EndDate: ate,
     OnlyFailedMessages: onlyFailed ? 'true' : undefined,
+    OnlyAnsweredMessages: onlyAnswered ? 'true' : undefined,
   }, { from, size });
   const j = await trivioGet('/api/v1/campaign/lead/analysis', qs);
   return { erp: true, ...j };

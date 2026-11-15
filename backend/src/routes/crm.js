@@ -38,7 +38,7 @@ router.get('/campanhas/:id/vendas', async (req, res) => {
 // Auditoria de envios: quem recebeu, status, respostas.
 router.get('/envios', async (req, res) => {
   if (!crm.habilitado()) return off(res);
-  try { res.json(await crm.auditoriaEnvios({ de: req.query.de, ate: req.query.ate, busca: req.query.busca, campaignDigitalId: req.query.digital, onlyFailed: req.query.falhas === '1' })); }
+  try { res.json(await crm.auditoriaEnvios({ de: req.query.de, ate: req.query.ate, busca: req.query.busca, campaignDigitalId: req.query.campanha, onlyFailed: req.query.falhas === '1', onlyAnswered: req.query.respondidas === '1', size: Number(req.query.size) || 50 })); }
   catch (e) { res.status(502).json({ erro: e.message }); }
 });
 
