@@ -85,7 +85,11 @@ const silencio = () => {};
 for (const f of pendentes) {
   const log = console.log; console.log = silencio;          // cada migração imprime seu próprio "✅"; aqui basta uma linha por arquivo
   try {
-    require(path.join(DIR, f));
+    // A migração roda no require (estilo self-executing) OU exporta uma função que recebe o db.
+    // Sem este typeof, migrações function-export (`module.exports = function (db) {...}`) viravam
+    // NO-OP: o require carregava mas nunca chamava a função. (Bug real: 392–408 não rodaram na prod.)
+    const _mig = require(path.join(DIR, f));
+    if (typeof _mig === 'function') _mig(db);
     console.log = log;
     registrar.run(f, 'aplicada');
     console.log('  ✓', f);
