@@ -65,7 +65,7 @@ export default function PainelGestao() {
             {podeEditar && <AprovacoesArrasto API={API} />}
             {podeEditar && <AcordosValidar API={API} />}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12, alignItems: 'stretch' }}>
-              {(d.setores || []).filter(sx => (sx.pilares || []).length > 0).map(sx => {
+              {(d.setores || []).map(sx => {
                 const doSetor = areas.filter(a => a.setor === sx.key);
                 return <SetorGrupo key={sx.key} sx={sx} areas={doSetor} API={API} cont={cont} pessoas={pessoas} onComentou={carregar} />;
               })}

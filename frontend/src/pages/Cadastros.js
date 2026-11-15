@@ -786,17 +786,44 @@ function AcessosColaborador({ API, colaboradorId, funcao }) {
     API.get(`/acessos/colaborador/${colaboradorId}`).then(r => { setOverrides(podar(r.data.overrides || {})); setFuncaoOv(r.data.funcaoOverrides || {}); }).catch(() => { setOverrides({}); setFuncaoOv({}); });
   }, [API, colaboradorId]); // eslint-disable-line
   const estado = id => (overrides[id] === true ? 'liberado' : overrides[id] === false ? 'bloqueado' : 'padrao');
-  const setEstado = (id, novo) => setOverrides(prev => { const mp = { ...prev }; if (novo === 'padrao') delete mp[id]; else mp[id] = (novo === 'liberado'); return mp; });
-  async function salvar() {
-    // manda explicitamente null pros que voltaram a 'padrão' (pra apagar no banco)
-    const payload = {}; MODULOS_META.forEach(m => { payload[m.id] = overrides[m.id] === true ? true : overrides[m.id] === false ? false : null; });
-    const r = await API.put(`/acessos/colaborador/${colaboradorId}`, { overrides: payload });
-    setOverrides(podar(r.data.overrides || {})); setMsg('✅ Acessos do colaborador salvos.'); setTimeout(() => setMsg(''), 2500);
-  }
-  const limpar = () => setOverrides({});
+  // AUTO-SALVA ao marcar (resolve o "volto e some tudo"): grava só o módulo mexido, na hora.
+  const setEstado = (id, novo) => {
+    setOverrides(prev => { const mp = { ...prev }; if (novo === 'padrao') delete mp[id]; else mp[id] = (novo === 'liberado'); return mp; });
+    if (!colaboradorId) return;
+    const val = novo === 'padrao' ? null : (novo === 'liberado');
+    setMsg('💾 salvando…');
+    API.put(`/acessos/colaborador/${colaboradorId}`, { overrides: { [id]: val } })
+      .then(() => { setMsg('✓ salvo'); setTimeout(() => setMsg(''), 1200); })
+      .catch(() => setMsg('⚠️ erro ao salvar'));
+  };
+  const limpar = () => {
+    setOverrides({});
+    if (!colaboradorId) return;
+    const payload = {}; MODULOS_META.forEach(m => { payload[m.id] = null; });
+    API.put(`/acessos/colaborador/${colaboradorId}`, { overrides: payload }).then(() => { setMsg('✓ zerado'); setTimeout(() => setMsg(''), 1200); }).catch(() => {});
+  };
   const nDesvios = Object.keys(overrides).length;
   const mods = MODULOS_META.filter(m => !busca.trim() || m.label.toLowerCase().includes(busca.toLowerCase()));
   const heranca = id => (funcaoOv[id] === true ? 'função libera' : funcaoOv[id] === false ? 'função bloqueia' : 'padrão do sistema');
+  // Replicar os acessos desta pessoa para outros colaboradores.
+  const [repAberto, setRepAberto] = useState(false);
+  const [colabs, setColabs] = useState([]);
+  const [repSel, setRepSel] = useState({});
+  const [repBusca, setRepBusca] = useState('');
+  const abrirReplicar = () => {
+    setRepAberto(a => !a); setRepSel({});
+    if (!colabs.length) API.get('/colaboradores').then(r => setColabs(((r.data.colaboradores || r.data || []) || []).filter(c => c.id !== colaboradorId))).catch(() => {});
+  };
+  const replicar = () => {
+    const destinos = Object.keys(repSel).filter(k => repSel[k]);
+    if (!destinos.length) { setMsg('⚠️ selecione ao menos um colaborador'); setTimeout(() => setMsg(''), 2500); return; }
+    const payload = {}; MODULOS_META.forEach(m => { payload[m.id] = overrides[m.id] === true ? true : overrides[m.id] === false ? false : null; });
+    API.post(`/acessos/colaborador/${colaboradorId}/replicar`, { destinos, overrides: payload })
+      .then(r => { setMsg(`✅ Acessos replicados para ${r.data.replicados} colaborador(es).`); setRepAberto(false); setRepSel({}); setTimeout(() => setMsg(''), 3500); })
+      .catch(() => { setMsg('⚠️ erro ao replicar'); setTimeout(() => setMsg(''), 2500); });
+  };
+  const colabsFiltrados = colabs.filter(c => !repBusca.trim() || (c.nome || '').toLowerCase().includes(repBusca.toLowerCase()));
+  const nSel = Object.values(repSel).filter(Boolean).length;
   return (
     <div style={{ marginTop: 14, border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
       <button type="button" onClick={() => setAberto(a => !a)} style={{ width: '100%', textAlign: 'left', background: '#f0f7f4', border: 'none', padding: '10px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#0d6b5e', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -820,11 +847,32 @@ function AcessosColaborador({ API, colaboradorId, funcao }) {
             );
           })}
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
-          <button type="button" style={s.btn} onClick={salvar}>Salvar acessos da pessoa</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11.5, color: '#3B6D11', fontWeight: 600 }}>💾 Salvo automaticamente ao marcar.</span>
+          <button type="button" style={{ ...s.btn, background: '#185FA5' }} onClick={abrirReplicar}>📋 Replicar para outros</button>
           {nDesvios > 0 && <button type="button" style={{ ...s.btn, background: '#999' }} onClick={limpar}>Zerar ajustes (tudo padrão)</button>}
-          {msg && <span style={{ fontSize: 12, color: '#3B6D11' }}>{msg}</span>}
+          {msg && <span style={{ fontSize: 12, color: msg.startsWith('⚠️') ? '#C0392B' : '#3B6D11', fontWeight: 600 }}>{msg}</span>}
         </div>
+        {repAberto && (
+          <div style={{ marginTop: 10, border: '1px solid #cfe0f0', borderRadius: 10, background: '#F6FAFF', padding: 12 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: '#185FA5', marginBottom: 6 }}>📋 Replicar estes acessos para outros colaboradores</div>
+            <div style={{ fontSize: 11.5, color: '#666', marginBottom: 8 }}>Marque os colaboradores que vão ficar com <b>exatamente a mesma configuração de acesso</b> desta pessoa (substitui a deles).</div>
+            <input placeholder="🔎 buscar colaborador…" value={repBusca} onChange={e => setRepBusca(e.target.value)} style={{ ...s.campo, width: 220, marginBottom: 8 }} />
+            <div style={{ border: '1px solid #e3e8ea', borderRadius: 8, maxHeight: 220, overflowY: 'auto', background: '#fff' }}>
+              {!colabs.length ? <div style={{ fontSize: 12, color: '#999', padding: 10 }}>carregando colaboradores…</div> :
+                colabsFiltrados.map((c, i) => (
+                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderTop: i ? '1px solid #f3f3f3' : 'none', fontSize: 12.5, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={!!repSel[c.id]} onChange={e => setRepSel(s => ({ ...s, [c.id]: e.target.checked }))} />
+                    <span>{c.nome}{c.funcao ? <span style={{ color: '#9aa', fontSize: 11 }}> · {c.funcao}</span> : ''}</span>
+                  </label>
+                ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
+              <button type="button" style={{ ...s.btn, background: '#185FA5' }} onClick={replicar} disabled={!nSel}>Replicar para {nSel} selecionado{nSel === 1 ? '' : 's'}</button>
+              <button type="button" style={{ ...s.btn, background: '#999' }} onClick={() => setRepAberto(false)}>Cancelar</button>
+            </div>
+          </div>
+        )}
       </div>}
     </div>
   );

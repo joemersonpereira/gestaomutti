@@ -89,6 +89,41 @@ router.put('/colaborador/:id', exigePerfil(...PODE_COLAB), (req, res) => {
   res.json({ mensagem: 'Acessos do colaborador salvos.', overrides });
 });
 
+// Replicar os acessos (de módulo) de UMA pessoa para outros colaboradores.
+// body: { destinos: [id...], overrides?: { modulo_id: true|false|null } }
+// Se `overrides` vier (config na tela), aplica ela; senão copia os acessos salvos da origem.
+// Substitui por completo os acessos de cada destino (fica idêntico à origem).
+router.post('/colaborador/:id/replicar', exigePerfil(...PODE_COLAB), (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const origem = db.prepare('SELECT id FROM colaboradores WHERE id=? AND empresa_id=?').get(req.params.id, emp);
+  if (!origem) return res.status(404).json({ erro: 'Colaborador de origem não encontrado.' });
+  const destinos = Array.isArray(req.body.destinos) ? [...new Set(req.body.destinos.filter(d => d && d !== req.params.id))] : [];
+  if (!destinos.length) return res.status(400).json({ erro: 'Selecione pelo menos um colaborador de destino.' });
+  // Config a replicar: da tela (overrides) ou a salva da origem.
+  let pares; // [ [modulo_id, 0|1] ... ]
+  if (req.body.overrides && typeof req.body.overrides === 'object') {
+    pares = Object.entries(req.body.overrides).filter(([, v]) => v === true || v === false).map(([m, v]) => [m, v ? 1 : 0]);
+  } else {
+    pares = db.prepare('SELECT modulo_id, permitido FROM colaborador_acessos WHERE empresa_id=? AND colaborador_id=?').all(emp, req.params.id).map(r => [r.modulo_id, r.permitido ? 1 : 0]);
+  }
+  const del = db.prepare('DELETE FROM colaborador_acessos WHERE empresa_id=? AND colaborador_id=?');
+  const up = db.prepare(`INSERT INTO colaborador_acessos (empresa_id, colaborador_id, modulo_id, permitido, atualizado_em)
+    VALUES (?,?,?,?,datetime('now'))
+    ON CONFLICT(colaborador_id, modulo_id) DO UPDATE SET permitido=excluded.permitido, atualizado_em=excluded.atualizado_em`);
+  let n = 0;
+  const tx = db.transaction(() => {
+    for (const dest of destinos) {
+      const existe = db.prepare('SELECT id FROM colaboradores WHERE id=? AND empresa_id=?').get(dest, emp);
+      if (!existe) continue;
+      del.run(emp, dest);
+      for (const [m, v] of pares) up.run(emp, dest, m, v);
+      n++;
+    }
+  });
+  tx();
+  res.json({ mensagem: `Acessos replicados para ${n} colaborador(es).`, replicados: n, ajustes: pares.length });
+});
+
 // Configuração completa POR FUNÇÃO (só gestão máxima edita).
 const PODE = ['Gestor Geral', 'Diretor Geral'];
 router.get('/config', exigePerfil(...PODE), (req, res) => {
