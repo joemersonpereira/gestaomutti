@@ -212,6 +212,21 @@ setTimeout(() => {
   } catch { /* ignora */ }
 }, 12000);
 
+// Caderno de oferta novo no ERP → tarefa de Marketing "criar filipeta" (Joe 2026-11-15).
+// Roda no boot (após 20s) e a cada 3h. Idempotente (dedup por referência) — só cria p/ caderno novo.
+function _syncCadernosFilipeta() {
+  try {
+    const db = require('./db/connection');
+    const { sincronizarCadernosFilipeta } = require('./lib/crmCadernoFilipeta');
+    const empresas = [...new Set(db.prepare('SELECT empresa_id FROM lojas').all().map(r => r.empresa_id))];
+    empresas.forEach(eid => sincronizarCadernosFilipeta(eid)
+      .then(r => { if (r && r.criadas) console.log(`[caderno-filipeta] ${eid}: ${r.criadas} tarefa(s) de filipeta criada(s) p/ caderno novo`); })
+      .catch(() => {}));
+  } catch { /* ignora */ }
+}
+setTimeout(_syncCadernosFilipeta, 20000);
+setInterval(_syncCadernosFilipeta, 3 * 60 * 60 * 1000);
+
 // Atualização geral ÚNICA: importa os cadastros ativos do Alpha 7 que ainda não estão no app
 // (idempotente, pula quem já existe; entram com a loja/função sugeridas do ERP, sem login).
 // Guardada por flag em configuracoes — roda só 1x; depois o RH usa a tela de Conferência.

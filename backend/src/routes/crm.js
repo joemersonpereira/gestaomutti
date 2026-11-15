@@ -2,8 +2,9 @@
 // auditoria de envios, retenção. Leitura via trivioCrm (api.triv.io, login reusado do PDV+).
 const express = require('express');
 const router = express.Router();
-const { auth } = require('../middleware/auth');
+const { auth, exigePerfil } = require('../middleware/auth');
 const crm = require('../lib/trivioCrm');
+const cadernoFilipeta = require('../lib/crmCadernoFilipeta');
 const { cacheMiddleware, invalidarMiddleware } = require('../lib/erpCache');
 
 router.use(auth);
@@ -66,6 +67,13 @@ router.get('/sugestao', async (req, res) => {
 router.get('/filipetas', async (req, res) => {
   if (!crm.habilitado()) return off(res);
   try { res.json(await crm.filipetas({ mes: req.query.mes, ano: req.query.ano })); }
+  catch (e) { res.status(502).json({ erro: e.message }); }
+});
+
+// Caderno de oferta novo → tarefa de Marketing "criar filipeta". POST (escrita; não cacheia).
+// dry=1 só lista os cadernos novos sem criar tarefa. Também roda sozinho no boot/intervalo.
+router.post('/cadernos/sincronizar', exigePerfil('Marketing', 'Gestor Geral', 'Diretor Geral', 'Supervisor', 'Controladoria'), async (req, res) => {
+  try { res.json(await cadernoFilipeta.sincronizarCadernosFilipeta(req.usuario.empresa_id, { dryRun: req.query.dry === '1', diasNovo: Number(req.query.dias) || 10 })); }
   catch (e) { res.status(502).json({ erro: e.message }); }
 });
 
