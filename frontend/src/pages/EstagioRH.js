@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
+import { UI, Tabs } from '../components/ui';
 
 const brl = n => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 // número com vírgula decimal (pro Excel pt-BR) e baixa CSV (separador ';', BOM UTF-8). cols=[{h,f}]
@@ -20,10 +21,8 @@ export default function EstagioRH() {
     <div style={s.wrap}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '6px 0 12px', borderBottom: '1px solid var(--line,#ddd8cf)', marginBottom: 16 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, color: 'var(--fg,#1c2a2e)' }}>🎓 Estágios</h1>
-        <div style={{ ...s.tabs, margin: 0, marginLeft: 'auto', flexWrap: 'wrap' }}>
-          {[['fichas', '👤 Estagiários'], ['ranking', '🏅 Ranking'], ['modelos', '📄 Documentos'], ['avaliacoes', '📊 Avaliações'], ['renovacao', '🔄 Renovação'], ['pagamento', '💵 Pagamento'], ['ferias', '🌴 Férias/Rescisão'], ['instituicao', '🏫 Instituição de Ensino'], ['seguros', '🛡️ Seguros']].map(([k, l]) => (
-            <button key={k} onClick={() => setAba(k)} style={{ ...s.tab, ...(aba === k ? s.tabAtiva : {}) }}>{l}</button>
-          ))}
+        <div style={{ marginLeft: 'auto' }}>
+          <Tabs itens={[['fichas', '👤 Estagiários'], ['ranking', '🏅 Ranking'], ['modelos', '📄 Documentos'], ['avaliacoes', '📊 Avaliações'], ['renovacao', '🔄 Renovação'], ['pagamento', '💵 Pagamento'], ['ferias', '🌴 Férias/Rescisão'], ['instituicao', '🏫 Instituição de Ensino'], ['seguros', '🛡️ Seguros']]} ativa={aba} onChange={setAba} />
         </div>
       </div>
       {aba === 'fichas' && <Fichas API={API} />}
@@ -276,23 +275,23 @@ function Fichas({ API }) {
       <div style={s.card}>
         <div style={s.cardT}>Estagiários ({rows.length})</div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={s.tbl}>
-            <thead><tr>{['Nome', 'Escola', 'Reg. / Atuação', 'Bolsa', 'VT', 'Seguro', 'Dados banc.', 'Status', ''].map(c => <th key={c} style={s.th}>{c}</th>)}</tr></thead>
+          <table style={UI.tabela}>
+            <thead><tr>{['Nome', 'Escola', 'Reg. / Atuação', 'Bolsa', 'VT', 'Seguro', 'Dados banc.', 'Status', ''].map(c => <th key={c} style={UI.th}>{c}</th>)}</tr></thead>
             <tbody>
               {rows.map(r => (
                 <tr key={r.id} style={{ borderTop: '1px solid #eee' }}>
-                  <td style={s.td}>{r.nome}<div style={s.leg}>{r.cpf || ''}</div></td>
-                  <td style={s.td}>{nomeDe(escolas, r.escola_id)}</td>
-                  <td style={s.td}>{nomeAtuacao(r.empresa_registro_id)} / {nomeAtuacao(r.empresa_atuacao_id)}</td>
-                  <td style={s.td}>{brl(r.valor_bolsa)}</td>
-                  <td style={s.td}>{r.vale_transporte ? brl(r.vale_transporte) : '—'}</td>
-                  <td style={s.td}>{r.seguro_id ? nomeDe(seguros, r.seguro_id) : <span style={{ color: '#b91c1c' }}>sem seguro</span>}</td>
-                  <td style={s.td}>{r.dados_bancarios_em ? <span style={{ color: '#15803d' }}>{r.banco || 'banco'} {r.conta || ''}</span> : r.pix ? <span style={{ color: '#b45309' }}>PIX (pend.)</span> : <span style={{ color: '#b91c1c' }}>pendente</span>}</td>
-                  <td style={s.td}><span style={{ ...s.pill, background: ST[r.status] || '#999' }}>{r.status}</span></td>
-                  <td style={s.td}><button style={s.btnMini} onClick={() => gerarContrato(r)}>📄 documentos</button>{' '}<button style={s.btnMini} onClick={() => editar(r)}>editar</button>{' '}<button style={s.btnMini} onClick={() => linkBanco(r.id)}>🔗 banco</button>{' '}<button style={s.btnMini} onClick={() => remover(r.id)}>remover</button></td>
+                  <td style={UI.td}>{r.nome}<div style={s.leg}>{r.cpf || ''}</div></td>
+                  <td style={UI.td}>{nomeDe(escolas, r.escola_id)}</td>
+                  <td style={UI.td}>{nomeAtuacao(r.empresa_registro_id)} / {nomeAtuacao(r.empresa_atuacao_id)}</td>
+                  <td style={UI.td}>{brl(r.valor_bolsa)}</td>
+                  <td style={UI.td}>{r.vale_transporte ? brl(r.vale_transporte) : '—'}</td>
+                  <td style={UI.td}>{r.seguro_id ? nomeDe(seguros, r.seguro_id) : <span style={{ color: '#b91c1c' }}>sem seguro</span>}</td>
+                  <td style={UI.td}>{r.dados_bancarios_em ? <span style={{ color: '#15803d' }}>{r.banco || 'banco'} {r.conta || ''}</span> : r.pix ? <span style={{ color: '#b45309' }}>PIX (pend.)</span> : <span style={{ color: '#b91c1c' }}>pendente</span>}</td>
+                  <td style={UI.td}><span style={{ ...s.pill, background: ST[r.status] || '#999' }}>{r.status}</span></td>
+                  <td style={UI.td}><button style={s.btnMini} onClick={() => gerarContrato(r)}>📄 documentos</button>{' '}<button style={s.btnMini} onClick={() => editar(r)}>editar</button>{' '}<button style={s.btnMini} onClick={() => linkBanco(r.id)}>🔗 banco</button>{' '}<button style={s.btnMini} onClick={() => remover(r.id)}>remover</button></td>
                 </tr>
               ))}
-              {!rows.length && <tr><td style={s.td} colSpan={8}>Nenhum estagiário cadastrado.</td></tr>}
+              {!rows.length && <tr><td style={UI.td} colSpan={8}>Nenhum estagiário cadastrado.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -377,24 +376,24 @@ export function Talentos({ API }) {
       <div style={s.card}>
         <div style={s.cardT}>Candidatos ({cands.length})</div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={s.tbl}>
-            <thead><tr>{['Nome', 'Escola', 'Boletim', 'Freq.', 'Teste', 'Status', 'Ações'].map(c => <th key={c} style={s.th}>{c}</th>)}</tr></thead>
+          <table style={UI.tabela}>
+            <thead><tr>{['Nome', 'Escola', 'Boletim', 'Freq.', 'Teste', 'Status', 'Ações'].map(c => <th key={c} style={UI.th}>{c}</th>)}</tr></thead>
             <tbody>
               {cands.map(c => (
                 <tr key={c.id} style={{ borderTop: '1px solid #eee' }}>
-                  <td style={s.td}>{c.nome}<div style={s.leg}>{c.telefone || c.email || ''}</div></td>
-                  <td style={s.td}>{c.escola || '—'}</td><td style={s.td}>{c.boletim ?? '—'}</td>
-                  <td style={s.td}>{c.frequencia != null ? c.frequencia + '%' : '—'}</td>
-                  <td style={s.td}><b>{c.teste_nota != null ? c.teste_nota + '%' : '—'}</b> <span style={s.leg}>{c.teste_total ? `(${c.teste_total}q)` : ''}</span></td>
-                  <td style={s.td}><span style={{ ...s.pill, background: ST[c.status] || '#999' }}>{c.status}</span></td>
-                  <td style={s.td}>
+                  <td style={UI.td}>{c.nome}<div style={s.leg}>{c.telefone || c.email || ''}</div></td>
+                  <td style={UI.td}>{c.escola || '—'}</td><td style={UI.td}>{c.boletim ?? '—'}</td>
+                  <td style={UI.td}>{c.frequencia != null ? c.frequencia + '%' : '—'}</td>
+                  <td style={UI.td}><b>{c.teste_nota != null ? c.teste_nota + '%' : '—'}</b> <span style={s.leg}>{c.teste_total ? `(${c.teste_total}q)` : ''}</span></td>
+                  <td style={UI.td}><span style={{ ...s.pill, background: ST[c.status] || '#999' }}>{c.status}</span></td>
+                  <td style={UI.td}>
                     {c.status !== 'contratado' && <button style={s.btnMini} onClick={() => contratar(c.id)}>contratar</button>}{' '}
                     {c.status !== 'descartado' && <button style={s.btnMini} onClick={() => mudarStatus(c, 'descartado')}>descartar</button>}{' '}
                     <button style={s.btnMini} onClick={() => removerC(c.id)}>✕</button>
                   </td>
                 </tr>
               ))}
-              {!cands.length && <tr><td style={s.td} colSpan={7}>Nenhum candidato ainda. Divulgue o link acima.</td></tr>}
+              {!cands.length && <tr><td style={UI.td} colSpan={7}>Nenhum candidato ainda. Divulgue o link acima.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -455,17 +454,17 @@ function Ranking2({ API }) {
       <div style={s.card}>
         <div style={s.cardT}>Classificação ({rank.length})</div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={s.tbl}>
-            <thead><tr>{['#', 'Candidato', 'Escola', 'Boletim', 'Freq.', 'Teste', 'Nota final'].map(c => <th key={c} style={s.th}>{c}</th>)}</tr></thead>
+          <table style={UI.tabela}>
+            <thead><tr>{['#', 'Candidato', 'Escola', 'Boletim', 'Freq.', 'Teste', 'Nota final'].map(c => <th key={c} style={UI.th}>{c}</th>)}</tr></thead>
             <tbody>
               {rank.map((c, i) => (
                 <tr key={c.id} style={{ borderTop: '1px solid #eee', background: i < 3 ? '#f0fdf4' : '#fff' }}>
-                  <td style={s.td}><b>{i + 1}º</b></td><td style={s.td}>{c.nome}</td><td style={s.td}>{c.escola || '—'}</td>
-                  <td style={s.td}>{c.boletim ?? '—'}</td><td style={s.td}>{c.frequencia != null ? c.frequencia + '%' : '—'}</td><td style={s.td}>{c.teste_nota != null ? c.teste_nota + '%' : '—'}</td>
-                  <td style={{ ...s.td, fontWeight: 700, color: '#0f766e' }}>{c.score}</td>
+                  <td style={UI.td}><b>{i + 1}º</b></td><td style={UI.td}>{c.nome}</td><td style={UI.td}>{c.escola || '—'}</td>
+                  <td style={UI.td}>{c.boletim ?? '—'}</td><td style={UI.td}>{c.frequencia != null ? c.frequencia + '%' : '—'}</td><td style={UI.td}>{c.teste_nota != null ? c.teste_nota + '%' : '—'}</td>
+                  <td style={{ ...UI.td, fontWeight: 700, color: '#0f766e' }}>{c.score}</td>
                 </tr>
               ))}
-              {!rank.length && <tr><td style={s.td} colSpan={7}>Sem candidatos para ranquear.</td></tr>}
+              {!rank.length && <tr><td style={UI.td} colSpan={7}>Sem candidatos para ranquear.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -807,9 +806,9 @@ function Avaliacoes({ API }) {
         </div>
         <div style={s.card}>
           <div style={s.cardT}>Avaliações ({lista.length})</div>
-          <table style={s.tbl}><thead><tr>{['Competência', 'Nota', 'Supervisor', 'Comentário'].map(c => <th key={c} style={s.th}>{c}</th>)}</tr></thead>
-            <tbody>{lista.map(a => <tr key={a.id} style={{ borderTop: '1px solid #eee' }}><td style={s.td}>{a.competencia}</td><td style={s.td}><b>{a.nota}</b></td><td style={s.td}>{a.supervisor || '—'}</td><td style={s.td}>{a.comentario || '—'}</td></tr>)}
-              {!lista.length && <tr><td style={s.td} colSpan={4}>Sem avaliações.</td></tr>}</tbody></table>
+          <table style={UI.tabela}><thead><tr>{['Competência', 'Nota', 'Supervisor', 'Comentário'].map(c => <th key={c} style={UI.th}>{c}</th>)}</tr></thead>
+            <tbody>{lista.map(a => <tr key={a.id} style={{ borderTop: '1px solid #eee' }}><td style={UI.td}>{a.competencia}</td><td style={UI.td}><b>{a.nota}</b></td><td style={UI.td}>{a.supervisor || '—'}</td><td style={UI.td}>{a.comentario || '—'}</td></tr>)}
+              {!lista.length && <tr><td style={UI.td} colSpan={4}>Sem avaliações.</td></tr>}</tbody></table>
         </div>
       </>}
     </div>
@@ -853,17 +852,17 @@ function Renovacao({ API }) {
       <div style={s.card}>
         <div style={s.cardT}>Renovações ({rows.length})</div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={s.tbl}>
-            <thead><tr>{['Estagiário', 'Índice', 'Novo período', 'Status', 'Parecer RH', 'Ação'].map(c => <th key={c} style={s.th}>{c}</th>)}</tr></thead>
+          <table style={UI.tabela}>
+            <thead><tr>{['Estagiário', 'Índice', 'Novo período', 'Status', 'Parecer RH', 'Ação'].map(c => <th key={c} style={UI.th}>{c}</th>)}</tr></thead>
             <tbody>
               {rows.map(r => {
                 const editavel = r.status === 'pendente_rh' || r.status === 'pendente_gerente';
                 const e = ed[r.id];
                 return (
                 <tr key={r.id} style={{ borderTop: '1px solid #eee' }}>
-                  <td style={s.td}>{r.ficha_nome}</td>
-                  <td style={s.td}><b style={{ color: r.indice >= 90 ? '#15803d' : '#b45309' }}>{r.indice != null ? r.indice + '%' : '—'}</b></td>
-                  <td style={s.td}>
+                  <td style={UI.td}>{r.ficha_nome}</td>
+                  <td style={UI.td}><b style={{ color: r.indice >= 90 ? '#15803d' : '#b45309' }}>{r.indice != null ? r.indice + '%' : '—'}</b></td>
+                  <td style={UI.td}>
                     {e ? (
                       <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                         <input type="date" style={{ ...s.inp, padding: '2px 4px' }} value={e.ini || ''} onChange={ev => setEd(p => ({ ...p, [r.id]: { ...e, ini: ev.target.value } }))} />
@@ -874,9 +873,9 @@ function Renovacao({ API }) {
                       <span>{per(r)}{editavel && <button style={{ ...s.btnMini, marginLeft: 6 }} onClick={() => setEd(p => ({ ...p, [r.id]: { ini: r.periodo_inicio || '', fim: r.periodo_fim || '' } }))}>✏️</button>}</span>
                     )}
                   </td>
-                  <td style={s.td}><span style={{ ...s.pill, background: (ST[r.status] || ['#999'])[0] }}>{(ST[r.status] || ['', r.status])[1]}</span></td>
-                  <td style={s.td}>{r.rh_parecer || '—'}</td>
-                  <td style={s.td}>
+                  <td style={UI.td}><span style={{ ...s.pill, background: (ST[r.status] || ['#999'])[0] }}>{(ST[r.status] || ['', r.status])[1]}</span></td>
+                  <td style={UI.td}>{r.rh_parecer || '—'}</td>
+                  <td style={UI.td}>
                     {r.status === 'pendente_rh' && <button style={s.btnMini} onClick={() => rhOk(r.id)}>RH → gerente</button>}
                     {r.status === 'pendente_gerente' && <><button style={s.btnMini} onClick={() => decidir(r.id, 'aprovada')}>aprovar</button>{' '}<button style={s.btnMini} onClick={() => decidir(r.id, 'recusada')}>recusar</button></>}
                     {r.status === 'aprovada' && <span style={s.leg}>📄 gere o aditivo na ficha do colaborador</span>}
@@ -884,7 +883,7 @@ function Renovacao({ API }) {
                 </tr>
                 );
               })}
-              {!rows.length && <tr><td style={s.td} colSpan={6}>Nenhuma renovação aberta.</td></tr>}
+              {!rows.length && <tr><td style={UI.td} colSpan={6}>Nenhuma renovação aberta.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -908,10 +907,10 @@ function ResumoMes({ r, comp }) {
   const Tab = ({ titulo, dados, col1 }) => (
     <div style={{ flex: '1 1 240px', minWidth: 230 }}>
       <div style={{ fontWeight: 700, fontSize: 13, margin: '6px 0' }}>{titulo}</div>
-      <table style={{ ...s.tbl, fontSize: 12 }}>
-        <thead><tr>{[col1, 'QTD', 'VALOR'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
-        <tbody>{dados.map((d, i) => <tr key={i}><td style={s.td}>{d.chave}</td><td style={s.td}>{d.qtd}</td><td style={s.td}>{brl(d.valor)}</td></tr>)}
-          {!dados.length && <tr><td style={s.td} colSpan={3}>—</td></tr>}</tbody>
+      <table style={{ ...UI.tabela, fontSize: 12 }}>
+        <thead><tr>{[col1, 'QTD', 'VALOR'].map(h => <th key={h} style={UI.th}>{h}</th>)}</tr></thead>
+        <tbody>{dados.map((d, i) => <tr key={i}><td style={UI.td}>{d.chave}</td><td style={UI.td}>{d.qtd}</td><td style={UI.td}>{brl(d.valor)}</td></tr>)}
+          {!dados.length && <tr><td style={UI.td} colSpan={3}>—</td></tr>}</tbody>
       </table>
     </div>
   );
@@ -1094,18 +1093,18 @@ function Pagamento({ API }) {
             <span style={{ fontSize: 12, color: '#64748b' }}>{(difPrev.itens || []).filter(i => i.ficha_id).length} casado(s) · {(difPrev.itens || []).filter(i => !i.ficha_id).length} não encontrado(s)</span>
           </div>
           <div style={{ overflowX: 'auto', maxHeight: 280 }}>
-            <table style={s.tbl}>
-              <thead><tr>{['Nome na planilha', 'Estagiário', 'Desconto', 'Situação'].map(c => <th key={c} style={s.th}>{c}</th>)}</tr></thead>
+            <table style={UI.tabela}>
+              <thead><tr>{['Nome na planilha', 'Estagiário', 'Desconto', 'Situação'].map(c => <th key={c} style={UI.th}>{c}</th>)}</tr></thead>
               <tbody>
                 {(difPrev.itens || []).map((i, k) => (
                   <tr key={k} style={{ borderTop: '1px solid #eee', background: i.ficha_id ? undefined : '#fff7ed' }}>
-                    <td style={s.td}>{i.nome}</td>
-                    <td style={s.td}>{i.ficha_nome || (i.ambiguo ? <span style={{ color: '#b45309' }}>vários: {i.candidatos.map(c => c.nome).join(', ')}</span> : <span style={{ color: '#b91c1c' }}>não encontrado</span>)}</td>
-                    <td style={{ ...s.td, fontWeight: 700, color: '#b91c1c' }}>- {brl(i.valor)}</td>
-                    <td style={s.td}>{i.ficha_id ? '✅ vai aplicar' : '⚠️ ignorado'}</td>
+                    <td style={UI.td}>{i.nome}</td>
+                    <td style={UI.td}>{i.ficha_nome || (i.ambiguo ? <span style={{ color: '#b45309' }}>vários: {i.candidatos.map(c => c.nome).join(', ')}</span> : <span style={{ color: '#b91c1c' }}>não encontrado</span>)}</td>
+                    <td style={{ ...UI.td, fontWeight: 700, color: '#b91c1c' }}>- {brl(i.valor)}</td>
+                    <td style={UI.td}>{i.ficha_id ? '✅ vai aplicar' : '⚠️ ignorado'}</td>
                   </tr>
                 ))}
-                {!(difPrev.itens || []).length && <tr><td style={s.td} colSpan={4}>Nenhuma diferença de caixa nessa aba.</td></tr>}
+                {!(difPrev.itens || []).length && <tr><td style={UI.td} colSpan={4}>Nenhuma diferença de caixa nessa aba.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -1117,24 +1116,24 @@ function Pagamento({ API }) {
       <div style={s.card}>
         <div style={s.cardT}>Pagamentos de {comp} ({rows.length})</div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={s.tbl}>
-            <thead><tr>{['Estagiário', 'Loja', 'Bolsa', 'VT', 'Desconto', 'Obs. desconto', 'Líquido', 'Pagar via', 'Etapa', 'Ação'].map(c => <th key={c} style={s.th}>{c}</th>)}</tr></thead>
+          <table style={UI.tabela}>
+            <thead><tr>{['Estagiário', 'Loja', 'Bolsa', 'VT', 'Desconto', 'Obs. desconto', 'Líquido', 'Pagar via', 'Etapa', 'Ação'].map(c => <th key={c} style={UI.th}>{c}</th>)}</tr></thead>
             <tbody>
               {rows.map(p => (
                 <tr key={p.id} style={{ borderTop: '1px solid #eee' }}>
-                  <td style={s.td}>{p.ficha_nome}</td><td style={s.td}>{p.loja || '—'}</td>
-                  <td style={s.td}>{brl(p.bolsa)}</td><td style={s.td}>{brl(p.vt)}</td>
-                  <td style={s.td}>{!p.tes_ok ? <input type="number" style={{ ...s.inp, width: 90 }} value={(ed[p.id]?.desconto) ?? p.desconto ?? 0} onChange={e => setL(p.id, 'desconto', e.target.value)} /> : brl(p.desconto)}</td>
-                  <td style={s.td}>{!p.tes_ok ? <input style={{ ...s.inp, width: 150 }} value={(ed[p.id]?.desconto_obs) ?? p.desconto_obs ?? ''} onChange={e => setL(p.id, 'desconto_obs', e.target.value)} /> : (p.desconto_obs || '—')}</td>
-                  <td style={{ ...s.td, fontWeight: 700 }}>{brl(p.liquido)}</td>
-                  <td style={s.td}>{p.dados_bancarios_em ? <span>{p.banco || 'banco'} ag {p.agencia || '—'} c/ {p.conta || '—'}</span> : p.pix ? <span style={{ color: '#b45309' }}>PIX: {p.pix}</span> : <span style={{ color: '#b91c1c' }}>sem dados</span>}</td>
-                  <td style={s.td}><Progresso p={p} /></td>
-                  <td style={s.td}><Acao p={p} /></td>
+                  <td style={UI.td}>{p.ficha_nome}</td><td style={UI.td}>{p.loja || '—'}</td>
+                  <td style={UI.td}>{brl(p.bolsa)}</td><td style={UI.td}>{brl(p.vt)}</td>
+                  <td style={UI.td}>{!p.tes_ok ? <input type="number" style={{ ...s.inp, width: 90 }} value={(ed[p.id]?.desconto) ?? p.desconto ?? 0} onChange={e => setL(p.id, 'desconto', e.target.value)} /> : brl(p.desconto)}</td>
+                  <td style={UI.td}>{!p.tes_ok ? <input style={{ ...s.inp, width: 150 }} value={(ed[p.id]?.desconto_obs) ?? p.desconto_obs ?? ''} onChange={e => setL(p.id, 'desconto_obs', e.target.value)} /> : (p.desconto_obs || '—')}</td>
+                  <td style={{ ...UI.td, fontWeight: 700 }}>{brl(p.liquido)}</td>
+                  <td style={UI.td}>{p.dados_bancarios_em ? <span>{p.banco || 'banco'} ag {p.agencia || '—'} c/ {p.conta || '—'}</span> : p.pix ? <span style={{ color: '#b45309' }}>PIX: {p.pix}</span> : <span style={{ color: '#b91c1c' }}>sem dados</span>}</td>
+                  <td style={UI.td}><Progresso p={p} /></td>
+                  <td style={UI.td}><Acao p={p} /></td>
                 </tr>
               ))}
-              {!rows.length && <tr><td style={s.td} colSpan={9}>Nada gerado. Clique em "Gerar folha do mês".</td></tr>}
+              {!rows.length && <tr><td style={UI.td} colSpan={9}>Nada gerado. Clique em "Gerar folha do mês".</td></tr>}
             </tbody>
-            {rows.length ? <tfoot><tr style={{ borderTop: '2px solid #e2e8f0', fontWeight: 700 }}><td style={s.td} colSpan={2}>Total</td><td style={s.td}>{brl(tot.bolsa)}</td><td style={s.td}>{brl(tot.vt)}</td><td style={s.td}>{brl(tot.desc)}</td><td style={s.td}></td><td style={s.td}>{brl(tot.liq)}</td><td style={s.td} colSpan={3}></td></tr></tfoot> : null}
+            {rows.length ? <tfoot><tr style={{ borderTop: '2px solid #e2e8f0', fontWeight: 700 }}><td style={UI.td} colSpan={2}>Total</td><td style={UI.td}>{brl(tot.bolsa)}</td><td style={UI.td}>{brl(tot.vt)}</td><td style={UI.td}>{brl(tot.desc)}</td><td style={UI.td}></td><td style={UI.td}>{brl(tot.liq)}</td><td style={UI.td} colSpan={3}></td></tr></tfoot> : null}
           </table>
         </div>
       </div>
@@ -1185,14 +1184,14 @@ function FeriasRescisao({ API }) {
       </div>
       <div style={s.card}>
         <div style={s.cardT}>Férias ({ferias.length})</div>
-        <table style={s.tbl}><thead><tr>{['Estagiário', 'Início', 'Fim', 'Dias', 'Status', ''].map(c => <th key={c} style={s.th}>{c}</th>)}</tr></thead>
+        <table style={UI.tabela}><thead><tr>{['Estagiário', 'Início', 'Fim', 'Dias', 'Status', ''].map(c => <th key={c} style={UI.th}>{c}</th>)}</tr></thead>
           <tbody>{ferias.map(x => (
             <tr key={x.id} style={{ borderTop: '1px solid #eee' }}>
-              <td style={s.td}>{nomeDe(x.ficha_id)}</td><td style={s.td}>{fmtD(x.data_ini)}</td><td style={s.td}>{fmtD(x.data_fim)}</td><td style={s.td}>{x.dias || '—'}</td>
-              <td style={s.td}><span style={{ ...s.pill, background: x.status === 'lancada' ? '#15803d' : '#b45309' }}>{x.status}</span></td>
-              <td style={s.td}>{x.status === 'programada' && <button style={s.btnMini} onClick={() => lancar(x.id)}>lançar</button>}{' '}<button style={s.btnMini} onClick={() => removerF(x.id)}>remover</button></td>
+              <td style={UI.td}>{nomeDe(x.ficha_id)}</td><td style={UI.td}>{fmtD(x.data_ini)}</td><td style={UI.td}>{fmtD(x.data_fim)}</td><td style={UI.td}>{x.dias || '—'}</td>
+              <td style={UI.td}><span style={{ ...s.pill, background: x.status === 'lancada' ? '#15803d' : '#b45309' }}>{x.status}</span></td>
+              <td style={UI.td}>{x.status === 'programada' && <button style={s.btnMini} onClick={() => lancar(x.id)}>lançar</button>}{' '}<button style={s.btnMini} onClick={() => removerF(x.id)}>remover</button></td>
             </tr>))}
-            {!ferias.length && <tr><td style={s.td} colSpan={6}>Nenhuma férias.</td></tr>}</tbody></table>
+            {!ferias.length && <tr><td style={UI.td} colSpan={6}>Nenhuma férias.</td></tr>}</tbody></table>
       </div>
       <div style={{ ...s.card, background: '#fff7ed' }}>
         <div style={s.cardT}>Rescisão</div>
@@ -1212,16 +1211,16 @@ function Tabela({ cols, rows, onDel, onEdit }) {
     <div style={s.card}>
       <div style={s.cardT}>{rows.length} cadastrado(s)</div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={s.tbl}>
-          <thead><tr>{cols.map(c => <th key={c[0]} style={s.th}>{c[1]}</th>)}<th style={s.th}></th></tr></thead>
+        <table style={UI.tabela}>
+          <thead><tr>{cols.map(c => <th key={c[0]} style={UI.th}>{c[1]}</th>)}<th style={UI.th}></th></tr></thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.id} style={{ borderTop: '1px solid #eee' }}>
-                {cols.map(c => <td key={c[0]} style={s.td}>{c[2] ? c[2](r[c[0]]) : (r[c[0]] || '—')}</td>)}
-                <td style={s.td}>{onEdit && <button style={s.btnMini} onClick={() => onEdit(r)}>editar</button>}{onEdit ? ' ' : ''}<button style={s.btnMini} onClick={() => onDel(r.id)}>remover</button></td>
+                {cols.map(c => <td key={c[0]} style={UI.td}>{c[2] ? c[2](r[c[0]]) : (r[c[0]] || '—')}</td>)}
+                <td style={UI.td}>{onEdit && <button style={s.btnMini} onClick={() => onEdit(r)}>editar</button>}{onEdit ? ' ' : ''}<button style={s.btnMini} onClick={() => onDel(r.id)}>remover</button></td>
               </tr>
             ))}
-            {!rows.length && <tr><td style={s.td} colSpan={cols.length + 1}>Nenhum cadastro.</td></tr>}
+            {!rows.length && <tr><td style={UI.td} colSpan={cols.length + 1}>Nenhum cadastro.</td></tr>}
           </tbody>
         </table>
       </div>

@@ -49,6 +49,24 @@ async function orcamentoMovimento(unis, { de, ate, contas } = {}) {
     ORDER BY m.datahora DESC LIMIT 2000`, params);
 }
 
+// Despesas (débitos) lançadas na conta "Orçamento - <loja>" em UM dia (data = fechamento).
+// Cada item traz o id do movimento do Alpha 7 (mov_id) p/ ligar à comprovação (anexo) da tesouraria.
+async function orcamentoDespesasDia(unis, { data } = {}) {
+  if (!data) return [];
+  const params = [unis, data];
+  return erpQuery(`
+    SELECT m.id::text AS mov_id, to_char(m.datahora,'YYYY-MM-DD') AS data,
+      to_char(m.datahora,'HH24:MI') AS hora, cc.unidadenegocioid AS loja_erp,
+      ABS(m.valor) AS valor, m.descricao, m.numerodocumento,
+      COALESCE(pu.nome, u.login) AS usuario, pl.nome AS plano_contas
+    ${BASE_FROM}
+    LEFT JOIN usuario u ON u.id = m.usuarioid LEFT JOIN pessoa pu ON pu.id = u.pessoaid
+    LEFT JOIN LATERAL (SELECT p.nome FROM lancamentofinanceiro lf JOIN planocontas p ON p.id=lf.planocontasid WHERE lf.movimentacaocontacorrenteid=m.id LIMIT 1) pl ON TRUE
+    WHERE cc.unidadenegocioid = ANY($1::bigint[]) AND NOT tm.credito
+      AND m.datahora >= $2::date AND m.datahora < ($2::date + interval '1 day')
+    ORDER BY m.datahora`, params);
+}
+
 // Gastos agrupados por plano de contas (categoria) — para o BI.
 async function orcamentoPorPlano(unis, { de, ate } = {}) {
   const params = [unis]; let w = `cc.unidadenegocioid = ANY($1::bigint[])` + periodo(params, de, ate);
@@ -61,4 +79,4 @@ async function orcamentoPorPlano(unis, { de, ate } = {}) {
     GROUP BY pl.nome ORDER BY total DESC LIMIT 40`, params);
 }
 
-module.exports = { orcamentoResumo, orcamentoMovimento, orcamentoPorPlano };
+module.exports = { orcamentoResumo, orcamentoMovimento, orcamentoPorPlano, orcamentoDespesasDia };

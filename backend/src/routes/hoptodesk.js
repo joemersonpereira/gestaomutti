@@ -26,7 +26,10 @@ router.post('/semear', exigePerfil(...GESTAO), (req, res) => { try { res.json(hd
 
 // ── Acesso remoto: dispositivos (computadores) do HopToDesk ──
 const db = require('../db/connection');
-router.get('/dispositivos', exigePerfil(...GESTAO), (req, res) => {
+// LISTAR é só `auth`: quem controla o acesso é o MENU (perfis + override de Cadastros › Acessos).
+// Travar em GESTAO aqui ignorava a liberação por usuário (ex.: Joe liberou o Weleson/Tesouraria e a
+// lista vinha vazia por 403). As ESCRITAS abaixo continuam só gestão. (Joe 2026-11-17.)
+router.get('/dispositivos', (req, res) => {
   res.json({ dispositivos: hd.listarDispositivos(req.usuario.empresa_id) });
 });
 // Importa a lista exportada do dashboard (CSV cru no corpo, como texto).

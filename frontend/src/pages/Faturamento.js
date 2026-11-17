@@ -142,7 +142,7 @@ export default function Faturamento({ canal = 'todos' } = {}) {
 }
 
 const minLbl = m => m == null ? '—' : (m >= 60 ? Math.floor(m / 60) + 'h' + String(Math.round(m % 60)).padStart(2, '0') : m + ' min');
-// Avaliações CSAT < 3 que precisam de justificativa do responsável. "Minha área" = só as do colab logado.
+// Avaliações CSAT ≤ 3 (nota 3 ou menos) que precisam de justificativa do responsável. "Minha área" = só as do colab logado.
 function AvaliacoesBaixas({ API, loja, ini, fim }) {
   const [minhas, setMinhas] = useState(false);
   const [d, setD] = useState(null); const [rasc, setRasc] = useState({});
@@ -154,13 +154,13 @@ function AvaliacoesBaixas({ API, loja, ini, fim }) {
   return (
     <div style={c.card}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-        <div style={{ fontWeight: 800, fontSize: 14 }}>⭐ Avaliações abaixo de 3 <span style={{ fontSize: 11.5, color: '#94a3b8', fontWeight: 400 }}>— precisam de justificativa do responsável</span></div>
+        <div style={{ fontWeight: 800, fontSize: 14 }}>⭐ Avaliações nota 3 ou menos <span style={{ fontSize: 11.5, color: '#94a3b8', fontWeight: 400 }}>— precisam de justificativa do responsável</span></div>
         {d && <span style={{ fontSize: 12, color: d.pendentes ? '#C0392B' : '#15803d', fontWeight: 700 }}>{d.pendentes} sem justificar</span>}
         <label style={{ marginLeft: 'auto', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
           <input type="checkbox" checked={minhas} onChange={e => setMinhas(e.target.checked)} /> 👤 Minha área (só as minhas)
         </label>
       </div>
-      {it.length === 0 ? <div style={{ fontSize: 13, color: '#15803d' }}>✅ Nenhuma avaliação abaixo de 3 {minhas ? 'sua ' : ''}no período.</div> :
+      {it.length === 0 ? <div style={{ fontSize: 13, color: '#15803d' }}>✅ Nenhuma avaliação nota 3 ou menos {minhas ? 'sua ' : ''}no período.</div> :
         <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
           <thead><tr style={{ textAlign: 'left', color: '#7a8a8c', borderBottom: '2px solid #eef1f4' }}>{['Data', 'Nota', 'Vendedor', 'Pedido', 'Justificativa'].map(h => <th key={h} style={{ padding: '7px 8px' }}>{h}</th>)}</tr></thead>
           <tbody>{it.map(r => <tr key={r.answer_id} style={{ borderTop: '1px solid #f1f3f5' }}>
@@ -348,10 +348,10 @@ function VisaoGeral({ d, online, API, loja, dias, ini, fim, canal }) {
           <div style={{ background: '#f8fafc', border: '1px solid #eef2f0', borderRadius: 10, padding: '8px 14px' }}>
             <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600 }}>💬 Atendimentos</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#1f2937' }}>{num(vendas?.resumo?.atendimentos || atend.atendimentos)}</div>
-            <div style={{ fontSize: 10.5, color: '#94a3b8' }}>{vendas?.resumo?.atendimentos ? 'do relatório BotVendas' : (atend.comResp != null ? num(atend.comResp) + ' com 1ª resposta' : '')}</div>
+            <div style={{ fontSize: 10.5, color: '#94a3b8' }}>{vendas?.resumo?.atendimentos ? 'do relatório BotVendas · WhatsApp' : (atend.comResp != null ? num(atend.comResp) + ' com 1ª resposta' : '')}</div>
           </div>
         </div>
-        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>💡 As metas de tempo (menor melhor) são cadastradas na aba <b>🎯 Metas</b>. Tempos e avaliação sincronizam sozinhos; venda/conversão vêm ao vivo do relatório do BotVendas.</div>
+        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>💡 As metas de tempo (menor melhor) são cadastradas na aba <b>🎯 Metas</b>. Tempos e avaliação sincronizam sozinhos; venda/conversão vêm ao vivo do relatório do BotVendas (filtrado por <b>WhatsApp</b>).</div>
         {vendas?.vendedores?.length > 0 && <div style={{ marginTop: 14 }}>
           <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 8 }}>👤 Por vendedor <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>— venda via bot no período</span></div>
           <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>

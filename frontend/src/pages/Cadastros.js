@@ -8,6 +8,7 @@ import { abrirTermoCampanha } from './Premiacao';
 import AutoCadastroRH from './AutoCadastroRH';
 import { Contrato as ContratoEstagio } from './EstagioRH';
 import { MODULOS_META } from '../App';
+import { Tabs } from '../components/ui';
 
 export default function Cadastros({ modo = 'tudo' }) {
   const { API, usuario } = useAuth();
@@ -29,10 +30,8 @@ export default function Cadastros({ modo = 'tudo' }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '6px 0 12px', borderBottom: '1px solid var(--line,#ddd8cf)', marginBottom: 16 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, color: 'var(--fg,#1c2a2e)' }}>{TITULO[modo] || TITULO.tudo}</h1>
         {visiveis.length > 1 && (
-          <div style={{ ...s.tabs, margin: 0, marginLeft: 'auto', flexWrap: 'wrap' }}>
-            {visiveis.map(a => (
-              <button key={a} onClick={() => setAba(a)} style={{ ...s.tab, ...(aba === a ? s.tabAtiva : {}) }}>{LABEL[a]}</button>
-            ))}
+          <div style={{ marginLeft: 'auto' }}>
+            <Tabs itens={visiveis.map(a => [a, LABEL[a]])} ativa={aba} onChange={setAba} />
           </div>
         )}
       </div>
@@ -1947,10 +1946,7 @@ export function FichaColaborador({ API, colaboradorId, nome, onDesligar, documen
           {onDesligar && <button onClick={onDesligar} style={{ fontSize: 12, padding: '5px 12px', border: '1px solid #E3C9C0', borderRadius: 8, background: '#FCEBE6', color: '#993C1D', cursor: 'pointer', fontWeight: 600 }}>🚪 Desligar / enviar pesquisa</button>}
         </div>
       )}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-        {abas.map(([v, l]) =>
-          <button key={v} onClick={() => setAba(v)} style={{ fontSize: 12, padding: '6px 12px', borderRadius: 20, border: '1px solid ' + (aba === v ? '#185FA5' : '#ddd'), background: aba === v ? '#185FA5' : '#fff', color: aba === v ? '#fff' : '#666', cursor: 'pointer' }}>{l}</button>)}
-      </div>
+      <Tabs itens={abas} ativa={aba} onChange={setAba} />
       {aba === 'estagio' && estagiario && (
         <div>
           <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>Gera e imprime todos os documentos do estágio usando os dados da ficha (loja, bolsa, sócio que assina, supervisor, horário): escolha em <b>Documento</b> — contrato (TCE), renovação (aditivo), recibo de pagamento, recibo de recesso, rescisão, relatório, declaração ou termo de ciência do Guia. O Guia do Colaborador e o Termo de Ciência saem junto do contrato.</div>

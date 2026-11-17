@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
+import { UI, Tabs, CORES } from '../components/ui';
 
 const STATUS = {
   aguardando_rh: ['Aguardando RH', '#185FA5', '#E6F1FB'], ativa: ['Ativa', '#993C1D', '#FCEBEB'],
@@ -68,10 +69,7 @@ export default function Ocorrencias() {
   return (
     <div style={s.wrap}>
       <Banner emoji="⚠️" titulo="Ocorrências" cor="vermelho" sub="Toda ocorrência passa pelo RH antes de chegar ao colaborador. O RH valida (autoriza ou rejeita) e, se preciso, solicita assinatura." />
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-        {podeLancar && <button onClick={() => setAba('lancar')} style={{ ...s.tab, ...(aba === 'lancar' ? s.tabAtiva : {}) }}>Lançar</button>}
-        <button onClick={() => setAba('historico')} style={{ ...s.tab, ...(aba === 'historico' ? s.tabAtiva : {}) }}>{podeValidar ? 'Validação / Histórico' : 'Histórico'}</button>
-      </div>
+      <Tabs itens={[...(podeLancar ? [['lancar', 'Lançar']] : []), ['historico', podeValidar ? 'Validação / Histórico' : 'Histórico']]} ativa={aba} onChange={setAba} />
       {aba === 'lancar' && podeLancar ? <Lancar usuario={usuario} /> : <Historico usuario={usuario} podeGerir={podeGerir} podeValidar={podeValidar} />}
     </div>
   );
@@ -200,14 +198,11 @@ function Historico({ usuario, podeGerir, podeValidar }) {
 }
 
 const s = {
-  wrap: { padding: '1rem', maxWidth: 940, margin: '0 auto', fontFamily: 'system-ui, sans-serif' },
-  titulo: { fontSize: 20, fontWeight: 700 }, sub: { fontSize: 12, color: '#666', marginBottom: 14 },
-  card: { background: '#fff', border: '1px solid #edf0f4', borderRadius: 14, boxShadow: '0 1px 2px rgba(16,24,40,.05)', padding: '1rem', marginBottom: 10 },
-  campo: { width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid #ddd', borderRadius: 8, boxSizing: 'border-box', marginBottom: 8 },
-  rotulo: { display: 'block', fontSize: 12, color: '#666', marginBottom: 3 },
-  tab: { fontSize: 12, padding: '6px 14px', border: '1px solid #ddd', borderRadius: 8, background: 'none', cursor: 'pointer', color: '#666' },
-  tabAtiva: { background: '#111', color: '#fff', borderColor: '#111' },
-  btn: { fontSize: 13, padding: '8px 14px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' },
-  btnSm: { fontSize: 12, padding: '4px 10px', border: '1px solid #ddd', borderRadius: 8, background: 'none', cursor: 'pointer' },
-  btnOk: { fontSize: 12, padding: '4px 12px', border: '1.5px solid #3B6D11', borderRadius: 8, background: 'none', cursor: 'pointer', color: '#3B6D11', fontWeight: 500 },
+  wrap: { ...UI.page, maxWidth: 940, margin: '0 auto' },
+  card: { ...UI.card, padding: '1rem', marginBottom: 10 },
+  campo: { width: '100%', padding: '8px 10px', fontSize: 13, border: `1px solid ${CORES.bordaInp}`, borderRadius: 8, boxSizing: 'border-box', marginBottom: 8 },
+  rotulo: { display: 'block', fontSize: 12, color: CORES.suave, marginBottom: 3 },
+  btn: { fontSize: 13, padding: '8px 14px', background: CORES.marca, color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' },
+  btnSm: { fontSize: 12, padding: '4px 10px', border: `1px solid ${CORES.bordaInp}`, borderRadius: 8, background: 'none', cursor: 'pointer' },
+  btnOk: { fontSize: 12, padding: '4px 12px', border: `1.5px solid ${CORES.marca}`, borderRadius: 8, background: 'none', cursor: 'pointer', color: CORES.marca, fontWeight: 500 },
 };

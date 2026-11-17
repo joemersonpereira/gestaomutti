@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
+import { UI, Kpi, KpiGrid, Tabs, CORES } from '../components/ui';
 
 const TIPO_L = { voluntario: 'Voluntário', involuntario: 'Involuntário', fim_contrato: 'Fim de contrato', outro: 'Outro' };
 const MOTIVO_L = { melhor_oportunidade: 'Melhor oportunidade', salario: 'Salário/benefícios', lideranca: 'Liderança', ambiente: 'Ambiente/clima', crescimento: 'Falta de crescimento', pessoal_familia: 'Pessoal/família', mudanca: 'Mudança de cidade', insatisfacao: 'Insatisfação geral', saude: 'Saúde', outro: 'Outro', nao_informado: 'Não informado' };
@@ -13,10 +14,7 @@ export default function Desligamentos() {
   return (
     <div style={s.wrap}>
       <Banner emoji="🚪" titulo="Desligamentos" cor="vermelho" sub="Registre o desligamento, envie a pesquisa e acompanhe os indicadores de saída." />
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-        {[['lista', '📋 Registrar & lista'], ['analytics', '📊 Indicadores']].map(([v, l]) =>
-          <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
-      </div>
+      <Tabs itens={[['lista', '📋 Registrar & lista'], ['analytics', '📊 Indicadores']]} ativa={aba} onChange={setAba} />
       {aba === 'lista' && <Lista API={API} />}
       {aba === 'analytics' && <Analytics API={API} />}
     </div>
@@ -99,11 +97,11 @@ function Analytics({ API }) {
   const totalResp = d.respondidas || 0;
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 10, marginBottom: 12 }}>
-        <Kpi t="Desligamentos" v={d.total} sub={`${d.respondidas} responderam`} cor="#185FA5" bg="#EAF3FB" />
-        <Kpi t="eNPS de saída" v={d.enps == null ? '—' : d.enps} sub="recomendaria a empresa" cor={enpsCor} bg="#F6F2FB" />
-        <Kpi t="Pendentes" v={d.pendentes} sub="pesquisa não respondida" cor="#8A6D1D" bg="#FBF3DA" />
-      </div>
+      <KpiGrid>
+        <Kpi label="Desligamentos" valor={d.total} sub={`${d.respondidas} responderam`} cor="#185FA5" />
+        <Kpi label="eNPS de saída" valor={d.enps == null ? '—' : d.enps} sub="recomendaria a empresa" cor={enpsCor} />
+        <Kpi label="Pendentes" valor={d.pendentes} sub="pesquisa não respondida" cor="#8A6D1D" />
+      </KpiGrid>
 
       <Bloco t="Médias por dimensão (1 a 5)">
         {Object.entries(d.medias).map(([k, v]) => (
@@ -133,23 +131,12 @@ function Analytics({ API }) {
   );
 }
 
-function Kpi({ t, v, sub, cor, bg }) {
-  return <div style={{ background: bg, borderRadius: 12, padding: '12px 14px' }}>
-    <div style={{ fontSize: 11, color: cor, fontWeight: 600, textTransform: 'uppercase', letterSpacing: .3 }}>{t}</div>
-    <div style={{ fontSize: 24, fontWeight: 800, color: cor, marginTop: 2 }}>{v}</div>
-    <div style={{ fontSize: 10.5, color: cor, opacity: .8 }}>{sub}</div>
-  </div>;
-}
-
 const s = {
-  wrap: { padding: '1rem', maxWidth: 1200, margin: '0 auto', fontFamily: 'system-ui, sans-serif' },
-  titulo: { fontSize: 20, fontWeight: 700 }, sub: { fontSize: 12, color: '#666', marginBottom: 14 },
-  card: { background: '#fff', border: '1px solid #edf0f4', borderRadius: 14, boxShadow: '0 1px 2px rgba(16,24,40,.05)', padding: '12px 14px', marginBottom: 12 },
-  chip: { fontSize: 12, padding: '6px 12px', borderRadius: 20, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', color: '#666' },
-  chipOn: { background: '#111', color: '#fff', borderColor: '#111' },
+  wrap: { ...UI.page, maxWidth: 1200, margin: '0 auto' },
+  card: UI.card,
   badge: { fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20 },
-  inp: { border: '1px solid #ddd', borderRadius: 8, padding: '7px 9px', fontSize: 13 },
-  btn: { fontSize: 13, padding: '8px 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 },
+  inp: UI.inp,
+  btn: { ...UI.btn, background: CORES.marca, color: '#fff', borderColor: CORES.marca },
   btnMini: { fontSize: 12, padding: '6px 12px', background: '#185FA5', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 },
   linkMini: { background: 'none', border: 'none', color: '#185FA5', fontSize: 11.5, cursor: 'pointer', padding: 0 },
 };

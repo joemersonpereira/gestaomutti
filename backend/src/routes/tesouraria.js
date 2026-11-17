@@ -344,6 +344,30 @@ router.get('/planos', async (req, res) => {
   catch (e) { res.json({ planos: [] }); }
 });
 
+// Despesas lançadas na conta "Orçamento - <loja>" do Alpha 7 NESTE dia — o gerente anexa a comprovação
+// (foto/PDF) de cada uma. ✅ comprovado = já existe anexo ligado (ref_orcamento = id do movimento do ERP).
+router.get('/orcamento-despesas', async (req, res) => {
+  const emp = req.usuario.empresa_id;
+  const loja = req.query.loja;
+  const data = req.query.data || hoje();
+  if (!loja) return res.json({ despesas: [] });
+  if (!podeLoja(req, loja)) return res.status(403).json({ erro: 'Você não tem acesso a essa loja.' });
+  let despesas = [];
+  try {
+    const unis = unisEmpresa(emp, loja);
+    despesas = await orcErp.orcamentoDespesasDia(unis, { data });
+  } catch (e) { return res.json({ despesas: [], erp: false, erro: 'Alpha 7 indisponível para as despesas do orçamento.' }); }
+  const ids = despesas.map(d => d.mov_id).filter(Boolean);
+  const comp = {};
+  if (ids.length) {
+    const ph = ids.map(() => '?').join(',');
+    db.prepare(`SELECT ref_orcamento, id, nome, tipo_mime, fiscal, fiscal_conf FROM tesouraria_anexo
+      WHERE empresa_id=? AND loja_id=? AND ref_orcamento IN (${ph})`).all(emp, loja, ...ids)
+      .forEach(a => { comp[a.ref_orcamento] = a; });
+  }
+  res.json({ erp: true, data, despesas: despesas.map(d => ({ ...d, comprovado: !!comp[d.mov_id], anexo: comp[d.mov_id] || null })) });
+});
+
 // Lista os anexos do dia (sem o base64, só metadados).
 router.get('/anexos', (req, res) => {
   const rows = db.prepare(`SELECT id, loja_id, data, tipo, descricao, valor, plano_contas, nome, tipo_mime, origem, arquivo_salvo, fiscal, tipo_doc, fiscal_conf, fiscal_conf_por, fiscal_conf_em, criado_em FROM tesouraria_anexo
@@ -434,16 +458,20 @@ router.post('/anexos', (req, res) => {
   if (b.tipo !== 'orcamento') {
     const ja = db.prepare(`SELECT 1 FROM tesouraria_anexo WHERE empresa_id=? AND loja_id=? AND data=? AND tipo=? LIMIT 1`).get(req.usuario.empresa_id, b.loja_id, b.data, b.tipo);
     if (ja) return res.status(409).json({ erro: `Já existe ${ROT[b.tipo]} anexado para esta loja em ${String(b.data).split('-').reverse().join('/')}. Exclua o anterior para anexar outro.` });
+  } else if (b.ref_orcamento) {
+    // comprovação de um lançamento do Alpha 7: só 1 por movimento (exclua p/ trocar).
+    const ja = db.prepare(`SELECT 1 FROM tesouraria_anexo WHERE empresa_id=? AND ref_orcamento=? LIMIT 1`).get(req.usuario.empresa_id, String(b.ref_orcamento));
+    if (ja) return res.status(409).json({ erro: 'Essa despesa do orçamento já tem comprovação anexada.' });
   }
   const id = uuidv4();
   // Salva organizado em <ano>/<mês>/<loja>/ — despesa→pasta do Orçamento; depósito/recarga→Controle de Caixa.
   const buf = base64ParaBuffer(b.dados);
   const salvo = salvarOrganizado(baseDe(req.usuario.empresa_id, b.tipo), lojaNomeDe(req.usuario.empresa_id, b.loja_id), b.data, b.nome || (b.tipo + '.jpg'), buf);
-  db.prepare(`INSERT INTO tesouraria_anexo (id,empresa_id,loja_id,data,tipo,descricao,valor,plano_contas,nome,tipo_mime,dados,origem,criado_por,arquivo_salvo,fiscal,tipo_doc)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+  db.prepare(`INSERT INTO tesouraria_anexo (id,empresa_id,loja_id,data,tipo,descricao,valor,plano_contas,nome,tipo_mime,dados,origem,criado_por,arquivo_salvo,fiscal,tipo_doc,ref_orcamento)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(id, req.usuario.empresa_id, b.loja_id, b.data, b.tipo, b.descricao || null, b.valor != null ? Number(b.valor) : null, b.plano_contas || null,
       b.nome || 'anexo', b.tipo_mime || null, String(b.dados).slice(0, 8000000), b.origem || 'anexo', req.usuario.id, salvo,
-      (b.fiscal == null ? null : (b.fiscal ? 1 : 0)), b.tipo_doc || null);
+      (b.fiscal == null ? null : (b.fiscal ? 1 : 0)), b.tipo_doc || null, b.ref_orcamento || null);
   res.status(201).json({ id, mensagem: salvo ? 'Anexado e salvo na pasta.' : 'Anexado.', arquivo_salvo: salvo });
 });
 router.delete('/anexos/:id', (req, res) => {

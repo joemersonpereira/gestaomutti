@@ -164,7 +164,7 @@ const MODULOS = [
   { id: 'acesso-remoto', label: '🖥️ Acesso remoto', C: AcessoRemoto, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Supervisor', 'Suporte'] },
   { id: 'fornecedores', label: '🏭 Fornecedores', C: Fornecedores, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade', 'Financeiro'] },
   { id: 'auditoria-contabil', label: '🔎 Auditoria', C: AuditoriaContabil, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Contabilidade'] },
-  { id: 'tesouraria', label: '💰 Caixa', C: TesourariaHub, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Gerente', 'Subgerente'] },
+  { id: 'tesouraria', label: '💰 Caixa', C: TesourariaHub, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro', 'Tesouraria', 'Gerente', 'Subgerente'] },
   { id: 'integracoes', label: '🔌 Status de Integrações', C: Integracoes, perfis: ['Diretor Geral', 'Gestor Geral', 'Suporte', 'Controladoria'] },
   { id: 'email-tarefas', label: '📧 E-mail → Tarefa', C: EmailTarefas, perfis: ['Diretor Geral', 'Gestor Geral', 'Controladoria', 'Financeiro'] },
 ];

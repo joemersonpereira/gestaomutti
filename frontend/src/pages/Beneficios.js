@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
+import { UI, Kpi, KpiGrid, Tabs, FiltroBar, CORES } from '../components/ui';
 
 const TIPO = { vale_pontos: '🏅 Vale-pontos', brinde: '🎁 Brinde', day_off: '🌴 Day off', vale_compras: '🛍️ Vale-compras', outro: '🎗️ Outro' };
 const ST = {
@@ -19,10 +20,7 @@ export default function Beneficios() {
   return (
     <div style={s.wrap}>
       <Banner emoji="🎁" titulo="Benefícios" cor="verde" sub="Controle dos benefícios concedidos: vale-compras e day off de aniversário, brinde dos anos de Mutti e concessões manuais." />
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-        {[['painel', '📊 Painel'], ['conceder', '➕ Conceder']].map(([v, l]) =>
-          <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
-      </div>
+      <Tabs itens={[['painel', '📊 Painel'], ['conceder', '➕ Conceder']]} ativa={aba} onChange={setAba} />
       {aba === 'painel' && <Painel API={API} />}
       {aba === 'conceder' && <Conceder API={API} />}
     </div>
@@ -53,24 +51,24 @@ function Painel({ API }) {
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
-        <Kpi t="A receber" v={aReceber.qtd} sub={`${brl(aReceber.valor)} em vales`} cor="#8A6D1D" bg="#FBF3DA" />
-        <Kpi t="Vale-compras em aberto" v={brl(valeAberto)} sub="a receber + entregue" cor="#185FA5" bg="#E4EEF8" />
-        <Kpi t="Entregues" v={entregues} sub="aguardando uso" cor="#185FA5" bg="#EAF1F8" />
-        <Kpi t="Usados" v={usados} sub="concluídos" cor="#3B6D11" bg="#E7F1DC" />
-      </div>
+      <KpiGrid>
+        <Kpi label="A receber" valor={aReceber.qtd} sub={`${brl(aReceber.valor)} em vales`} cor="#8A6D1D" />
+        <Kpi label="Vale-compras em aberto" valor={brl(valeAberto)} sub="a receber + entregue" cor="#185FA5" />
+        <Kpi label="Entregues" valor={entregues} sub="aguardando uso" cor="#185FA5" />
+        <Kpi label="Usados" valor={usados} sub="concluídos" cor={CORES.ok} />
+      </KpiGrid>
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
-        <input placeholder="🔎 Buscar colaborador" value={f.q} onChange={e => setF({ ...f, q: e.target.value })} style={{ ...s.inp, minWidth: 180 }} />
-        <select value={f.status} onChange={e => setF({ ...f, status: e.target.value })} style={s.inp}>
+      <FiltroBar style={{ alignItems: 'center', gap: 6 }}>
+        <input placeholder="🔎 Buscar colaborador" value={f.q} onChange={e => setF({ ...f, q: e.target.value })} style={{ ...UI.inp, minWidth: 180 }} />
+        <select value={f.status} onChange={e => setF({ ...f, status: e.target.value })} style={UI.inp}>
           <option value="">Todos os status</option>
           {Object.entries(ST).map(([k, v]) => <option key={k} value={k}>{v.l}</option>)}
         </select>
-        <select value={f.tipo} onChange={e => setF({ ...f, tipo: e.target.value })} style={s.inp}>
+        <select value={f.tipo} onChange={e => setF({ ...f, tipo: e.target.value })} style={UI.inp}>
           <option value="">Todos os tipos</option>
           {Object.entries(TIPO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-      </div>
+      </FiltroBar>
       {msg && <div style={{ color: '#993C1D', fontSize: 12, marginBottom: 8 }}>{msg}</div>}
 
       {lista.length === 0 && <div style={{ ...s.card, color: '#999', textAlign: 'center' }}>Nenhum benefício encontrado.</div>}
@@ -171,28 +169,15 @@ function Conceder({ API }) {
   );
 }
 
-function Kpi({ t, v, sub, cor, bg }) {
-  return (
-    <div style={{ background: bg, borderRadius: 12, padding: '12px 14px' }}>
-      <div style={{ fontSize: 11, color: cor, fontWeight: 600, textTransform: 'uppercase', letterSpacing: .3 }}>{t}</div>
-      <div style={{ fontSize: 22, fontWeight: 800, color: cor, marginTop: 2 }}>{v}</div>
-      <div style={{ fontSize: 11, color: cor, opacity: .8 }}>{sub}</div>
-    </div>
-  );
-}
-
 const s = {
-  wrap: { padding: '1rem', maxWidth: 1200, margin: '0 auto', fontFamily: 'system-ui, sans-serif' },
-  titulo: { fontSize: 20, fontWeight: 700 }, sub: { fontSize: 12, color: '#666', marginBottom: 14 },
-  card: { background: '#fff', border: '1px solid #edf0f4', borderRadius: 14, boxShadow: '0 1px 2px rgba(16,24,40,.05)', padding: '12px 14px', marginBottom: 12 },
-  row: { background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: '10px 14px', marginBottom: 8, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' },
-  chip: { fontSize: 12, padding: '6px 12px', borderRadius: 20, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', color: '#666' },
-  chipOn: { background: '#111', color: '#fff', borderColor: '#111' },
+  wrap: { ...UI.page, maxWidth: 1200, margin: '0 auto' },
+  card: UI.card,
+  row: { background: '#fff', border: `1px solid ${CORES.borda}`, borderRadius: 12, padding: '10px 14px', marginBottom: 8, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' },
   badge: { fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20 },
-  inp: { border: '1px solid #ddd', borderRadius: 8, padding: '7px 9px', fontSize: 13 },
-  lbl: { fontSize: 12, color: '#666', display: 'block', marginBottom: 4 },
-  btn: { fontSize: 13, padding: '8px 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 },
+  inp: UI.inp,
+  lbl: { fontSize: 12, color: CORES.suave, display: 'block', marginBottom: 4 },
+  btn: { ...UI.btn, background: CORES.marca, color: '#fff', borderColor: CORES.marca },
   miniAzul: { fontSize: 11, padding: '5px 9px', background: '#185FA5', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600 },
-  miniVerde: { fontSize: 11, padding: '5px 9px', background: '#3B6D11', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600 },
+  miniVerde: { fontSize: 11, padding: '5px 9px', background: CORES.marca, color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600 },
   miniCinza: { fontSize: 11, padding: '5px 9px', background: '#f3f3f3', color: '#666', border: '1px solid #ddd', borderRadius: 6, cursor: 'pointer' },
 };

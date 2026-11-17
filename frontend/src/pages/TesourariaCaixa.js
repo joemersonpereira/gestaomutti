@@ -43,6 +43,7 @@ export default function TesourariaCaixa({ embed } = {}) {
   const [detalhe, setDetalhe] = useState(null); // drill-down de um indicador (modal)
   const [orc, setOrc] = useState(null); // resumo do orçamento (verba×gasto×saldo) da loja no mês
   const [anexos, setAnexos] = useState([]);
+  const [orcDesp, setOrcDesp] = useState(null); // despesas lançadas na conta Orçamento do Alpha 7 no dia (p/ anexar comprovação)
   const [msg, setMsg] = useState('');
   const [cfg, setCfg] = useState(false);
   const [base, setBase] = useState('');
@@ -64,10 +65,11 @@ export default function TesourariaCaixa({ embed } = {}) {
   const carregar = useCallback((forcar) => {
     const fz = forcar ? '&forcar=1' : '';
     API.get(`/tesouraria/dia-geral?data=${data}${fz}`).then(r => setGeral(r.data.lojas || [])).catch(() => setGeral(null));
-    if (!loja) { setPainel(null); setOrc(null); setCarregPainel(false); return; }
-    setCarregPainel(true); setPainel(null); setOrc(null);
+    if (!loja) { setPainel(null); setOrc(null); setCarregPainel(false); setOrcDesp(null); return; }
+    setCarregPainel(true); setPainel(null); setOrc(null); setOrcDesp(null);
     API.get(`/tesouraria/dia?loja=${loja}&data=${data}${fz}`).then(r => setDia(r.data)).catch(() => setDia(null));
     API.get(`/tesouraria/anexos?loja=${loja}&data=${data}`).then(r => setAnexos(r.data.anexos || [])).catch(() => setAnexos([]));
+    API.get(`/tesouraria/orcamento-despesas?loja=${loja}&data=${data}${fz}`).then(r => setOrcDesp(r.data.despesas || [])).catch(() => setOrcDesp([]));
     API.get(`/tesouraria/loja-painel?loja=${loja}&data=${data}${fz}`).then(r => setPainel(r.data)).catch(() => setPainel(null)).finally(() => setCarregPainel(false));
     const iniMes = data.slice(0, 8) + '01';
     API.get(`/contabilidade/orcamento/resumo?loja=${loja}&de=${iniMes}&ate=${data}${fz}`).then(r => setOrc(r.data)).catch(() => setOrc(null));
@@ -108,6 +110,17 @@ export default function TesourariaCaixa({ embed } = {}) {
     } catch (e) { setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro ao anexar.')); setTimeout(() => setMsg(''), 6000); }
   };
   const remover = (a) => { if (!window.confirm('Remover este anexo?')) return; API.delete(`/tesouraria/anexos/${a.id}`).then(() => carregar()).catch(() => {}); };
+  // Anexar a comprovação (foto/PDF) de uma despesa lançada no Alpha 7 (liga pelo id do movimento do ERP).
+  const anexarDespesaErp = async (mov, file, origem) => {
+    if (!file) return;
+    try {
+      const dados = await lerArq(file);
+      let fiscal = null, tipoDoc = null;
+      try { const r = await API.post('/tesouraria/ler-valor', { dados, tipo_mime: file.type }); if (r.data.ok) { fiscal = r.data.ehNf; tipoDoc = r.data.tipoDoc; } } catch (e) { /* OCR opcional */ }
+      await API.post('/tesouraria/anexos', { loja_id: loja, data, tipo: 'orcamento', ref_orcamento: mov.mov_id, descricao: mov.descricao || mov.plano_contas || 'Despesa do orçamento', valor: mov.valor, plano_contas: mov.plano_contas || null, nome: file.name || 'comprovacao.jpg', tipo_mime: file.type, dados, origem, fiscal, tipo_doc: tipoDoc });
+      setMsg('✅ Comprovação anexada.'); carregar(); setTimeout(() => setMsg(''), 2500);
+    } catch (e) { setMsg('⚠️ ' + (e.response?.data?.erro || 'Erro ao anexar comprovação.')); setTimeout(() => setMsg(''), 6000); }
+  };
   const validarFiscal = (a, fiscal) => API.post(`/tesouraria/anexos/${a.id}/fiscal`, { fiscal }).then(() => carregar()).catch(() => {});
   const ver = (a) => API.get(`/tesouraria/anexo/${a.id}`).then(r => { const w = window.open(); if (w) w.document.write(`<iframe src="${r.data.dados}" style="width:100%;height:100vh;border:0"></iframe>`); }).catch(() => {});
   const salvarCfg = () => API.put('/tesouraria/pasta-config', { base, salvarBase, depositoBase }).then(() => { setMsg('✅ Pastas salvas.'); setTimeout(() => setMsg(''), 2500); }).catch(() => {});
@@ -311,7 +324,43 @@ export default function TesourariaCaixa({ embed } = {}) {
           <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>Verba × gasto do Alpha 7 (não tem a ver com o caixa do dia). O escritório confere o fiscal e cruza com o Alpha 7 na aba <b>Orçamento loja</b>.</div>
         </div>
       )}
-      {loja && <Secao titulo="💳 Lançar gasto do orçamento" tipo="orcamento" lista={orcamentos} temPlano />}
+      {/* Despesas que o gerente lançou na conta Orçamento do Alpha 7 NESTE dia → anexar a comprovação de cada uma. */}
+      {loja && orcDesp === null && carregPainel && (
+        <div style={s.card}><div style={{ fontWeight: 700, marginBottom: 4 }}>🧾 Despesas lançadas no Alpha 7</div><div style={{ color: '#94a3b8', fontSize: 12.5 }}>⏳ Carregando as despesas do orçamento do dia…</div></div>
+      )}
+      {loja && orcDesp && orcDesp.length > 0 && (() => {
+        const pendentes = orcDesp.filter(d => !d.comprovado).length;
+        return (
+          <div style={s.card}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>🧾 Despesas lançadas no Alpha 7 <span style={{ color: '#94a3b8', fontWeight: 400, fontSize: 12 }}>— {data.split('-').reverse().join('/')} · anexe a comprovação</span></div>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>Cada gasto lançado na conta <b>Orçamento</b> da loja no Alpha 7 neste dia. Anexe a foto/PDF da nota ou recibo de cada um.</div>
+            {pendentes > 0
+              ? <div style={{ fontSize: 12.5, color: '#b45309', fontWeight: 700, marginBottom: 8 }}>⏳ {pendentes} despesa(s) sem comprovação</div>
+              : <div style={{ fontSize: 12.5, color: '#15803d', fontWeight: 700, marginBottom: 8 }}>✅ Todas as despesas do dia estão comprovadas</div>}
+            {orcDesp.map(d => (
+              <div key={d.mov_id} style={{ ...s.lanc, background: d.comprovado ? '#f0fdf4' : '#fffbeb', borderRadius: 7, borderBottom: '1px solid #eef2f0' }}>
+                <span>{d.comprovado ? '✅' : '⏳'}</span>
+                <span style={{ flex: 1 }}><b>{brl(d.valor)}</b> · {d.descricao || d.plano_contas || 'Despesa do orçamento'}
+                  <span style={{ color: '#64748b', fontSize: 11 }}> · {d.hora}{d.plano_contas ? ' · ' + d.plano_contas : ''}{d.usuario ? ' · ' + d.usuario : ''}{d.numerodocumento ? ' · doc ' + d.numerodocumento : ''}</span>
+                </span>
+                {d.comprovado ? <>
+                  {d.anexo && d.anexo.fiscal != null && <span style={{ fontSize: 11, fontWeight: 600, color: d.anexo.fiscal ? '#15803d' : '#b45309' }}>{d.anexo.fiscal ? '📄 NF' : '⚠️ recibo'}</span>}
+                  <button style={{ ...s.btn, padding: '3px 8px', fontSize: 12 }} onClick={() => d.anexo && ver(d.anexo)}>ver</button>
+                  <button style={{ ...s.btn, padding: '3px 8px', fontSize: 12, color: '#b91c1c' }} onClick={() => d.anexo && remover(d.anexo)}>🗑</button>
+                </> : <>
+                  <label style={{ ...s.btn, cursor: 'pointer', padding: '5px 10px' }}>📎 Anexar<input type="file" accept="application/pdf,image/*" style={{ display: 'none' }} onChange={e => anexarDespesaErp(d, e.target.files[0], 'anexo')} /></label>
+                  <label style={{ ...s.btnG, cursor: 'pointer', padding: '5px 10px' }}>📷 Foto<input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => anexarDespesaErp(d, e.target.files[0], 'foto')} /></label>
+                </>}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+      {loja && orcDesp && orcDesp.length === 0 && !carregPainel && (
+        <div style={s.card}><div style={{ fontWeight: 700, marginBottom: 2 }}>🧾 Despesas lançadas no Alpha 7</div><div style={{ color: '#94a3b8', fontSize: 12.5 }}>Nenhuma despesa lançada na conta Orçamento desta loja neste dia.</div></div>
+      )}
+
+      {loja && <Secao titulo="💳 Lançar gasto avulso (fora do Alpha 7)" tipo="orcamento" lista={orcamentos} temPlano />}
 
       {pasta && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }} onClick={() => setPasta(null)}>

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
+import { UI, Tabs, FiltroBar, CORES } from '../components/ui';
 
 // Capacitação / T&D — cursos, avaliação trimestral (gerente→colaborador) e PDCA/PDI.
 const LIDER = ['Gerente', 'Subgerente', 'Supervisor', 'RH', 'Gestor Geral', 'Diretor Geral'];
@@ -16,9 +17,7 @@ export default function Capacitacao() {
   return (
     <div style={s.wrap}>
       <Banner emoji="🎓" titulo="Capacitação & Desenvolvimento" cor="verde" sub="Cursos, avaliação trimestral do colaborador e plano de desenvolvimento (PDCA) — porque acreditamos em desenvolver pessoas." />
-      <div style={{ display: 'flex', gap: 6, margin: '2px 0 12px', flexWrap: 'wrap' }}>
-        {abas.map(([v, l]) => <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>)}
-      </div>
+      <Tabs itens={abas} ativa={aba} onChange={setAba} />
       {aba === 'cursos' && <Cursos />}
       {aba === 'meu' && <MeuDesenvolvimento />}
       {aba === 'avaliar' && ehLider && <AvaliarEquipe />}
@@ -38,13 +37,13 @@ function RelatorioTD() {
   const corN = n => n == null ? '#999' : n >= 4 ? '#1E8449' : n >= 3 ? '#BA7517' : '#C0392B';
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+      <FiltroBar style={{ alignItems: 'center' }}>
         <select value={loja} onChange={e => setLoja(e.target.value)} style={{ ...s.inp, width: 'auto', marginBottom: 0 }}>
           <option value="">Toda a rede</option>
           {lojas.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
         </select>
-        {d && d.total_avaliados != null && <span style={{ fontSize: 12, color: '#666' }}>{d.trimestre}º tri/{d.ano} · <b>{d.total_avaliados}</b> avaliações concluídas</span>}
-      </div>
+        {d && d.total_avaliados != null && <span style={{ fontSize: 12, color: CORES.suave }}>{d.trimestre}º tri/{d.ano} · <b>{d.total_avaliados}</b> avaliações concluídas</span>}
+      </FiltroBar>
       {d === false && <div style={{ ...s.card, color: '#999' }}>Sem permissão ou sem dados.</div>}
       {d && d.total_avaliados === 0 && <div style={{ ...s.card, textAlign: 'center', color: '#999' }}>Nenhuma avaliação concluída ainda neste recorte.</div>}
       {d && d.total_avaliados > 0 && (
@@ -408,11 +407,11 @@ function AvaliarEquipe() {
 }
 
 const s = {
-  wrap: { padding: '1rem', maxWidth: 900, margin: '0 auto', fontFamily: 'system-ui, sans-serif' },
-  card: { background: '#fff', border: '1px solid #edf0f4', borderRadius: 14, boxShadow: '0 1px 2px rgba(16,24,40,.05)', padding: '1rem', marginBottom: 12 },
-  inp: { width: '100%', padding: '9px 11px', fontSize: 13, border: '1px solid #ddd', borderRadius: 8, marginBottom: 8, fontFamily: 'inherit', boxSizing: 'border-box' },
-  lbl: { display: 'flex', flexDirection: 'column', fontSize: 11, color: '#666', gap: 2 },
-  btn: { fontSize: 13, padding: '9px 16px', background: '#1E8449', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 },
-  chip: { fontSize: 12, padding: '6px 12px', border: '1px solid #ddd', borderRadius: 20, background: '#fff', cursor: 'pointer', color: '#555' },
-  chipOn: { background: '#1E8449', color: '#fff', borderColor: '#1E8449' },
+  wrap: { ...UI.page, maxWidth: 900, margin: '0 auto' },
+  card: { ...UI.card, padding: '1rem' },
+  inp: { width: '100%', padding: '9px 11px', fontSize: 13, border: `1px solid ${CORES.bordaInp}`, borderRadius: 8, marginBottom: 8, fontFamily: 'inherit', boxSizing: 'border-box' },
+  lbl: { display: 'flex', flexDirection: 'column', fontSize: 11, color: CORES.suave, gap: 2 },
+  btn: { fontSize: 13, padding: '9px 16px', background: CORES.marca, color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 },
+  chip: { fontSize: 12, padding: '6px 12px', border: `1px solid ${CORES.bordaInp}`, borderRadius: 20, background: '#fff', cursor: 'pointer', color: CORES.suave },
+  chipOn: { background: CORES.marca, color: '#fff', borderColor: CORES.marca },
 };

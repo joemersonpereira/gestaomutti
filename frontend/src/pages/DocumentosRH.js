@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
 import { useOrdenavel, ThOrd } from '../components/Ordenavel';
+import { UI, FiltroBar, CORES } from '../components/ui';
 
 const TIPO_LABEL = { holerite: 'Holerite', informe: 'Informe de rendimento' };
 const mascaraCpf = c => String(c || '').replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.***.$3-$4');
@@ -73,30 +74,25 @@ export default function DocumentosRH() {
       <Banner emoji="📄" titulo="Holerites e informes (RH)" cor="azul" />
       <div style={s.sub}>Suba o PDF (individual ou lote). O sistema reconhece o CPF em cada página e distribui só as páginas de cada pessoa. <strong>Nada é entregue antes de você conferir a prévia.</strong></div>
 
-      <div style={s.card}>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div>
-            <label style={s.rot}>Tipo</label>
-            <select style={s.campo} value={tipo} onChange={e => { setTipo(e.target.value); setPrevia(null); }}>
-              <option value="holerite">Holerite (mês)</option>
-              <option value="informe">Informe de rendimento (ano)</option>
-            </select>
-          </div>
-          <div>
-            <label style={s.rot}>{tipo === 'informe' ? 'Ano (ex.: 2025)' : 'Competência (ex.: 2026-06)'}</label>
-            <input style={s.campo} value={competencia} onChange={e => setCompetencia(e.target.value)} placeholder={tipo === 'informe' ? '2025' : '2026-06'} />
-          </div>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <label style={s.rot}>Arquivo PDF</label>
-            <input type="file" accept="application/pdf" onChange={e => { setArquivo(e.target.files[0]); setPrevia(null); }} style={{ fontSize: 12 }} />
-          </div>
-          <button style={s.btn} onClick={analisar} disabled={analisando}>{analisando ? 'Analisando…' : 'Analisar'}</button>
-        </div>
-        {msg && <div style={{ fontSize: 13, color: msg.startsWith('✅') ? '#3B6D11' : '#993C1D', marginTop: 10 }}>{msg}</div>}
-      </div>
+      <FiltroBar style={{ marginBottom: msg ? 4 : 12 }}>
+        <label style={UI.fld}>Tipo
+          <select style={UI.inp} value={tipo} onChange={e => { setTipo(e.target.value); setPrevia(null); }}>
+            <option value="holerite">Holerite (mês)</option>
+            <option value="informe">Informe de rendimento (ano)</option>
+          </select>
+        </label>
+        <label style={UI.fld}>{tipo === 'informe' ? 'Ano (ex.: 2025)' : 'Competência (ex.: 2026-06)'}
+          <input style={UI.inp} value={competencia} onChange={e => setCompetencia(e.target.value)} placeholder={tipo === 'informe' ? '2025' : '2026-06'} />
+        </label>
+        <label style={{ ...UI.fld, flex: 1, minWidth: 200 }}>Arquivo PDF
+          <input type="file" accept="application/pdf" onChange={e => { setArquivo(e.target.files[0]); setPrevia(null); }} style={{ fontSize: 12 }} />
+        </label>
+        <button style={s.btn} onClick={analisar} disabled={analisando}>{analisando ? 'Analisando…' : 'Analisar'}</button>
+      </FiltroBar>
+      {msg && <div style={{ fontSize: 13, color: msg.startsWith('✅') ? CORES.ok : '#993C1D', marginBottom: 12 }}>{msg}</div>}
 
       {previa && (
-        <div style={s.card}>
+        <div style={UI.card}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>Prévia da distribuição</div>
           <div style={{ fontSize: 11, color: '#666', marginBottom: 10 }}>
             {previa.total_paginas} páginas · {previa.total_pessoas} CPF(s) reconhecido(s) ·
@@ -106,18 +102,18 @@ export default function DocumentosRH() {
             {previa.resumo.ambiguos > 0 && <span style={{ color: '#993C1D' }}> · {previa.resumo.ambiguos} ambíguos</span>}
           </div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead><tr style={{ background: '#f7f9fb' }}>
-                {COLS.map(c => <ThOrd key={c.k} c={c} ordem={ordem} clicar={clicar} seta={seta} base={s.th} />)}
+            <table style={UI.tabela}>
+              <thead><tr>
+                {COLS.map(c => <ThOrd key={c.k} c={c} ordem={ordem} clicar={clicar} seta={seta} base={UI.th} ativo={CORES.marca} />)}
               </tr></thead>
               <tbody>
                 {linhas.map((i, k) => {
                   const st = ST[i.status] || ST.ok;
                   return (
-                    <tr key={k} style={{ borderTop: '1px solid #f2f2f2' }}>
+                    <tr key={k}>
                       <td style={s.tdc}>{(i.paginas || []).join(', ')}</td>
                       <td style={s.tdc}>{mascaraCpf(i.cpf)}</td>
-                      <td style={{ padding: '6px' }}>{i.colaborador_nome || <span style={{ color: '#bbb' }}>—</span>}</td>
+                      <td style={UI.td}>{i.colaborador_nome || <span style={{ color: CORES.fraco }}>—</span>}</td>
                       <td style={s.tdc}><span style={{ fontSize: 10, fontWeight: 700, color: st.cor, background: st.bg, padding: '2px 7px', borderRadius: 6 }}>{st.txt}</span></td>
                     </tr>
                   );
@@ -140,9 +136,9 @@ export default function DocumentosRH() {
         </div>
       )}
 
-      <div style={s.card}>
+      <div style={UI.card}>
         <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Distribuições recentes</div>
-        {lotes.length === 0 && <div style={{ fontSize: 12, color: '#999' }}>Nenhuma ainda.</div>}
+        {lotes.length === 0 && <div style={{ fontSize: 12, color: CORES.fraco }}>Nenhuma ainda.</div>}
         {lotes.map(l => (
           <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '6px 0', borderBottom: '1px solid #f5f5f5' }}>
             <span>{TIPO_LABEL[l.tipo]} <strong>{l.competencia}</strong> <span style={{ color: '#bbb' }}>· {String(l.criado_em).slice(0, 10).split('-').reverse().join('/')}</span></span>
@@ -158,13 +154,9 @@ export default function DocumentosRH() {
 }
 
 const s = {
-  wrap: { padding: '1rem', maxWidth: 1200, margin: '0 auto', fontFamily: 'system-ui, sans-serif' },
-  titulo: { fontSize: 20, fontWeight: 700 }, sub: { fontSize: 12, color: '#666', marginBottom: 14 },
-  card: { background: '#fff', border: '1px solid #edf0f4', borderRadius: 14, boxShadow: '0 1px 2px rgba(16,24,40,.05)', padding: '12px 14px', marginBottom: 12 },
-  rot: { display: 'block', fontSize: 11, color: '#666', marginBottom: 3 },
-  campo: { padding: '7px 10px', fontSize: 13, border: '1px solid #ddd', borderRadius: 8, boxSizing: 'border-box' },
-  btn: { fontSize: 13, padding: '8px 14px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 },
-  btnSec: { fontSize: 13, padding: '8px 14px', background: '#fff', color: '#666', border: '1px solid #ddd', borderRadius: 8, cursor: 'pointer' },
-  th: { padding: '8px 6px', fontSize: 11, color: '#777', textAlign: 'center' },
-  tdc: { padding: '6px', textAlign: 'center' },
+  wrap: { ...UI.page, maxWidth: 1200, margin: '0 auto' },
+  sub: { fontSize: 12, color: CORES.suave, marginBottom: 14 },
+  btn: { ...UI.btn, background: CORES.marca, color: '#fff', border: 'none' },
+  btnSec: { ...UI.btn, color: CORES.suave },
+  tdc: { ...UI.td, textAlign: 'center' },
 };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
+import { UI, Kpi, KpiGrid, CORES } from '../components/ui';
 
 const TIPO_L = { voluntario: 'Voluntário', involuntario: 'Involuntário', fim_contrato: 'Fim de contrato', outro: 'Outro' };
 const MOTIVO_L = { melhor_oportunidade: 'Melhor oportunidade', salario: 'Salário/benefícios', lideranca: 'Liderança', ambiente: 'Ambiente/clima', crescimento: 'Falta de crescimento', pessoal_familia: 'Pessoal/família', mudanca: 'Mudança', insatisfacao: 'Insatisfação', saude: 'Saúde', outro: 'Outro' };
@@ -16,8 +17,8 @@ export default function PainelRH() {
     const h = new Date(); const ini = `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}-01`;
     API.get('/ponto/resumo', { params: { ini, fim: h.toISOString().slice(0, 10) } }).then(r => setPonto(r.data)).catch(() => setPonto({ ok: false }));
   }, [API]);
-  if (d === null) return <div style={s.wrap}><div style={s.card}>Carregando…</div></div>;
-  if (d === false) return <div style={s.wrap}><div style={s.card}>Não foi possível carregar.</div></div>;
+  if (d === null) return <div style={s.wrap}><div style={UI.card}>Carregando…</div></div>;
+  if (d === false) return <div style={s.wrap}><div style={UI.card}>Não foi possível carregar.</div></div>;
   const { headcount: hc, pendencias: p, celebracoes: c, desligamentos: dl } = d;
   const enpsCor = dl.enps == null ? '#999' : dl.enps >= 50 ? '#3B6D11' : dl.enps >= 0 ? '#BA7517' : '#993C1D';
 
@@ -25,13 +26,13 @@ export default function PainelRH() {
     <div style={s.wrap}>
       <Banner emoji="🧭" titulo="Painel de Gente & Gestão" cor="azul" sub="Visão consolidada da equipe: quadro, movimento, pendências e desligamentos." />
 
-      {/* KPIs */}
-      <div style={s.kpis}>
-        <Kpi t="Colaboradores ativos" v={hc.ativos} cor="#185FA5" bg="#EAF3FB" />
-        <Kpi t="Desligamentos no ano" v={dl.ano} sub={`${dl.mes} no mês`} cor="#993C1D" bg="#FCEBE6" />
-        <Kpi t="eNPS de saída" v={dl.enps == null ? '—' : dl.enps} sub="recomendaria a empresa" cor={enpsCor} bg="#F6F2FB" />
-        <Kpi t="Pendências de cadastro" v={p.sem_cpf + p.sem_lgpd} sub={`${p.sem_cpf} s/ CPF · ${p.sem_lgpd} s/ LGPD`} cor="#8A6D1D" bg="#FBF3DA" />
-      </div>
+      {/* KPIs — padrão ui.js */}
+      <KpiGrid>
+        <Kpi label="Colaboradores ativos" valor={hc.ativos} cor={CORES.marca} />
+        <Kpi label="Desligamentos no ano" valor={dl.ano} sub={`${dl.mes} no mês`} cor="#993C1D" />
+        <Kpi label="eNPS de saída" valor={dl.enps == null ? '—' : dl.enps} sub="recomendaria a empresa" cor={enpsCor} />
+        <Kpi label="Pendências de cadastro" valor={p.sem_cpf + p.sem_lgpd} sub={`${p.sem_cpf} s/ CPF · ${p.sem_lgpd} s/ LGPD`} cor="#8A6D1D" />
+      </KpiGrid>
 
       <div style={s.grid}>
         {/* Movimento */}
@@ -118,14 +119,7 @@ export default function PainelRH() {
   );
 }
 
-function Kpi({ t, v, sub, cor, bg }) {
-  return <div style={{ background: bg, borderRadius: 12, padding: '14px 16px' }}>
-    <div style={{ fontSize: 11, color: cor, fontWeight: 600, textTransform: 'uppercase', letterSpacing: .3 }}>{t}</div>
-    <div style={{ fontSize: 28, fontWeight: 800, color: cor, marginTop: 2 }}>{v}</div>
-    {sub && <div style={{ fontSize: 11, color: cor, opacity: .8 }}>{sub}</div>}
-  </div>;
-}
-function Card({ t, children }) { return <div style={s.card}><div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{t}</div>{children}</div>; }
+function Card({ t, children }) { return <div style={{ ...UI.card, marginBottom: 0 }}><div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{t}</div>{children}</div>; }
 function MiniStat({ n, l, cor, bg }) { return <div style={{ flex: 1, background: bg, borderRadius: 8, padding: '8px 10px' }}><div style={{ fontSize: 18, fontWeight: 800, color: cor, lineHeight: 1 }}>{n}</div><div style={{ fontSize: 10.5, color: cor }}>{l}</div></div>; }
 function Linha({ titulo, itens, render, vazio }) {
   return <div style={{ marginBottom: 8 }}>
@@ -142,11 +136,8 @@ function PendBox({ n, l, k }) {
 }
 
 const s = {
-  wrap: { padding: '1rem', maxWidth: 1200, margin: '0 auto', fontFamily: 'system-ui, sans-serif' },
-  titulo: { fontSize: 20, fontWeight: 700 }, sub: { fontSize: 12, color: '#666', marginBottom: 14 },
-  kpis: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10, marginBottom: 14 },
+  wrap: { ...UI.page, maxWidth: 1200, margin: '0 auto' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 12 },
-  card: { background: '#fff', border: '1px solid #edf0f4', borderRadius: 14, boxShadow: '0 1px 2px rgba(16,24,40,.05)', padding: '12px 14px' },
-  chipInfo: { fontSize: 11.5, background: '#F0F3F7', borderRadius: 16, padding: '4px 10px', color: '#444' },
+  chipInfo: { fontSize: 11.5, background: CORES.verdeClaro, borderRadius: 16, padding: '4px 10px', color: CORES.marcaEsc },
   vazio: { fontSize: 12, color: '#bbb' },
 };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Banner from '../components/Banner';
+import { UI, Kpi, KpiGrid, Tabs, CORES } from '../components/ui';
 
 const DIM_L = { s_geral: 'Satisfação geral', s_lideranca: 'Liderança', s_ambiente: 'Ambiente e clima', s_remuneracao: 'Remuneração', s_crescimento: 'Crescimento', s_reconhecimento: 'Reconhecimento', s_carga: 'Carga de trabalho', s_ferramentas: 'Ferramentas/condições' };
 const dt = x => x ? String(x).slice(0, 10).split('-').reverse().join('/') : '';
@@ -10,11 +11,7 @@ export default function Pesquisas() {
   return (
     <div style={s.wrap}>
       <Banner emoji="📊" titulo="Pesquisas" cor="roxo" sub="Clima interno (eNPS) e avaliação dos setores e da gerência pelos colaboradores." />
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-        {[['clima', '💬 Clima (eNPS)'], ['avaliacao', '🏅 Setores & gerência']].map(([v, l]) => (
-          <button key={v} onClick={() => setAba(v)} style={{ ...s.chip, ...(aba === v ? s.chipOn : {}) }}>{l}</button>
-        ))}
-      </div>
+      <Tabs itens={[['clima', '💬 Clima (eNPS)'], ['avaliacao', '🏅 Setores & gerência']]} ativa={aba} onChange={setAba} />
       {aba === 'clima' && <ClimaTab />}
       {aba === 'avaliacao' && <AvaliacaoSetores />}
     </div>
@@ -70,10 +67,10 @@ function Analytics({ API, id, ativos }) {
   const enpsCor = a.enps == null ? '#999' : a.enps >= 50 ? '#3B6D11' : a.enps >= 0 ? '#BA7517' : '#993C1D';
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 12 }}>
-        <Kpi t="Respostas" v={a.respostas} sub={ativos ? `${Math.round(a.respostas / ativos * 100)}% da equipe` : ''} cor="#185FA5" bg="#EAF3FB" />
-        <Kpi t="eNPS interno" v={a.enps == null ? '—' : a.enps} sub="recomendaria a empresa" cor={enpsCor} bg="#F6F2FB" />
-      </div>
+      <KpiGrid>
+        <Kpi label="Respostas" valor={a.respostas} sub={ativos ? `${Math.round(a.respostas / ativos * 100)}% da equipe` : ''} cor="#185FA5" />
+        <Kpi label="eNPS interno" valor={a.enps == null ? '—' : a.enps} sub="recomendaria a empresa" cor={enpsCor} />
+      </KpiGrid>
       <div style={s.card}>
         <div style={{ fontSize: 12, fontWeight: 700, color: '#666', marginBottom: 8 }}>Médias por dimensão (1 a 5)</div>
         {Object.entries(a.medias).map(([k, v]) => (
@@ -99,14 +96,6 @@ function Analytics({ API, id, ativos }) {
       )}
     </div>
   );
-}
-
-function Kpi({ t, v, sub, cor, bg }) {
-  return <div style={{ background: bg, borderRadius: 12, padding: '14px 16px' }}>
-    <div style={{ fontSize: 11, color: cor, fontWeight: 600, textTransform: 'uppercase', letterSpacing: .3 }}>{t}</div>
-    <div style={{ fontSize: 28, fontWeight: 800, color: cor, marginTop: 2 }}>{v}</div>
-    {sub && <div style={{ fontSize: 11, color: cor, opacity: .8 }}>{sub}</div>}
-  </div>;
 }
 
 // ── Avaliação de setores & gerência (gestão) ────────────────────────────────
@@ -248,12 +237,12 @@ function Resultados({ API, id }) {
 }
 
 const s = {
-  wrap: { padding: '1rem', maxWidth: 1120, margin: '0 auto', fontFamily: 'system-ui, sans-serif' },
-  titulo: { fontSize: 20, fontWeight: 700 }, sub: { fontSize: 12, color: '#666', marginBottom: 14 },
-  card: { background: '#fff', border: '1px solid #edf0f4', borderRadius: 14, boxShadow: '0 1px 2px rgba(16,24,40,.05)', padding: '12px 14px', marginBottom: 12 },
-  chip: { fontSize: 12, padding: '6px 12px', borderRadius: 20, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', color: '#666' },
-  chipOn: { background: '#111', color: '#fff', borderColor: '#111' },
-  inp: { border: '1px solid #ddd', borderRadius: 8, padding: '7px 9px', fontSize: 13 },
-  fld: { display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: '#888' },
-  btn: { fontSize: 13, padding: '8px 16px', background: '#111', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 },
+  wrap: { ...UI.page, maxWidth: 1120, margin: '0 auto' },
+  sub: { fontSize: 12, color: CORES.suave, marginBottom: 14 },
+  card: UI.card,
+  chip: { fontSize: 12, padding: '6px 12px', borderRadius: 20, border: `1px solid ${CORES.bordaInp}`, background: '#fff', cursor: 'pointer', color: CORES.suave },
+  chipOn: { background: CORES.marca, color: '#fff', borderColor: CORES.marca },
+  inp: UI.inp,
+  fld: { display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: CORES.suave },
+  btn: { ...UI.btn, background: CORES.marca, color: '#fff', borderColor: CORES.marca },
 };

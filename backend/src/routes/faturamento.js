@@ -79,7 +79,10 @@ router.get('/vendas-online', async (req, res) => {
     const hoje = new Date(); const ymd = d => d.toISOString().slice(0, 10);
     const ini = req.query.ini || (req.query.dias ? ymd(new Date(Date.now() - (Number(req.query.dias) || 30) * 864e5)) : '');
     const fim = req.query.fim || (req.query.dias ? ymd(hoje) : '');
-    const linhas = await api.vendasPorVendedor({ iniDate: ini, endDate: fim });
+    // Só WhatsApp (origins=[1]) — é o que o Joe filtra na tela Detalhamento do BotVendas. Sem o filtro,
+    // o total inclui Loja Virtual/API (venda automática do e-commerce, sem atendente) = uma linha "sem nome"
+    // de ~R$1M que inflava o "Venda via bot". Validado 2026-11-17: todos canais R$1,18M → WhatsApp R$120k.
+    const linhas = await api.vendasPorVendedor({ iniDate: ini, endDate: fim, origins: [1] });
     const n = (v) => Number(v) || 0;
     const todos = linhas.map(s => {
       const at = n(s.attendance_count), vd = n(s.closed_count);
@@ -102,11 +105,11 @@ router.get('/vendas-online', async (req, res) => {
   } catch (e) { res.status(500).json({ erro: e.message }); }
 });
 
-// Avaliações baixas (CSAT < 3) que precisam de justificativa do responsável. ?minhas=1 = só as do
-// colaborador logado (a "minha área" do Online). Gestão vê todas.
+// Avaliações baixas (CSAT ≤ 3) que precisam de justificativa do responsável. ?minhas=1 = só as do
+// colaborador logado (a "minha área" do Online). Gestão vê todas. (Joe 2026-11-17: inclui a nota 3 — "de 3 a 0".)
 router.get('/avaliacoes-baixas', (req, res) => {
   const emp = req.usuario.empresa_id;
-  const w = ['s.empresa_id=?', 's.nota < 3']; const p = [emp];
+  const w = ['s.empresa_id=?', 's.nota <= 3']; const p = [emp];
   if (req.query.minhas === '1') { w.push('s.colaborador_id=?'); p.push(req.usuario.id); }
   if (req.query.loja) { w.push('s.loja_id=?'); p.push(req.query.loja); }
   if (req.query.ini && req.query.fim) { w.push("COALESCE(s.respondido_em,s.sincronizado_em) BETWEEN ? AND ?"); p.push(String(req.query.ini).slice(0, 10) + 'T00:00:00', String(req.query.fim).slice(0, 10) + 'T23:59:59'); }
