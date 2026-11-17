@@ -2301,7 +2301,6 @@ function PessoasPremioCompras({ API, comp, d, gestao }) {
   useEffect(() => { API.get('/colaboradores').then(r => setCols(r.data.colaboradores || [])).catch(() => {}); }, [API]);
   useEffect(() => { carregar(); }, [carregar]);
   const premioTotal = d?.premioTotal || 0;
-  const premioDe = cid => { const p = (d?.pessoas || []).find(x => x.colaborador_id === cid); return p ? p.premio : null; };
   const vincular = () => {
     if (!sel) { setMsg('Selecione um colaborador.'); setTimeout(() => setMsg(''), 2500); return; }
     API.put('/compras/meu-setor/pessoa', { comprador_id: comp, colaborador_id: sel, fator: (Number(fator) || 0) / 100 })
@@ -2319,7 +2318,7 @@ function PessoasPremioCompras({ API, comp, d, gestao }) {
           <tr key={p.colaborador_id} style={{ borderTop: '1px solid #f1f3f5' }}>
             <td style={{ padding: '8px 10px', fontWeight: 600 }}>{p.nome}</td>
             <td style={{ padding: '8px 10px' }}>{Math.round(p.fator * 100)}%</td>
-            <td style={{ padding: '8px 10px', fontWeight: 700, color: '#0d6b5e' }}>{brl(premioDe(p.colaborador_id) != null ? premioDe(p.colaborador_id) : premioTotal * p.fator)}</td>
+            <td style={{ padding: '8px 10px', fontWeight: 700, color: '#0d6b5e' }}>{brl(premioTotal * (Number(p.fator) || 0))}</td>
             <td style={{ padding: '8px 10px' }}>{gestao && <button onClick={() => remover(p.colaborador_id)} style={{ background: '#fff', border: '1px solid #e2e8f0', color: '#c0392b', borderRadius: 7, padding: '3px 10px', fontSize: 11.5, cursor: 'pointer' }}>remover</button>}</td>
           </tr>))}</tbody>
       </table></div>}

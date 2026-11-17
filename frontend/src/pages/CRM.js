@@ -20,6 +20,20 @@ const soData = s => { if (!s) return '—'; const d = new Date(String(s).replace
 // Cores dos perfis RFV (iguais ao Trivio)
 const RFV_COR = { 'Campeão': '#15803d', 'Fidelizado': '#2E8B9E', 'Potencial para ser fidelizado': '#0079C1', 'Recente': '#8CB63C', 'Promissor': '#9b87c4', 'Precisa de atenção': '#E05E7B', 'Em risco': '#E0A43C', 'Quase hibernando': '#E08A3C', 'Hibernando': '#94a3b8', 'Não pode perder': '#C77', 'Perdido': '#C0392B' };
 const rfvPill = t => t ? <span style={{ fontSize: 10.5, fontWeight: 700, color: '#fff', background: RFV_COR[t] || '#94a3b8', borderRadius: 10, padding: '2px 8px', whiteSpace: 'nowrap' }}>{t}</span> : <span style={{ color: '#cbd5e1' }}>—</span>;
+// Explicação de cada segmento RFV: [Atividade, O que fazer] (iguais ao Trivio).
+const EXPL_RFV = {
+  'Campeão': ['Compraram recentemente, com alta frequência e gastam muito.', 'Recompense-os e dê acesso antecipado a novidades — eles promovem sua marca.'],
+  'Fidelizado': ['Compram com boa frequência e gastam bem, mas não tão recente.', 'Ofereça novidades e fidelidade; mantenha o relacionamento aquecido.'],
+  'Potencial para ser fidelizado': ['Clientes recentes que já gastaram um bom valor.', 'Ofereça benefícios e incentive a aumentar a frequência.'],
+  'Recente': ['Compraram há pouco, mas ainda com baixa frequência.', 'Dê boas-vindas e incentive a 2ª compra.'],
+  'Promissor': ['Compraram recentemente, mas gastaram/compraram pouco.', 'Ofereça amostras e incentivos pra voltarem.'],
+  'Precisa de atenção': ['Recência, frequência e valor medianos.', 'Ofertas por tempo limitado e recomendações personalizadas.'],
+  'Quase hibernando': ['Recência e frequência abaixo da média.', 'Reative com ofertas relevantes antes que esfriem.'],
+  'Em risco': ['Gastavam bastante e com frequência, mas faz tempo que não voltam.', 'Campanhas de reativação personalizadas pra reconquistar.'],
+  'Não pode perder': ['Compraram faz muito tempo. Frequência e gasto bem altos.', 'Ganhe-os de volta com produtos novos, converse com eles.'],
+  'Hibernando': ['Última compra faz muito tempo, baixo gasto e frequência.', 'Ofertas de recuperação; senão viram Perdido.'],
+  'Perdido': ['Recência, frequência e valor muito baixos.', 'Última tentativa de reativação — ou foque os clientes ativos.'],
+};
 const inp = { border: '1px solid #e3e8ea', borderRadius: 8, padding: '7px 9px', fontSize: 13 };
 
 export default function CRM() {
@@ -415,7 +429,7 @@ function Sugestao() {
 // ── Análise RFV: os 11 segmentos (Campeão, Perdido…) com quantidade, % e barra ──
 function Rfv() {
   const { API } = useAuth();
-  const [d, setD] = useState(null); const [est, setEst] = useState('carregando');
+  const [d, setD] = useState(null); const [est, setEst] = useState('carregando'); const [aberto, setAberto] = useState(null);
   useEffect(() => { API.get('/crm/rfv').then(r => { setD(r.data); setEst(r.data && r.data.erp === false ? 'offline' : 'ok'); }).catch(() => setEst('erro')); }, [API]);
   const segs = ((d && d.segmentos) || []).slice().sort((a, b) => b.qtd - a.qtd);
   const maxQ = Math.max(1, ...segs.map(s => s.qtd));
@@ -425,9 +439,12 @@ function Rfv() {
       {est === 'ok' && <>
         <div style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>Base de <b style={{ color: '#1c2a2e' }}>{n0(d.total)}</b> clientes · período {soData(d.de)} a {soData(d.ate)} · segmentação RFV (Recência / Frequência / Valor)</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10 }}>
-          {segs.map(s => { const cor = RFV_COR[s.nome] || '#94a3b8'; return (
+          {segs.map(s => { const cor = RFV_COR[s.nome] || '#94a3b8'; const ex = EXPL_RFV[s.nome]; const on = aberto === s.nome; return (
             <div key={s.nome} style={{ background: '#fff', border: '1px solid #eef1f4', borderRadius: 12, padding: 14, borderLeft: '5px solid ' + cor }}>
-              <div style={{ fontWeight: 800, fontSize: 13.5 }}>{s.nome}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ fontWeight: 800, fontSize: 13.5, flex: 1 }}>{s.nome}</div>
+                {ex && <button onClick={() => setAberto(on ? null : s.nome)} title="o que significa / o que fazer" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, color: on ? cor : '#94a3b8', padding: 0, lineHeight: 1 }}>{on ? '▲' : 'ⓘ'}</button>}
+              </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 4 }}>
                 <span style={{ fontSize: 22, fontWeight: 800, color: cor }}>{n0(s.qtd)}</span>
                 <span style={{ fontSize: 13, color: '#64748b', fontWeight: 700 }}>{s.perc}%</span>
@@ -435,6 +452,12 @@ function Rfv() {
               <div style={{ height: 8, background: '#f1f5f9', borderRadius: 5, overflow: 'hidden', marginTop: 8 }}>
                 <div style={{ width: (s.qtd / maxQ * 100) + '%', height: '100%', background: cor, borderRadius: 5 }} />
               </div>
+              {on && ex && <div style={{ marginTop: 10, borderTop: '1px solid #f1f3f5', paddingTop: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>Atividade</div>
+                <div style={{ fontSize: 12, color: '#475569', marginBottom: 6 }}>{ex[0]}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b' }}>O que fazer</div>
+                <div style={{ fontSize: 12, color: '#475569' }}>{ex[1]}</div>
+              </div>}
             </div>
           ); })}
         </div>
