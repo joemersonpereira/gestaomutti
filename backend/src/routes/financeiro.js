@@ -275,7 +275,8 @@ router.get('/comparativo-lojas', async (req, res) => {
   const mesesAno = ano === new Date().getFullYear() ? (new Date().getMonth() + 1) : 12;
   const lojas = lojasEmpresa(emp);
   const colMap = {};
-  try { db.prepare("SELECT loja_id, COUNT(*) n FROM colaboradores WHERE empresa_id=? AND ativo=1 GROUP BY loja_id").all(emp).forEach(r => { if (r.loja_id) colMap[r.loja_id] = r.n; }); } catch (e) { /* */ }
+  // Exclui estagiário (is_estagiario=1) — eles são contados à parte via estagio_ficha, senão duplicava (Joe 2026-11-18).
+  try { db.prepare("SELECT loja_id, COUNT(*) n FROM colaboradores WHERE empresa_id=? AND ativo=1 AND COALESCE(is_estagiario,0)=0 GROUP BY loja_id").all(emp).forEach(r => { if (r.loja_id) colMap[r.loja_id] = r.n; }); } catch (e) { /* */ }
   const estagMap = {};
   try { db.prepare("SELECT loja, COUNT(*) n FROM estagio_ficha WHERE empresa_id=? AND status='ativo' GROUP BY loja").all(emp).forEach(r => { if (r.loja) estagMap[r.loja] = r.n; }); } catch (e) { /* */ }
   const lojaM2Map = {}; // m² da área de vendas por loja (cadastro) — p/ vendas por m² (Bulla)

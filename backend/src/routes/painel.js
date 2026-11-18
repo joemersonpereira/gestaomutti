@@ -515,7 +515,7 @@ async function snapshotMensalMes(emp, mes, ano) {
 router.get('/pessoas-por-loja', (req, res) => {
   const emp = req.usuario.empresa_id;
   const lojas = db.prepare('SELECT id, nome FROM lojas WHERE empresa_id=? ORDER BY nome').all(emp);
-  const col = db.prepare("SELECT loja_id, COUNT(*) n FROM colaboradores WHERE empresa_id=? AND ativo=1 GROUP BY loja_id").all(emp);
+  const col = db.prepare("SELECT loja_id, COUNT(*) n FROM colaboradores WHERE empresa_id=? AND ativo=1 AND COALESCE(is_estagiario,0)=0 GROUP BY loja_id").all(emp);
   const est = db.prepare("SELECT loja, COUNT(*) n FROM estagio_ficha WHERE empresa_id=? AND status='ativo' GROUP BY loja").all(emp);
   const colM = {}; col.forEach(r => { if (r.loja_id) colM[r.loja_id] = r.n; });
   const estM = {}; est.forEach(r => { if (r.loja) estM[r.loja] = r.n; });
