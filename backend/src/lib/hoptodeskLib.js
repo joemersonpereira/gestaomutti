@@ -39,6 +39,19 @@ function upsert(t) {
   return { ok: true };
 }
 
+// Conclui/reabre um chamado manualmente pelo painel (status LOCAL; um webhook/sync real pode sobrepor
+// depois com o status de verdade do HopToDesk). concluir → resolved; reabrir → open (limpa resolvido_em).
+function concluir(id) {
+  const ex = db.prepare('SELECT id FROM hoptodesk_ticket WHERE id=?').get(String(id));
+  if (!ex) return { ok: false, erro: 'Chamado não encontrado.' };
+  return upsert({ id: String(id), status: 'resolved' });
+}
+function reabrir(id) {
+  const ex = db.prepare('SELECT id FROM hoptodesk_ticket WHERE id=?').get(String(id));
+  if (!ex) return { ok: false, erro: 'Chamado não encontrado.' };
+  return upsert({ id: String(id), status: 'open' });
+}
+
 // Processa 1 evento do webhook (envelope {event,timestamp,dashboard_user_id,data}).
 function processarEvento(evt) {
   if (!evt || !evt.event) return { ok: false };
@@ -150,4 +163,4 @@ function listarDispositivos(empresaId) {
   return db.prepare('SELECT device_id, nome, computer_name, status, so, grupo, ip, last_seen, sessoes, atualizado_em FROM hoptodesk_device WHERE empresa_id=? ORDER BY (status=\'online\') DESC, nome').all(empresaId);
 }
 
-module.exports = { assinaturaOk, processarEvento, listar, resumo, sincronizar, semearExemplo, importarDispositivos, listarDispositivos, CONCLUIDO, ABERTO };
+module.exports = { assinaturaOk, processarEvento, listar, resumo, sincronizar, semearExemplo, concluir, reabrir, importarDispositivos, listarDispositivos, CONCLUIDO, ABERTO };

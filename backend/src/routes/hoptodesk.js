@@ -19,6 +19,9 @@ router.post('/webhook', (req, res) => {
 router.use(auth);
 router.get('/tickets', (req, res) => res.json({ tickets: hd.listar({ status: req.query.status || '', prioridade: req.query.prioridade || '', busca: req.query.busca || '' }) }));
 router.get('/resumo', (req, res) => res.json(hd.resumo({ dias: Number(req.query.dias) || 30 })));
+// Concluir / reabrir um chamado pelo painel (status local).
+router.post('/tickets/:id/concluir', (req, res) => { const r = hd.concluir(req.params.id); res.status(r.ok ? 200 : 404).json(r); });
+router.post('/tickets/:id/reabrir', (req, res) => { const r = hd.reabrir(req.params.id); res.status(r.ok ? 200 : 404).json(r); });
 router.post('/sincronizar', exigePerfil(...GESTAO), async (req, res) => {
   try { res.json(await hd.sincronizar({})); } catch (e) { res.status(500).json({ erro: e.message }); }
 });

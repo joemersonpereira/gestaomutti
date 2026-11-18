@@ -513,7 +513,14 @@ function Chamados({ API }) {
             <td style={UI.td}><span style={{ fontWeight: 700, color: prioCor(t.prioridade) }}>{t.prioridadeLabel || '—'}</span></td>
             <td style={UI.td}><span style={{ background: t.concluido ? '#ecfdf5' : '#fef2f2', color: stCor(t), borderRadius: 999, padding: '2px 9px', fontSize: 11.5, fontWeight: 700 }}>{t.statusLabel}</span></td>
             <td style={UI.td}>{dBRdt(t.criado_em)}</td>
-            <td style={UI.td}>{t.device_id && <button onClick={() => conectarHopToDesk(t.device_id)} style={{ ...UI.btn, background: CORES.marca, color: '#fff', borderColor: 'transparent', padding: '4px 10px', fontSize: 11.5 }}>🖥 Conectar</button>}</td>
+            <td style={UI.td}>
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                {t.device_id && <button onClick={() => conectarHopToDesk(t.device_id)} style={{ ...UI.btn, background: CORES.marca, color: '#fff', borderColor: 'transparent', padding: '4px 10px', fontSize: 11.5 }}>🖥 Conectar</button>}
+                {!t.concluido
+                  ? <button onClick={() => API.post(`/hoptodesk/tickets/${encodeURIComponent(t.id)}/concluir`).then(carregar).catch(() => {})} style={{ ...UI.btn, padding: '4px 10px', fontSize: 11.5, color: CORES.ok, borderColor: '#bbf7d0' }}>✅ Concluir</button>
+                  : <button onClick={() => API.post(`/hoptodesk/tickets/${encodeURIComponent(t.id)}/reabrir`).then(carregar).catch(() => {})} style={{ ...UI.btn, padding: '4px 10px', fontSize: 11.5, color: CORES.suave }}>↩️ Reabrir</button>}
+              </div>
+            </td>
           </tr>)}
         </tbody></table>
     </div>
