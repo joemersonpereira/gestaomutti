@@ -1305,7 +1305,8 @@ function RupturaAba({ API }) {
                     {drill.produtos.length === 0 && <tr><td colSpan={8} style={{ padding: 10, color: '#aaa' }}>Nenhum produto.</td></tr>}
                     {drill.produtos.map((p, i) => (
                       <tr key={i} style={{ borderTop: '1px solid #f3f4f6' }}>
-                        <td style={{ padding: '6px 8px', fontWeight: 600 }}>{p.descricao}</td>
+                        <td style={{ padding: '6px 8px', fontWeight: 600 }}>{p.descricao}
+                          <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 400, marginTop: 1 }}>cód {p.codigo || '—'}{p.ean ? ' · barras ' + p.ean : ''}</div></td>
                         <td style={{ padding: '6px 8px', color: '#64748b', whiteSpace: 'nowrap' }}>{p.loja}</td>
                         <td style={{ padding: '6px 8px', fontWeight: 700, color: CURVA_COR[p.curva] || '#334' }}>{p.curva}</td>
                         <td style={{ padding: '6px 8px', color: '#64748b' }}>{p.classif}</td>

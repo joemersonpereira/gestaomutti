@@ -21,6 +21,11 @@ const acordos = require('../lib/comprasAcordos');
 const cmvGrupo = require('../lib/cmvGrupoErp');
 const { cacheMiddleware: _ccMw, invalidarMiddleware: _ccInv } = require('../lib/erpCache');
 const compCache = _ccMw('comp');   // serve-stale: a tela carrega na hora do cache e recalcula em 2º plano
+// Ruptura/estoque: base VERSIONADA. O payload mudou de forma (pct por curva/classif, curva D, exclui
+// bloqueado p/ compra, ruptura por loja). Como o cache serve a resposta salva "pra sempre" até ?forcar=1,
+// uma entrada antiga ficaria colada na tela com o formato velho. Bumpar o sufixo = chave nova = recalcula.
+// Ainda é limpo por invalidar('comp') pois 'comp-rup2' começa com 'comp'. Bumpe o nº a cada mudança de forma.
+const rupCache = _ccMw('comp-rup2');
 const compInval = _ccInv('comp:'); // invalida o cache quando muda algo que os relatórios do ERP mostram
 const _ultimoSync = {}; // empresa_id -> timestamp (throttle do sync de alertas)
 
@@ -325,18 +330,18 @@ router.put('/metas', exigePerfil(...GESTAO_COMPRAS), (req, res) => {
 });
 
 // ── Indicadores de estoque (ruptura, cobertura, curva ABC, orçamento de estoque) ──
-router.get('/estoque-indicadores', compCache, async (req, res) => {
+router.get('/estoque-indicadores', rupCache, async (req, res) => {
   try { res.json(await indicadoresEstoque(req.usuario.empresa_id, { lojaId: req.query.loja || undefined, compradorId: req.query.comprador || undefined })); }
   catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
 });
 
 // ── Ruptura (aba própria): por loja, curva e classificação + custo (venda perdida). ──
-router.get('/ruptura', compCache, async (req, res) => {
+router.get('/ruptura', rupCache, async (req, res) => {
   try { res.json(await rupturaAnalise(req.usuario.empresa_id, { lojaId: req.query.loja || undefined, compradorId: req.query.comprador || undefined, fator: req.query.fator })); }
   catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
 });
 // Drill: produtos em ruptura (filtra loja/curva/classificação), ordenado por valor perdido.
-router.get('/ruptura-produtos', compCache, async (req, res) => {
+router.get('/ruptura-produtos', rupCache, async (req, res) => {
   try { res.json(await rupturaProdutos(req.usuario.empresa_id, { lojaId: req.query.loja || undefined, compradorId: req.query.comprador || undefined, curva: req.query.curva || undefined, classif: req.query.classif || undefined, fator: req.query.fator, limite: req.query.limite })); }
   catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
 });
