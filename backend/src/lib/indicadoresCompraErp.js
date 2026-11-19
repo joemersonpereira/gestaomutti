@@ -305,7 +305,11 @@ async function _rupturaLoja(unis, prodIds) {
       WHERE es.unidadenegocioid = ANY($1::bigint[]) AND es.estoque>0${pf.sql}),
     cls AS (SELECT DISTINCT ON (cp.produtoid) cp.produtoid, NULLIF(split_part(c.caminho,' > ',2),'') classif
       FROM classificacaoproduto cp JOIN classificacao c ON c.id=cp.classificacaoid
-      WHERE cp.produtoid IN (SELECT produtoid FROM v))
+      WHERE cp.produtoid IN (SELECT produtoid FROM v)
+      -- Regra do Joe: a árvore IQNUS (ex.: "IQNUS > Integrar") é um overlay de programa, NÃO a
+      -- classificação de merchandising. Quando o produto também está na PRINCIPAL, use a PRINCIPAL
+      -- (ex.: "PRINCIPAL > PROPAGADO" → PROPAGADO). Só cai no IQNUS se for a única árvore que existe.
+      ORDER BY cp.produtoid, (c.caminho ILIKE 'IQNUS%'), (c.caminho ILIKE 'PRINCIPAL%') DESC, c.caminho)
     SELECT v.produtoid, v.venda, v.qtd, p.descricao, p.codigo,
       (SELECT e2.codigobarras FROM embalagem e2 WHERE e2.produtoid=v.produtoid AND e2.codigobarras IS NOT NULL AND e2.codigobarras<>'' ORDER BY length(e2.codigobarras) DESC LIMIT 1) ean,
       (v.produtoid NOT IN (SELECT produtoid FROM estq)) em_ruptura,
