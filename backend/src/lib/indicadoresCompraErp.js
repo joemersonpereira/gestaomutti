@@ -37,7 +37,8 @@ async function ruptura(unis, prodIds) {
   const r = (await erpQuery(`
     WITH vend AS (
       SELECT DISTINCT em.produtoid FROM itemvenda iv JOIN venda v ON v.id=iv.vendaid JOIN embalagem em ON em.id=iv.embalagemid
-      WHERE v.status='F' AND v.unidadenegocioid = ANY($1::bigint[]) AND v.datahorafechamento >= now()-interval '30 days'${pf.sql}),
+      WHERE v.status='F' AND v.unidadenegocioid = ANY($1::bigint[]) AND v.datahorafechamento >= now()-interval '30 days'${pf.sql}
+        AND NOT EXISTS (SELECT 1 FROM suspendecompraprodutounidadenegocio s WHERE s.produtoid=em.produtoid AND s.unidadenegocioid = ANY($1::bigint[]))),
     estq AS (SELECT DISTINCT em.produtoid FROM estoque es JOIN embalagem em ON em.id=es.embalagemid
       WHERE es.unidadenegocioid = ANY($1::bigint[]) AND es.estoque>0${pf.sql})
     SELECT (SELECT count(*) FROM vend) com_venda,
@@ -154,7 +155,7 @@ async function indicadoresEstoque(empresaId, { lojaId, compradorId } = {}) {
   const m = metaVals(empresaId, compradorId);   // usa a meta do comprador (override) quando um comprador está selecionado
   const janelaNovos = m.conversao_novos_janela || 90;
   const [estoque, rup, custoDia, abc, novos] = await Promise.all([
-    valorEstoqueCusto(unis, prodIds), ruptura(unis, prodIds), custoVendidoDia(unis, prodIds), curvaABC(unis, prodIds),
+    valorEstoqueCusto(unis, prodIds), _rupturaAgregadaPorLoja(empresaId, lojaId, prodIds), custoVendidoDia(unis, prodIds), curvaABC(unis, prodIds),
     conversaoProdutosNovos(unis, prodIds, janelaNovos),
   ]);
   const cobertura = custoDia > 0 ? Math.round(estoque.valor / custoDia) : null;
@@ -298,13 +299,15 @@ async function _rupturaLoja(unis, prodIds) {
       SELECT em.produtoid, sum(iv.valortotal)::float8 venda, sum(iv.quantidade)::float8 qtd
       FROM itemvenda iv JOIN venda vv ON vv.id=iv.vendaid JOIN embalagem em ON em.id=iv.embalagemid
       WHERE vv.status='F' AND vv.unidadenegocioid = ANY($1::bigint[]) AND vv.datahorafechamento >= now()-interval '30 days'${pf.sql}
+        AND NOT EXISTS (SELECT 1 FROM suspendecompraprodutounidadenegocio s WHERE s.produtoid=em.produtoid AND s.unidadenegocioid = ANY($1::bigint[]))
       GROUP BY em.produtoid HAVING sum(iv.valortotal) > 0),
     estq AS (SELECT DISTINCT em.produtoid FROM estoque es JOIN embalagem em ON em.id=es.embalagemid
       WHERE es.unidadenegocioid = ANY($1::bigint[]) AND es.estoque>0${pf.sql}),
     cls AS (SELECT DISTINCT ON (cp.produtoid) cp.produtoid, NULLIF(split_part(c.caminho,' > ',2),'') classif
       FROM classificacaoproduto cp JOIN classificacao c ON c.id=cp.classificacaoid
       WHERE cp.produtoid IN (SELECT produtoid FROM v))
-    SELECT v.produtoid, v.venda, v.qtd, p.descricao,
+    SELECT v.produtoid, v.venda, v.qtd, p.descricao, p.codigo,
+      (SELECT e2.codigobarras FROM embalagem e2 WHERE e2.produtoid=v.produtoid AND e2.codigobarras IS NOT NULL AND e2.codigobarras<>'' ORDER BY length(e2.codigobarras) DESC LIMIT 1) ean,
       (v.produtoid NOT IN (SELECT produtoid FROM estq)) em_ruptura,
       COALESCE(cls.classif,'(sem classificação)') classif
     FROM v JOIN produto p ON p.id=v.produtoid LEFT JOIN cls ON cls.produtoid=v.produtoid
@@ -314,12 +317,43 @@ async function _rupturaLoja(unis, prodIds) {
   for (const r of rows) {
     acum += Number(r.venda) || 0;
     const pp = total ? acum / total : 1;
-    r.curva = pp <= 0.8 ? 'A' : pp <= 0.95 ? 'B' : 'C';
+    // 4 curvas por venda (A 80% / B 95% / C 99% / D = cauda de giro baixíssimo). D aqui NÃO é a "D sem giro"
+    // da Análise de estoque (essa tem estoque e não gira, logo nunca entra em ruptura).
+    r.curva = pp <= 0.8 ? 'A' : pp <= 0.95 ? 'B' : pp <= 0.99 ? 'C' : 'D';
     r.venda = Math.round((Number(r.venda) || 0) * 100) / 100;
     r.qtd = Math.round((Number(r.qtd) || 0) * 100) / 100;
     r.em_ruptura = (r.em_ruptura === true || r.em_ruptura === 't' || r.em_ruptura === 1);
   }
   return rows;
+}
+
+// Conta, por loja, os produtos BLOQUEADOS p/ compra que estão zerados (vendeu em 30d, estoque 0 e suspenso
+// p/ compra). Esses NÃO entram na ruptura (é decisão comercial), mas o Joe quer ver o número à parte.
+async function _bloqueadosEmRuptura(unis, prodIds) {
+  const pf = prodFilter(prodIds, 2);
+  const r = (await erpQuery(`
+    WITH vend AS (SELECT DISTINCT em.produtoid FROM itemvenda iv JOIN venda v ON v.id=iv.vendaid JOIN embalagem em ON em.id=iv.embalagemid
+      WHERE v.status='F' AND v.unidadenegocioid = ANY($1::bigint[]) AND v.datahorafechamento >= now()-interval '30 days'${pf.sql}
+        AND EXISTS (SELECT 1 FROM suspendecompraprodutounidadenegocio s WHERE s.produtoid=em.produtoid AND s.unidadenegocioid = ANY($1::bigint[]))),
+    estq AS (SELECT DISTINCT em.produtoid FROM estoque es JOIN embalagem em ON em.id=es.embalagemid
+      WHERE es.unidadenegocioid = ANY($1::bigint[]) AND es.estoque>0${pf.sql})
+    SELECT count(*) FILTER (WHERE produtoid NOT IN (SELECT produtoid FROM estq)) n FROM vend`, [unis, ...pf.param]))[0] || {};
+  return Number(r.n) || 0;
+}
+
+// Ruptura agregada POR LOJA (não "lumped"): soma a ruptura de cada loja separadamente — um item que
+// faltou numa loja é ruptura NELA mesmo que outra loja tenha. Usado também na aba "Análise de estoque"
+// (antes ela juntava tudo num pool só e subestimava, ex.: 4,2% vs 12,4% real).
+async function _rupturaAgregadaPorLoja(empresaId, lojaId, prodIds) {
+  const lojas = lojasEmpresa(empresaId).filter(l => !lojaId || l.id === lojaId);
+  let comVenda = 0, emRuptura = 0;
+  for (const l of lojas) {
+    const u = unisEmpresa(empresaId, l.id);
+    if (!u.length) continue;
+    const r = await ruptura(u, prodIds);
+    comVenda += r.comVenda; emRuptura += r.emRuptura;
+  }
+  return { comVenda, emRuptura, pct: comVenda ? Math.round(emRuptura / comVenda * 1000) / 10 : 0 };
 }
 
 // Agregados da ruptura por loja, curva e classificação (+ totais com ruptura ponderada e custo).
@@ -330,33 +364,34 @@ async function rupturaAnalise(empresaId, { lojaId, compradorId, fator } = {}) {
   if (compradorId && (!prodIds || !prodIds.length)) return { erp: true, semComprador: true, erro: 'Comprador sem grupos vinculados.' };
   const lojas = lojasEmpresa(empresaId).filter(l => !lojaId || l.id === lojaId);
   const porLoja = [], curvaMap = {}, classMap = {};
-  let totSold = 0, totRup = 0, totVendaAll = 0, totVendaRup = 0;
+  let totSold = 0, totRup = 0, totVendaAll = 0, totVendaRup = 0, totBloq = 0;
   for (const l of lojas) {
     const unis = unisEmpresa(empresaId, l.id);
     if (!unis.length) continue;
-    const rows = await _rupturaLoja(unis, prodIds);
+    const [rows, bloq] = await Promise.all([_rupturaLoja(unis, prodIds), _bloqueadosEmRuptura(unis, prodIds)]);
+    totBloq += bloq;
     if (!rows.length) continue;
     let emRup = 0, vendaRup = 0, vendaTot = 0;
     for (const r of rows) {
       vendaTot += r.venda;
+      const cm = (curvaMap[r.curva] = curvaMap[r.curva] || { curva: r.curva, comVenda: 0, emRuptura: 0, vendaRuptura: 0 });
+      const xm = (classMap[r.classif] = classMap[r.classif] || { classif: r.classif, comVenda: 0, emRuptura: 0, vendaRuptura: 0 });
+      cm.comVenda++; xm.comVenda++;               // denominador (deveria estar): tudo que vendeu em 30d
       if (r.em_ruptura) {
         emRup++; vendaRup += r.venda;
-        (curvaMap[r.curva] = curvaMap[r.curva] || { curva: r.curva, emRuptura: 0, vendaRuptura: 0 });
-        curvaMap[r.curva].emRuptura++; curvaMap[r.curva].vendaRuptura += r.venda;
-        (classMap[r.classif] = classMap[r.classif] || { classif: r.classif, emRuptura: 0, vendaRuptura: 0 });
-        classMap[r.classif].emRuptura++; classMap[r.classif].vendaRuptura += r.venda;
+        cm.emRuptura++; cm.vendaRuptura += r.venda;
+        xm.emRuptura++; xm.vendaRuptura += r.venda;
       }
     }
     porLoja.push({ loja_id: l.id, loja: l.nome, comVenda: rows.length, emRuptura: emRup,
       pct: rows.length ? Math.round(emRup / rows.length * 1000) / 10 : 0,
       pctPonderada: vendaTot ? Math.round(vendaRup / vendaTot * 1000) / 10 : 0,
-      vendaRuptura: Math.round(vendaRup), custo: Math.round(vendaRup * f) });
+      vendaRuptura: Math.round(vendaRup), custo: Math.round(vendaRup * f), bloqueados: bloq });
     totSold += rows.length; totRup += emRup; totVendaAll += vendaTot; totVendaRup += vendaRup;
   }
-  const porCurva = ['A', 'B', 'C'].map(c => curvaMap[c]).filter(Boolean)
-    .map(x => ({ ...x, vendaRuptura: Math.round(x.vendaRuptura), custo: Math.round(x.vendaRuptura * f) }));
-  const porClassificacao = Object.values(classMap).sort((a, b) => b.vendaRuptura - a.vendaRuptura)
-    .map(x => ({ ...x, vendaRuptura: Math.round(x.vendaRuptura), custo: Math.round(x.vendaRuptura * f) }));
+  const comPct = x => ({ ...x, pct: x.comVenda ? Math.round(x.emRuptura / x.comVenda * 1000) / 10 : 0, vendaRuptura: Math.round(x.vendaRuptura), custo: Math.round(x.vendaRuptura * f) });
+  const porCurva = ['A', 'B', 'C', 'D'].map(c => curvaMap[c]).filter(Boolean).map(comPct);
+  const porClassificacao = Object.values(classMap).sort((a, b) => b.vendaRuptura - a.vendaRuptura).map(comPct);
   porLoja.sort((a, b) => b.custo - a.custo);
   return {
     erp: true, fator: f, lojaId: lojaId || null,
@@ -364,7 +399,7 @@ async function rupturaAnalise(empresaId, { lojaId, compradorId, fator } = {}) {
       comVenda: totSold, emRuptura: totRup,
       pct: totSold ? Math.round(totRup / totSold * 1000) / 10 : 0,
       pctPonderada: totVendaAll ? Math.round(totVendaRup / totVendaAll * 1000) / 10 : 0,
-      vendaRuptura: Math.round(totVendaRup), custo: Math.round(totVendaRup * f),
+      vendaRuptura: Math.round(totVendaRup), custo: Math.round(totVendaRup * f), bloqueados: totBloq,
     },
     porLoja, porCurva, porClassificacao,
   };
@@ -377,6 +412,9 @@ async function rupturaProdutos(empresaId, { lojaId, compradorId, curva, classif,
   const prodIds = await produtosDoComprador(empresaId, compradorId);
   if (compradorId && (!prodIds || !prodIds.length)) return { erp: true, semComprador: true, erro: 'Comprador sem grupos vinculados.' };
   const lojas = lojasEmpresa(empresaId).filter(l => !lojaId || l.id === lojaId);
+  // Mapa uni → nome da loja (de TODAS as lojas) p/ dizer de ONDE dá pra remanejar.
+  const uniToLoja = {};
+  for (const l of lojasEmpresa(empresaId)) for (const u of unisEmpresa(empresaId, l.id)) uniToLoja[String(u)] = l.nome;
   const out = [];
   for (const l of lojas) {
     const unis = unisEmpresa(empresaId, l.id);
@@ -386,12 +424,27 @@ async function rupturaProdutos(empresaId, { lojaId, compradorId, curva, classif,
       if (!r.em_ruptura) continue;
       if (curva && r.curva !== curva) continue;
       if (classif && r.classif !== classif) continue;
-      out.push({ loja: l.nome, descricao: r.descricao, classif: r.classif, curva: r.curva,
+      out.push({ produtoid: Number(r.produtoid), codigo: r.codigo || '', ean: r.ean || '', loja: l.nome, loja_id: l.id, descricao: r.descricao, classif: r.classif, curva: r.curva,
         venda30d: r.venda, qtd30d: r.qtd, perdido: Math.round(r.venda * f) });
     }
   }
+  // Remanejamento: para cada item em ruptura, quais OUTRAS lojas têm estoque (pra transferir em vez de comprar).
+  if (out.length) {
+    const pids = [...new Set(out.map(o => o.produtoid))];
+    const estq = await erpQuery(`SELECT em.produtoid, es.unidadenegocioid uni, sum(es.estoque)::float8 est
+      FROM estoque es JOIN embalagem em ON em.id=es.embalagemid
+      WHERE es.estoque>0 AND em.produtoid = ANY($1::bigint[]) GROUP BY em.produtoid, es.unidadenegocioid`, [pids]).catch(() => []);
+    const mapa = {};
+    for (const e of estq) { const nm = uniToLoja[String(e.uni)]; if (!nm) continue; (mapa[Number(e.produtoid)] = mapa[Number(e.produtoid)] || []).push({ loja: nm, est: Number(e.est) || 0 }); }
+    for (const o of out) {
+      const outras = (mapa[o.produtoid] || []).filter(x => x.loja !== o.loja && x.est > 0);
+      o.remanejar = outras.map(x => `${x.loja} (${Math.round(x.est)})`).join(', ');
+      o.remanejavel = outras.length > 0;
+    }
+  }
   out.sort((a, b) => b.perdido - a.perdido);
-  return { erp: true, fator: f, total: out.length, produtos: out.slice(0, Number(limite) || 400) };
+  const lista = out.slice(0, Number(limite) || 400);
+  return { erp: true, fator: f, total: out.length, remanejaveis: out.filter(o => o.remanejavel).length, produtos: lista };
 }
 
 module.exports = { indicadoresEstoque, retornoFalteiro, produtosDoComprador, cmvComprador, cmvCompradorSugestao, vencidoComprador, rupturaAnalise, rupturaProdutos };

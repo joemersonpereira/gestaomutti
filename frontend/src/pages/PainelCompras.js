@@ -1220,10 +1220,15 @@ function RupturaAba({ API }) {
   const abrirDrill = (titulo, extra) => {
     setDrill({ titulo, produtos: null });
     API.get('/compras/ruptura-produtos', { params: { loja: loja || undefined, comprador: comprador || undefined, fator, ...extra } })
-      .then(r => setDrill({ titulo, produtos: r.data.produtos || [], total: r.data.total || 0 }))
+      .then(r => setDrill({ titulo, produtos: r.data.produtos || [], total: r.data.total || 0, remanejaveis: r.data.remanejaveis || 0 }))
       .catch(() => setDrill({ titulo, produtos: [], total: 0 }));
   };
-  const CURVA_COR = { A: '#1E874B', B: '#B7791F', C: '#C0392B' };
+  const CURVA_COR = { A: '#1E874B', B: '#B7791F', C: '#C0392B', D: '#7A7A7A' };
+  const exportar = () => {
+    API.get('/compras/ruptura-export', { params: { loja: loja || undefined, comprador: comprador || undefined, fator }, responseType: 'blob' })
+      .then(r => { const url = URL.createObjectURL(new Blob([r.data], { type: 'text/csv' })); const a = document.createElement('a'); a.href = url; a.download = 'ruptura-reposicao.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1500); })
+      .catch(() => {});
+  };
   const filtros = (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
       <LojaSelect lojas={lojas} value={loja} onChange={setLoja} />
@@ -1233,6 +1238,7 @@ function RupturaAba({ API }) {
       </select>
       <label style={{ fontSize: 11.5, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5 }}>% que não volta (custo)
         <input type="number" min="1" max="100" value={fatorPct} onChange={e => setFatorPct(e.target.value)} style={{ ...s.inp, width: 64, padding: '6px 8px' }} /></label>
+      <button onClick={exportar} title="Exporta a lista de reposição (código Alpha 7 + EAN + quantidade) pra subir no Alpha e mandar ao fornecedor" style={{ ...s.inp, padding: '6px 11px', cursor: 'pointer', background: '#0E7C5A', color: '#fff', border: '1px solid transparent', fontWeight: 700 }}>⬇️ Exportar p/ Alpha 7</button>
     </div>
   );
   if (erro) return <div style={s.card}>{filtros}<div style={{ color: CORES.vermelho }}>⚠️ {erro}</div></div>;
@@ -1244,15 +1250,16 @@ function RupturaAba({ API }) {
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead><tr style={{ color: '#64748b', borderBottom: '2px solid #eef1f4' }}>
-            {[col1, 'SKUs', 'Ruptura', 'Custo/mês'].map((h, i) => <th key={h} style={{ padding: '6px 8px', textAlign: i ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>)}
+            {[col1, 'SKUs', 'Ruptura', 'Venda/mês', 'Custo/mês'].map((h, i) => <th key={h} style={{ padding: '6px 8px', textAlign: i ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>)}
           </tr></thead>
           <tbody>
-            {linhas.length === 0 && <tr><td colSpan={4} style={{ padding: 10, color: '#aaa' }}>Sem ruptura.</td></tr>}
+            {linhas.length === 0 && <tr><td colSpan={5} style={{ padding: 10, color: '#aaa' }}>Sem ruptura.</td></tr>}
             {linhas.map((r, i) => (
               <tr key={i} onClick={() => onLinha(r)} style={{ borderTop: '1px solid #f3f4f6', cursor: 'pointer' }} title="ver produtos">
                 <td style={{ padding: '6px 8px', fontWeight: 600, color: corFn ? corFn(r) : '#334' }}>{r[chave]}</td>
                 <td style={{ padding: '6px 8px', textAlign: 'right' }}>{nf(r.emRuptura)}</td>
                 <td style={{ padding: '6px 8px', textAlign: 'right' }}>{r.pct != null ? r.pct + '%' : '—'}</td>
+                <td style={{ padding: '6px 8px', textAlign: 'right', color: '#B45309' }}>{brl(r.vendaRuptura)}</td>
                 <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: CORES.vermelho }}>{brl(r.custo)}</td>
               </tr>
             ))}
@@ -1267,11 +1274,13 @@ function RupturaAba({ API }) {
       <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>
         🚨 <b>Ruptura</b> = de tudo que <b>vendeu nos últimos 30 dias</b>, quantos itens estão <b>hoje com estoque zero</b>. O <b>custo</b> estima a venda perdida (venda recente dos itens em falta × <b>{Math.round(fator * 100)}%</b> que não se recupera — cliente vai a outra loja ou desiste). Clique numa linha para ver os produtos.
       </div>
+      {t.bloqueados > 0 && <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10, background: '#f8fafc', border: '1px solid #eef1f4', borderRadius: 8, padding: '7px 10px' }}>🔒 <b>{nf(t.bloqueados)}</b> item(ns) <b>bloqueado(s) para compra</b> estão zerados — ficam <b>fora</b> da ruptura (é decisão comercial, não falta).</div>}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
         <Kpi titulo="SKUs em ruptura" valor={nf(t.emRuptura || 0) + ' de ' + nf(t.comVenda || 0)} />
         <Kpi titulo="Ruptura (contagem)" valor={(t.pct || 0) + '%'} cor={t.pct > 10 ? CORES.vermelho : t.pct > 5 ? CORES.amarelo : CORES.verde} />
         <Kpi titulo="Ruptura ponderada (venda)" valor={(t.pctPonderada || 0) + '%'} cor={t.pctPonderada > 8 ? CORES.vermelho : t.pctPonderada > 4 ? CORES.amarelo : CORES.verde} />
-        <Kpi titulo="Custo estimado / mês" valor={brl(t.custo || 0)} cor={CORES.vermelho} />
+        <Kpi titulo="Venda em falta / mês" valor={brl(t.vendaRuptura || 0)} cor="#B45309" />
+        <Kpi titulo={`Custo (não volta ${Math.round(fator * 100)}%)`} valor={brl(t.custo || 0)} cor={CORES.vermelho} />
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         {!d.lojaId && <Tabela titulo="📍 Por loja" linhas={d.porLoja} col1="Loja" chave="loja" onLinha={r => abrirDrill('Ruptura — ' + r.loja, { loja: r.loja_id })} />}
@@ -1283,17 +1292,17 @@ function RupturaAba({ API }) {
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 16, width: 'min(780px,95vw)', maxHeight: '82vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
               <b style={{ fontSize: 14 }}>{drill.titulo}</b>
-              {drill.produtos && <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 8 }}>{nf(drill.total)} produto(s) — maiores perdas primeiro</span>}
+              {drill.produtos && <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 8 }}>{nf(drill.total)} produto(s){drill.remanejaveis ? ' · ' + nf(drill.remanejaveis) + ' com estoque em outra loja (remanejável)' : ''}</span>}
               <button onClick={() => setDrill(null)} style={{ marginLeft: 'auto', border: '1px solid #e2e8f0', borderRadius: 7, background: '#fff', padding: '3px 9px', cursor: 'pointer' }}>✕</button>
             </div>
             {!drill.produtos ? <div style={{ color: '#94a3b8', padding: 10 }}>carregando…</div> : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead><tr style={{ color: '#64748b', borderBottom: '2px solid #eef1f4' }}>
-                    {['Produto', 'Loja', 'Curva', 'Classificação', 'Vendeu 30d', 'Qtd', 'Perda est.'].map((h, i) => <th key={h} style={{ padding: '6px 8px', textAlign: i > 3 ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>)}
+                    {['Produto', 'Loja', 'Curva', 'Classificação', 'Vendeu 30d', 'Qtd', 'Perda est.', 'Remanejar de (estoque)'].map((h, i) => <th key={h} style={{ padding: '6px 8px', textAlign: (i > 3 && i < 7) ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>)}
                   </tr></thead>
                   <tbody>
-                    {drill.produtos.length === 0 && <tr><td colSpan={7} style={{ padding: 10, color: '#aaa' }}>Nenhum produto.</td></tr>}
+                    {drill.produtos.length === 0 && <tr><td colSpan={8} style={{ padding: 10, color: '#aaa' }}>Nenhum produto.</td></tr>}
                     {drill.produtos.map((p, i) => (
                       <tr key={i} style={{ borderTop: '1px solid #f3f4f6' }}>
                         <td style={{ padding: '6px 8px', fontWeight: 600 }}>{p.descricao}</td>
@@ -1303,6 +1312,7 @@ function RupturaAba({ API }) {
                         <td style={{ padding: '6px 8px', textAlign: 'right' }}>{brl(p.venda30d)}</td>
                         <td style={{ padding: '6px 8px', textAlign: 'right' }}>{nf(p.qtd30d)}</td>
                         <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: CORES.vermelho }}>{brl(p.perdido)}</td>
+                        <td style={{ padding: '6px 8px', color: p.remanejar ? '#15803d' : '#cbd5e1', fontSize: 11.5 }}>{p.remanejar || '—'}</td>
                       </tr>
                     ))}
                   </tbody>

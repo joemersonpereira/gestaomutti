@@ -340,6 +340,20 @@ router.get('/ruptura-produtos', compCache, async (req, res) => {
   try { res.json(await rupturaProdutos(req.usuario.empresa_id, { lojaId: req.query.loja || undefined, compradorId: req.query.comprador || undefined, curva: req.query.curva || undefined, classif: req.query.classif || undefined, fator: req.query.fator, limite: req.query.limite })); }
   catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
 });
+// Exporta a ruptura em CSV p/ subir no Alpha 7 (código interno + EAN + descrição + quantidade sugerida = o que vendeu em 30d).
+router.get('/ruptura-export', async (req, res) => {
+  try {
+    const r = await rupturaProdutos(req.usuario.empresa_id, { lojaId: req.query.loja || undefined, compradorId: req.query.comprador || undefined, curva: req.query.curva || undefined, classif: req.query.classif || undefined, fator: req.query.fator, limite: 100000 });
+    const rows = r.produtos || [];
+    const esc = v => { const s = String(v == null ? '' : v); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const head = ['codigo', 'ean', 'descricao', 'loja', 'quantidade', 'vendeu_30d_rs', 'perda_estimada_rs'];
+    const linhas = rows.map(p => [p.codigo, p.ean, p.descricao, p.loja, Math.max(1, Math.ceil(Number(p.qtd30d) || 0)), Math.round(p.venda30d), p.perdido].map(esc).join(';'));
+    const csv = '﻿' + head.join(';') + '\n' + linhas.join('\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="ruptura-reposicao.csv"');
+    res.send(csv);
+  } catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
 
 // ── Evolução do estoque: cresceu/diminuiu + qual linha impacta (gráfico) ──
 router.get('/estoque-evolucao', compCache, async (req, res) => {
