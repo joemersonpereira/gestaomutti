@@ -3,7 +3,7 @@
 // Filtros: loja (unidade) e comprador (produtos dos grupos vinculados).
 const { erpQuery, habilitado } = require('../db/erp');
 const { metaVals } = require('./metasCompra');
-const { unisEmpresa } = require('./escopoCompras');
+const { unisEmpresa, lojasEmpresa } = require('./escopoCompras');
 const { filtroProdutosComprador, clausulaProdutos } = require('./comprasErp');
 
 // Resolve os produtos de um comprador (via grupos) em uma lista de produtoids do ERP.
@@ -282,4 +282,116 @@ async function cmvCompradorSugestao(empresaId, { compradorId, meses = 3 } = {}) 
   return { erp: true, meses: m, cmvLojas: r1(r.cmv_lojas), cmvPond: r1(r.cmv_pond), lojas: Number(r.lojas_n) || 0 };
 }
 
-module.exports = { indicadoresEstoque, retornoFalteiro, produtosDoComprador, cmvComprador, cmvCompradorSugestao, vencidoComprador };
+// ── Análise de RUPTURA (aba própria): por loja, curva e classificação, com custo (venda perdida) ──
+// Método (artigo guiadafarmacia + integrity-ux): Ruptura% = SKUs em ruptura ÷ SKUs que deveriam estar × 100,
+// onde "deveria estar" = VENDEU nos últimos 30 dias (demanda comprovada). Custo = venda recente dos itens em
+// ruptura × FATOR de não-recuperação (padrão 0,43 = 32% compra em outra loja + 11% não compra, Gruen 2002).
+const FATOR_RUPTURA_PADRAO = 0.43;
+function fatorRup(v) { const n = Number(v); return (v != null && v !== '' && !isNaN(n) && n > 0 && n <= 1) ? n : FATOR_RUPTURA_PADRAO; }
+
+// Coleta, por UMA loja, os produtos que venderam em 30d com: venda(R$), qtd, se está em ruptura (estoque=0),
+// classificação (2º nível do caminho) e a curva ABC (por venda, acumulado A≤80%/B≤95%/C).
+async function _rupturaLoja(unis, prodIds) {
+  const pf = prodFilter(prodIds, 2);
+  const rows = await erpQuery(`
+    WITH v AS (
+      SELECT em.produtoid, sum(iv.valortotal)::float8 venda, sum(iv.quantidade)::float8 qtd
+      FROM itemvenda iv JOIN venda vv ON vv.id=iv.vendaid JOIN embalagem em ON em.id=iv.embalagemid
+      WHERE vv.status='F' AND vv.unidadenegocioid = ANY($1::bigint[]) AND vv.datahorafechamento >= now()-interval '30 days'${pf.sql}
+      GROUP BY em.produtoid HAVING sum(iv.valortotal) > 0),
+    estq AS (SELECT DISTINCT em.produtoid FROM estoque es JOIN embalagem em ON em.id=es.embalagemid
+      WHERE es.unidadenegocioid = ANY($1::bigint[]) AND es.estoque>0${pf.sql}),
+    cls AS (SELECT DISTINCT ON (cp.produtoid) cp.produtoid, NULLIF(split_part(c.caminho,' > ',2),'') classif
+      FROM classificacaoproduto cp JOIN classificacao c ON c.id=cp.classificacaoid
+      WHERE cp.produtoid IN (SELECT produtoid FROM v))
+    SELECT v.produtoid, v.venda, v.qtd, p.descricao,
+      (v.produtoid NOT IN (SELECT produtoid FROM estq)) em_ruptura,
+      COALESCE(cls.classif,'(sem classificação)') classif
+    FROM v JOIN produto p ON p.id=v.produtoid LEFT JOIN cls ON cls.produtoid=v.produtoid
+    ORDER BY v.venda DESC`, [unis, ...pf.param]);
+  const total = rows.reduce((a, r) => a + (Number(r.venda) || 0), 0);
+  let acum = 0;
+  for (const r of rows) {
+    acum += Number(r.venda) || 0;
+    const pp = total ? acum / total : 1;
+    r.curva = pp <= 0.8 ? 'A' : pp <= 0.95 ? 'B' : 'C';
+    r.venda = Math.round((Number(r.venda) || 0) * 100) / 100;
+    r.qtd = Math.round((Number(r.qtd) || 0) * 100) / 100;
+    r.em_ruptura = (r.em_ruptura === true || r.em_ruptura === 't' || r.em_ruptura === 1);
+  }
+  return rows;
+}
+
+// Agregados da ruptura por loja, curva e classificação (+ totais com ruptura ponderada e custo).
+async function rupturaAnalise(empresaId, { lojaId, compradorId, fator } = {}) {
+  if (!habilitado()) return { erp: false };
+  const f = fatorRup(fator);
+  const prodIds = await produtosDoComprador(empresaId, compradorId);
+  if (compradorId && (!prodIds || !prodIds.length)) return { erp: true, semComprador: true, erro: 'Comprador sem grupos vinculados.' };
+  const lojas = lojasEmpresa(empresaId).filter(l => !lojaId || l.id === lojaId);
+  const porLoja = [], curvaMap = {}, classMap = {};
+  let totSold = 0, totRup = 0, totVendaAll = 0, totVendaRup = 0;
+  for (const l of lojas) {
+    const unis = unisEmpresa(empresaId, l.id);
+    if (!unis.length) continue;
+    const rows = await _rupturaLoja(unis, prodIds);
+    if (!rows.length) continue;
+    let emRup = 0, vendaRup = 0, vendaTot = 0;
+    for (const r of rows) {
+      vendaTot += r.venda;
+      if (r.em_ruptura) {
+        emRup++; vendaRup += r.venda;
+        (curvaMap[r.curva] = curvaMap[r.curva] || { curva: r.curva, emRuptura: 0, vendaRuptura: 0 });
+        curvaMap[r.curva].emRuptura++; curvaMap[r.curva].vendaRuptura += r.venda;
+        (classMap[r.classif] = classMap[r.classif] || { classif: r.classif, emRuptura: 0, vendaRuptura: 0 });
+        classMap[r.classif].emRuptura++; classMap[r.classif].vendaRuptura += r.venda;
+      }
+    }
+    porLoja.push({ loja_id: l.id, loja: l.nome, comVenda: rows.length, emRuptura: emRup,
+      pct: rows.length ? Math.round(emRup / rows.length * 1000) / 10 : 0,
+      pctPonderada: vendaTot ? Math.round(vendaRup / vendaTot * 1000) / 10 : 0,
+      vendaRuptura: Math.round(vendaRup), custo: Math.round(vendaRup * f) });
+    totSold += rows.length; totRup += emRup; totVendaAll += vendaTot; totVendaRup += vendaRup;
+  }
+  const porCurva = ['A', 'B', 'C'].map(c => curvaMap[c]).filter(Boolean)
+    .map(x => ({ ...x, vendaRuptura: Math.round(x.vendaRuptura), custo: Math.round(x.vendaRuptura * f) }));
+  const porClassificacao = Object.values(classMap).sort((a, b) => b.vendaRuptura - a.vendaRuptura)
+    .map(x => ({ ...x, vendaRuptura: Math.round(x.vendaRuptura), custo: Math.round(x.vendaRuptura * f) }));
+  porLoja.sort((a, b) => b.custo - a.custo);
+  return {
+    erp: true, fator: f, lojaId: lojaId || null,
+    totais: {
+      comVenda: totSold, emRuptura: totRup,
+      pct: totSold ? Math.round(totRup / totSold * 1000) / 10 : 0,
+      pctPonderada: totVendaAll ? Math.round(totVendaRup / totVendaAll * 1000) / 10 : 0,
+      vendaRuptura: Math.round(totVendaRup), custo: Math.round(totVendaRup * f),
+    },
+    porLoja, porCurva, porClassificacao,
+  };
+}
+
+// Lista de PRODUTOS em ruptura (drill), filtrável por loja/curva/classificação, ordenada por valor perdido.
+async function rupturaProdutos(empresaId, { lojaId, compradorId, curva, classif, fator, limite = 400 } = {}) {
+  if (!habilitado()) return { erp: false };
+  const f = fatorRup(fator);
+  const prodIds = await produtosDoComprador(empresaId, compradorId);
+  if (compradorId && (!prodIds || !prodIds.length)) return { erp: true, semComprador: true, erro: 'Comprador sem grupos vinculados.' };
+  const lojas = lojasEmpresa(empresaId).filter(l => !lojaId || l.id === lojaId);
+  const out = [];
+  for (const l of lojas) {
+    const unis = unisEmpresa(empresaId, l.id);
+    if (!unis.length) continue;
+    const rows = await _rupturaLoja(unis, prodIds);
+    for (const r of rows) {
+      if (!r.em_ruptura) continue;
+      if (curva && r.curva !== curva) continue;
+      if (classif && r.classif !== classif) continue;
+      out.push({ loja: l.nome, descricao: r.descricao, classif: r.classif, curva: r.curva,
+        venda30d: r.venda, qtd30d: r.qtd, perdido: Math.round(r.venda * f) });
+    }
+  }
+  out.sort((a, b) => b.perdido - a.perdido);
+  return { erp: true, fator: f, total: out.length, produtos: out.slice(0, Number(limite) || 400) };
+}
+
+module.exports = { indicadoresEstoque, retornoFalteiro, produtosDoComprador, cmvComprador, cmvCompradorSugestao, vencidoComprador, rupturaAnalise, rupturaProdutos };

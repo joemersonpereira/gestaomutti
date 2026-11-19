@@ -10,7 +10,7 @@ const { eficienciaCompradores, capturarSnapshot, conciliacaoComprador, pedidosPe
 const { orcamentoCompra, getConfig } = require('../lib/orcamentoCompraErp'); // restaurado do git (27e1724)
 const { sincronizarAlertas, itensAlerta } = require('../lib/alertasCompra');
 const { getMetas, setMeta, metaVals } = require('../lib/metasCompra');
-const { indicadoresEstoque, cmvCompradorSugestao } = require('../lib/indicadoresCompraErp');
+const { indicadoresEstoque, cmvCompradorSugestao, rupturaAnalise, rupturaProdutos } = require('../lib/indicadoresCompraErp');
 const { evolucaoEstoque } = require('../lib/estoqueEvolucaoErp');
 const { lojasEmpresa, unisEmpresa } = require('../lib/escopoCompras');
 const { faltasComprador } = require('../lib/faltasCompra');
@@ -327,6 +327,17 @@ router.put('/metas', exigePerfil(...GESTAO_COMPRAS), (req, res) => {
 // ── Indicadores de estoque (ruptura, cobertura, curva ABC, orçamento de estoque) ──
 router.get('/estoque-indicadores', compCache, async (req, res) => {
   try { res.json(await indicadoresEstoque(req.usuario.empresa_id, { lojaId: req.query.loja || undefined, compradorId: req.query.comprador || undefined })); }
+  catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
+
+// ── Ruptura (aba própria): por loja, curva e classificação + custo (venda perdida). ──
+router.get('/ruptura', compCache, async (req, res) => {
+  try { res.json(await rupturaAnalise(req.usuario.empresa_id, { lojaId: req.query.loja || undefined, compradorId: req.query.comprador || undefined, fator: req.query.fator })); }
+  catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
+});
+// Drill: produtos em ruptura (filtra loja/curva/classificação), ordenado por valor perdido.
+router.get('/ruptura-produtos', compCache, async (req, res) => {
+  try { res.json(await rupturaProdutos(req.usuario.empresa_id, { lojaId: req.query.loja || undefined, compradorId: req.query.comprador || undefined, curva: req.query.curva || undefined, classif: req.query.classif || undefined, fator: req.query.fator, limite: req.query.limite })); }
   catch (e) { res.status(502).json({ erro: 'ERP indisponível: ' + e.message }); }
 });
 

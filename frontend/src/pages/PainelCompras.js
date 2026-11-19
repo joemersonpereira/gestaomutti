@@ -49,6 +49,7 @@ export default function PainelCompras() {
       {aba === 'vencidos' && <Vencidos API={API} gestao={gestao} />}
       {aba === 'painel' && <Orcamento API={API} gestao={gestao} />}
       {aba === 'estoque' && <EstoqueIndicadores API={API} />}
+      {aba === 'ruptura' && <RupturaAba API={API} />}
       {aba === 'meusetor' && <MeuSetorCompras API={API} gestao={gestao} />}
       {aba === 'metas' && <MetasCompras API={API} gestao={diretoria} />}
       {aba === 'regime' && <RegimeFornecedores API={API} gestao={gestao} />}
@@ -57,7 +58,7 @@ export default function PainelCompras() {
     </div>
   );
 }
-const ABAS_COMPRAS = [['meusetor', '🏆 Meu Setor'], ['metas', '🎯 Metas'], ['painel', '💰 Orçamento de compra'], ['estoque', '📊 Análise de estoque'], ['remanejamento', '📦 Pedidos de Transferência'], ['conciliacao', '🔗 Conciliação Pedido × NF'], ['simples', '🏛️ Compra do Simples'], ['vencidos', '⏳ Análise de vencidos'], ['feiras', '🎪 Feiras'], ['regime', '🏭 Regime tributário'], ['config', '⚙️ Grupos por comprador']];
+const ABAS_COMPRAS = [['meusetor', '🏆 Meu Setor'], ['metas', '🎯 Metas'], ['painel', '💰 Orçamento de compra'], ['estoque', '📊 Análise de estoque'], ['ruptura', '🚨 Ruptura'], ['remanejamento', '📦 Pedidos de Transferência'], ['conciliacao', '🔗 Conciliação Pedido × NF'], ['simples', '🏛️ Compra do Simples'], ['vencidos', '⏳ Análise de vencidos'], ['feiras', '🎪 Feiras'], ['regime', '🏭 Regime tributário'], ['config', '⚙️ Grupos por comprador']];
 
 // ── Minha área (lateral do Compras) — mesmo padrão do Retail ──
 function LateralCompras({ API, usuario, aba, onAba, aberto, setAberto }) {
@@ -1192,6 +1193,125 @@ function LinhasImpacto({ titulo, itens, max, cor }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Aba RUPTURA — por loja, curva e classificação, com custo (venda perdida) e drill nos produtos.
+function RupturaAba({ API }) {
+  const nf = n => (Number(n) || 0).toLocaleString('pt-BR');
+  const lojas = useLojas(API);
+  const [compradores, setCompradores] = useState([]);
+  const [loja, setLoja] = useState('');
+  const [comprador, setComprador] = useState('');
+  const [fatorPct, setFatorPct] = useState(43);
+  const [d, setD] = useState(null);
+  const [erro, setErro] = useState('');
+  const [drill, setDrill] = useState(null);
+  useEffect(() => { API.get('/compras/compradores').then(r => setCompradores(r.data.compradores || [])).catch(() => {}); }, [API]);
+  const fator = Math.min(1, Math.max(0.01, (Number(fatorPct) || 43) / 100));
+  const carregar = useCallback(() => {
+    setErro(''); setD(null);
+    API.get('/compras/ruptura', { params: { loja: loja || undefined, comprador: comprador || undefined, fator } })
+      .then(r => { if (r.data.erro && !r.data.porLoja) setErro(r.data.erro); else setD(r.data); })
+      .catch(e => setErro(e.response?.data?.erro || 'Falha ao carregar ruptura.'));
+  }, [API, loja, comprador, fator]);
+  useEffect(() => { carregar(); }, [carregar]);
+  const abrirDrill = (titulo, extra) => {
+    setDrill({ titulo, produtos: null });
+    API.get('/compras/ruptura-produtos', { params: { loja: loja || undefined, comprador: comprador || undefined, fator, ...extra } })
+      .then(r => setDrill({ titulo, produtos: r.data.produtos || [], total: r.data.total || 0 }))
+      .catch(() => setDrill({ titulo, produtos: [], total: 0 }));
+  };
+  const CURVA_COR = { A: '#1E874B', B: '#B7791F', C: '#C0392B' };
+  const filtros = (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
+      <LojaSelect lojas={lojas} value={loja} onChange={setLoja} />
+      <select value={comprador} onChange={e => setComprador(e.target.value)} style={{ ...s.inp, padding: '6px 8px' }}>
+        <option value="">👥 Todos os compradores</option>
+        {compradores.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+      </select>
+      <label style={{ fontSize: 11.5, color: '#64748b', display: 'flex', alignItems: 'center', gap: 5 }}>% que não volta (custo)
+        <input type="number" min="1" max="100" value={fatorPct} onChange={e => setFatorPct(e.target.value)} style={{ ...s.inp, width: 64, padding: '6px 8px' }} /></label>
+    </div>
+  );
+  if (erro) return <div style={s.card}>{filtros}<div style={{ color: CORES.vermelho }}>⚠️ {erro}</div></div>;
+  if (!d) return <div style={s.card}>{filtros}Calculando ruptura do ERP… (pode levar alguns segundos)</div>;
+  const t = d.totais || {};
+  const Tabela = ({ titulo, linhas, col1, chave, corFn, onLinha }) => (
+    <div style={{ ...s.card, flex: '1 1 300px', minWidth: 0 }}>
+      <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>{titulo}</div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead><tr style={{ color: '#64748b', borderBottom: '2px solid #eef1f4' }}>
+            {[col1, 'SKUs', 'Ruptura', 'Custo/mês'].map((h, i) => <th key={h} style={{ padding: '6px 8px', textAlign: i ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {linhas.length === 0 && <tr><td colSpan={4} style={{ padding: 10, color: '#aaa' }}>Sem ruptura.</td></tr>}
+            {linhas.map((r, i) => (
+              <tr key={i} onClick={() => onLinha(r)} style={{ borderTop: '1px solid #f3f4f6', cursor: 'pointer' }} title="ver produtos">
+                <td style={{ padding: '6px 8px', fontWeight: 600, color: corFn ? corFn(r) : '#334' }}>{r[chave]}</td>
+                <td style={{ padding: '6px 8px', textAlign: 'right' }}>{nf(r.emRuptura)}</td>
+                <td style={{ padding: '6px 8px', textAlign: 'right' }}>{r.pct != null ? r.pct + '%' : '—'}</td>
+                <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: CORES.vermelho }}>{brl(r.custo)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+  return (
+    <div style={s.card}>
+      {filtros}
+      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>
+        🚨 <b>Ruptura</b> = de tudo que <b>vendeu nos últimos 30 dias</b>, quantos itens estão <b>hoje com estoque zero</b>. O <b>custo</b> estima a venda perdida (venda recente dos itens em falta × <b>{Math.round(fator * 100)}%</b> que não se recupera — cliente vai a outra loja ou desiste). Clique numa linha para ver os produtos.
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+        <Kpi titulo="SKUs em ruptura" valor={nf(t.emRuptura || 0) + ' de ' + nf(t.comVenda || 0)} />
+        <Kpi titulo="Ruptura (contagem)" valor={(t.pct || 0) + '%'} cor={t.pct > 10 ? CORES.vermelho : t.pct > 5 ? CORES.amarelo : CORES.verde} />
+        <Kpi titulo="Ruptura ponderada (venda)" valor={(t.pctPonderada || 0) + '%'} cor={t.pctPonderada > 8 ? CORES.vermelho : t.pctPonderada > 4 ? CORES.amarelo : CORES.verde} />
+        <Kpi titulo="Custo estimado / mês" valor={brl(t.custo || 0)} cor={CORES.vermelho} />
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {!d.lojaId && <Tabela titulo="📍 Por loja" linhas={d.porLoja} col1="Loja" chave="loja" onLinha={r => abrirDrill('Ruptura — ' + r.loja, { loja: r.loja_id })} />}
+        <Tabela titulo="🔤 Por curva ABC" linhas={d.porCurva} col1="Curva" chave="curva" corFn={r => CURVA_COR[r.curva]} onLinha={r => abrirDrill('Ruptura — curva ' + r.curva, { curva: r.curva })} />
+        <Tabela titulo="🏷️ Por classificação" linhas={d.porClassificacao.slice(0, 15)} col1="Classificação" chave="classif" onLinha={r => abrirDrill('Ruptura — ' + r.classif, { classif: r.classif })} />
+      </div>
+      {drill && (
+        <div onClick={() => setDrill(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 16, width: 'min(780px,95vw)', maxHeight: '82vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+              <b style={{ fontSize: 14 }}>{drill.titulo}</b>
+              {drill.produtos && <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 8 }}>{nf(drill.total)} produto(s) — maiores perdas primeiro</span>}
+              <button onClick={() => setDrill(null)} style={{ marginLeft: 'auto', border: '1px solid #e2e8f0', borderRadius: 7, background: '#fff', padding: '3px 9px', cursor: 'pointer' }}>✕</button>
+            </div>
+            {!drill.produtos ? <div style={{ color: '#94a3b8', padding: 10 }}>carregando…</div> : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead><tr style={{ color: '#64748b', borderBottom: '2px solid #eef1f4' }}>
+                    {['Produto', 'Loja', 'Curva', 'Classificação', 'Vendeu 30d', 'Qtd', 'Perda est.'].map((h, i) => <th key={h} style={{ padding: '6px 8px', textAlign: i > 3 ? 'right' : 'left', whiteSpace: 'nowrap' }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {drill.produtos.length === 0 && <tr><td colSpan={7} style={{ padding: 10, color: '#aaa' }}>Nenhum produto.</td></tr>}
+                    {drill.produtos.map((p, i) => (
+                      <tr key={i} style={{ borderTop: '1px solid #f3f4f6' }}>
+                        <td style={{ padding: '6px 8px', fontWeight: 600 }}>{p.descricao}</td>
+                        <td style={{ padding: '6px 8px', color: '#64748b', whiteSpace: 'nowrap' }}>{p.loja}</td>
+                        <td style={{ padding: '6px 8px', fontWeight: 700, color: CURVA_COR[p.curva] || '#334' }}>{p.curva}</td>
+                        <td style={{ padding: '6px 8px', color: '#64748b' }}>{p.classif}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right' }}>{brl(p.venda30d)}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right' }}>{nf(p.qtd30d)}</td>
+                        <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: CORES.vermelho }}>{brl(p.perdido)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
