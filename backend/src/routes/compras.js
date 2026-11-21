@@ -25,7 +25,7 @@ const compCache = _ccMw('comp');   // serve-stale: a tela carrega na hora do cac
 // bloqueado p/ compra, ruptura por loja). Como o cache serve a resposta salva "pra sempre" até ?forcar=1,
 // uma entrada antiga ficaria colada na tela com o formato velho. Bumpar o sufixo = chave nova = recalcula.
 // Ainda é limpo por invalidar('comp') pois 'comp-rup2' começa com 'comp'. Bumpe o nº a cada mudança de forma.
-const rupCache = _ccMw('comp-rup2');
+const rupCache = _ccMw('comp-rup3');
 const compInval = _ccInv('comp:'); // invalida o cache quando muda algo que os relatórios do ERP mostram
 const _ultimoSync = {}; // empresa_id -> timestamp (throttle do sync de alertas)
 

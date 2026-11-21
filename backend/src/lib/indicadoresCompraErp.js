@@ -446,9 +446,38 @@ async function rupturaProdutos(empresaId, { lojaId, compradorId, curva, classif,
       o.remanejavel = outras.length > 0;
     }
   }
+  // Caderno de oferta: de quais cadernos veio a venda em 30d de cada item em ruptura. Se veio SÓ de
+  // oferta (caderno com data de fim real ≤ 1 ano) e NUNCA da tabela base (sem data, ou janela aberta
+  // tipo 2050), é forte candidato a BLOQUEAR p/ compra — vendeu por evento pontual (outlet, campanha,
+  // black), não por demanda recorrente. Base = TABELA PEC/GERAL/NEGOCIADA/LEVE E PAGUE / sem caderno.
+  if (out.length) {
+    const pids = [...new Set(out.map(o => o.produtoid))];
+    const scopeUnis = [];
+    for (const l of lojas) for (const u of unisEmpresa(empresaId, l.id)) scopeUnis.push(u);
+    const cad = await erpQuery(`SELECT em.produtoid, v.unidadenegocioid uni, COALESCE(co.nome,'(tabela)') nome,
+        (co.datahorafinal IS NOT NULL AND co.datahorafinal <= now()+interval '1 year') promo,
+        sum(iv.valortotal)::float8 venda
+      FROM itemvenda iv JOIN venda v ON v.id=iv.vendaid JOIN embalagem em ON em.id=iv.embalagemid
+      LEFT JOIN cadernooferta co ON co.id=iv.cadernoofertaid
+      WHERE v.status='F' AND v.unidadenegocioid = ANY($1::bigint[]) AND v.datahorafechamento >= now()-interval '30 days'
+        AND em.produtoid = ANY($2::bigint[])
+      GROUP BY em.produtoid, v.unidadenegocioid, co.nome, promo`, [scopeUnis, pids]).catch(() => []);
+    const cmap = {};
+    for (const c of cad) {
+      const nm = uniToLoja[String(c.uni)]; if (!nm) continue;
+      const m = (cmap[c.produtoid + '|' + nm] = cmap[c.produtoid + '|' + nm] || { base: 0, promo: 0, nomes: {} });
+      const val = Number(c.venda) || 0;
+      if (c.promo === true || c.promo === 't') { m.promo += val; m.nomes[c.nome] = (m.nomes[c.nome] || 0) + val; } else m.base += val;
+    }
+    for (const o of out) {
+      const m = cmap[o.produtoid + '|' + o.loja];
+      o.soOferta = !!(m && m.base <= 0 && m.promo > 0);                       // só vendeu em oferta → candidato a bloquear
+      o.cadernos = o.soOferta ? Object.entries(m.nomes).sort((a, b) => b[1] - a[1]).slice(0, 3).map(e => e[0]).join(', ') : '';
+    }
+  }
   out.sort((a, b) => b.perdido - a.perdido);
   const lista = out.slice(0, Number(limite) || 400);
-  return { erp: true, fator: f, total: out.length, remanejaveis: out.filter(o => o.remanejavel).length, produtos: lista };
+  return { erp: true, fator: f, total: out.length, remanejaveis: out.filter(o => o.remanejavel).length, soOferta: out.filter(o => o.soOferta).length, produtos: lista };
 }
 
 module.exports = { indicadoresEstoque, retornoFalteiro, produtosDoComprador, cmvComprador, cmvCompradorSugestao, vencidoComprador, rupturaAnalise, rupturaProdutos };

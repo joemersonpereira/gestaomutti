@@ -1220,7 +1220,7 @@ function RupturaAba({ API }) {
   const abrirDrill = (titulo, extra) => {
     setDrill({ titulo, produtos: null });
     API.get('/compras/ruptura-produtos', { params: { loja: loja || undefined, comprador: comprador || undefined, fator, ...extra } })
-      .then(r => setDrill({ titulo, produtos: r.data.produtos || [], total: r.data.total || 0, remanejaveis: r.data.remanejaveis || 0 }))
+      .then(r => setDrill({ titulo, produtos: r.data.produtos || [], total: r.data.total || 0, remanejaveis: r.data.remanejaveis || 0, soOferta: r.data.soOferta || 0 }))
       .catch(() => setDrill({ titulo, produtos: [], total: 0 }));
   };
   const CURVA_COR = { A: '#1E874B', B: '#B7791F', C: '#C0392B', D: '#7A7A7A' };
@@ -1292,7 +1292,7 @@ function RupturaAba({ API }) {
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 16, width: 'min(780px,95vw)', maxHeight: '82vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
               <b style={{ fontSize: 14 }}>{drill.titulo}</b>
-              {drill.produtos && <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 8 }}>{nf(drill.total)} produto(s){drill.remanejaveis ? ' · ' + nf(drill.remanejaveis) + ' com estoque em outra loja (remanejável)' : ''}</span>}
+              {drill.produtos && <span style={{ color: '#94a3b8', fontSize: 12, marginLeft: 8 }}>{nf(drill.total)} produto(s){drill.remanejaveis ? ' · ' + nf(drill.remanejaveis) + ' com estoque em outra loja (remanejável)' : ''}{drill.soOferta ? ' · ' + nf(drill.soOferta) + ' só em oferta (rever bloqueio)' : ''}</span>}
               <button onClick={() => setDrill(null)} style={{ marginLeft: 'auto', border: '1px solid #e2e8f0', borderRadius: 7, background: '#fff', padding: '3px 9px', cursor: 'pointer' }}>✕</button>
             </div>
             {!drill.produtos ? <div style={{ color: '#94a3b8', padding: 10 }}>carregando…</div> : (
@@ -1306,7 +1306,8 @@ function RupturaAba({ API }) {
                     {drill.produtos.map((p, i) => (
                       <tr key={i} style={{ borderTop: '1px solid #f3f4f6' }}>
                         <td style={{ padding: '6px 8px', fontWeight: 600 }}>{p.descricao}
-                          <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 400, marginTop: 1 }}>cód {p.codigo || '—'}{p.ean ? ' · barras ' + p.ean : ''}</div></td>
+                          <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 400, marginTop: 1 }}>cód {p.codigo || '—'}{p.ean ? ' · barras ' + p.ean : ''}</div>
+                          {p.soOferta && <div style={{ fontSize: 10.5, color: CORES.vermelho, fontWeight: 600, marginTop: 1 }}>⚠️ só vendeu em oferta{p.cadernos ? ': ' + p.cadernos : ''} — rever bloqueio</div>}</td>
                         <td style={{ padding: '6px 8px', color: '#64748b', whiteSpace: 'nowrap' }}>{p.loja}</td>
                         <td style={{ padding: '6px 8px', fontWeight: 700, color: CURVA_COR[p.curva] || '#334' }}>{p.curva}</td>
                         <td style={{ padding: '6px 8px', color: '#64748b' }}>{p.classif}</td>
